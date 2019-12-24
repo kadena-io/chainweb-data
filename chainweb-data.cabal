@@ -1,0 +1,48 @@
+cabal-version:      2.2
+name:               chainweb-data
+version:            1.0.0
+description:        Data ingestion for Chainweb.
+homepage:           https://github.com/kadena-io/chainweb-data
+author:             Colin Woodbury
+maintainer:         colin@kadena.io
+copyright:          2019 Kadena LLC
+license:            BSD-3-Clause
+license-file:       LICENSE
+build-type:         Simple
+extra-source-files:
+  README.md
+  ChangeLog.md
+
+executable chainweb-data-exe
+  default-language: Haskell2010
+  main-is:          Main.hs
+  hs-source-dirs:   exec
+  ghc-options:
+    -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -Wpartial-fields
+    -Wincomplete-record-updates -Wincomplete-uni-patterns -Widentities
+    -funclutter-valid-hole-fits -fmax-relevant-binds=0
+
+  build-depends:
+    , aeson
+    , base               >=4.7 && <5
+    , base16-bytestring
+    , base64-bytestring
+    , bytestring
+    , containers
+    , errors
+    , hashable
+    , lens
+    , lens-aeson
+    , readable
+    , text
+    , time
+
+  other-modules:
+    ChainwebApi.Types.Base64Url
+    ChainwebApi.Types.BlockHeader
+    ChainwebApi.Types.BytesLE
+    ChainwebApi.Types.Common
+    ChainwebApi.Types.Hash
+    ChainwebApi.Types.MinerData
+    Common.Types
+    Common.Utils
