@@ -6,8 +6,8 @@
 module Main ( main ) where
 
 import           ChainwebApi.Types.BlockHeader (BlockHeader)
-import           Data.Aeson (decode')
-import qualified Data.ByteString.Lazy as BL
+import           Control.Lens
+import           Data.Aeson.Lens
 import           Data.Function ((&))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -42,4 +42,4 @@ req u = defaultRequest
 
 -- TODO Adopt this orphan.
 instance FromEvent BlockHeader where
-  fromEvent = decode' . BL.fromStrict
+  fromEvent bs = bs ^? key "header" . _JSON

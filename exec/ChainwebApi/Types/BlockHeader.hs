@@ -52,3 +52,6 @@ instance FromJSON BlockHeader where
     <*> o .: "chainwebVersion"
     <*> o .: "target"
     <*> (fromText =<< (o .: "nonce"))
+
+instance ToJSON BlockHeader where
+  toJSON _ = object []

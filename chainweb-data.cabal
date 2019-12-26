@@ -34,7 +34,7 @@ executable chainweb-data
     , http-client          ^>=0.6
     , http-client-tls      ^>=0.3
     , lens
-    , lens-aeson
+    , lens-aeson           >=1.0 && < 1.2
     , readable
     , servant-client-core  ^>=0.16
     , streaming            ^>=0.2
