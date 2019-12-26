@@ -13,7 +13,7 @@ extra-source-files:
   README.md
   ChangeLog.md
 
-executable chainweb-data-exe
+executable chainweb-data
   default-language: Haskell2010
   main-is:          Main.hs
   hs-source-dirs:   exec
@@ -24,18 +24,24 @@ executable chainweb-data-exe
 
   build-depends:
     , aeson
-    , base               >=4.7 && <5
+    , base                 >=4.7   && <5
     , base16-bytestring
     , base64-bytestring
     , bytestring
     , containers
     , errors
     , hashable
+    , http-client          ^>=0.6
+    , http-client-tls      ^>=0.3
     , lens
     , lens-aeson
     , readable
+    , servant-client-core  ^>=0.16
+    , streaming            ^>=0.2
+    , streaming-events     ^>=1.0.1
     , text
     , time
+    , wai-extra            ^>=3.0
 
   other-modules:
     ChainwebApi.Types.Base64Url
