@@ -25,30 +25,12 @@ executable chainweb-data
   build-depends:
     , aeson
     , base                 >=4.7   && <5
-    , base16-bytestring
-    , base64-bytestring
-    , bytestring
-    , containers
-    , errors
-    , hashable
+    , chainweb-api         ^>=1.0
     , http-client          ^>=0.6
     , http-client-tls      ^>=0.3
-    , lens
-    , lens-aeson           >=1.0 && < 1.2
-    , readable
+    , microlens            ^>=0.4
+    , microlens-aeson      ^>=2.3
     , servant-client-core  ^>=0.16
     , streaming            ^>=0.2
     , streaming-events     ^>=1.0.1
     , text
-    , time
-    , wai-extra            ^>=3.0
-
-  other-modules:
-    ChainwebApi.Types.Base64Url
-    ChainwebApi.Types.BlockHeader
-    ChainwebApi.Types.BytesLE
-    ChainwebApi.Types.Common
-    ChainwebApi.Types.Hash
-    ChainwebApi.Types.MinerData
-    Common.Types
-    Common.Utils

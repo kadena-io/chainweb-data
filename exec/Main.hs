@@ -1,16 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}  -- TODO Remove once orphan is adopted.
+{-# OPTIONS_GHC -fno-warn-orphans #-}  -- TODO Remove if orphan is adopted.
 
 module Main ( main ) where
 
-import           ChainwebApi.Types.BlockHeader (BlockHeader)
-import           Control.Lens
-import           Data.Aeson.Lens
-import           Data.Function ((&))
+import           Chainweb.Api.BlockHeader (BlockHeader)
+import           Data.Aeson (ToJSON(..), object)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import           Lens.Micro ((&), (^?))
+import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Network.Wai.EventSource.Streaming
@@ -40,6 +40,9 @@ req u = defaultRequest
   , responseTimeout = responseTimeoutNone
   , checkResponse = throwErrorStatusCodes }
 
--- TODO Adopt this orphan.
+-- TODO Adopt this orphan?
 instance FromEvent BlockHeader where
   fromEvent bs = bs ^? key "header" . _JSON
+
+instance ToJSON BlockHeader where
+  toJSON _ = object []
