@@ -17,6 +17,12 @@ let gitignoreSrc = pkgs.fetchFromGitHub {
     };
     inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
 
+    beam-src = pkgs.fetchFromGitHub {
+      owner = "tathougies";
+      repo = "beam";
+      rev = "cdfdd636b70b98dac9c8075d3c9bcb7984d7f8f2";
+      sha256 = "0ml5aa88rq5g9zaw9wi1v83na1y9v7x3hj9qnp9k1i288cbdyj2r";
+    };
 
 in
 pkgs.haskell.packages.${compiler}.developPackage {
@@ -50,17 +56,19 @@ pkgs.haskell.packages.${compiler}.developPackage {
     #   ver = "1.4.2.0";
     #   sha256 = "0qcczw3l596knj9s4ha07wjspd9wkva0jv4734sv3z3vdad5piqh";
     # };
-    #
+
+    beam-postgres = dontCheck super.beam-postgres;
+
     # To discover more functions that can be used to modify haskell
     # packages, run "nix-repl", type "pkgs.haskell.lib.", then hit
     # <TAB> to get a tab-completed list of functions.
   };
+
   source-overrides = {
-    # Use a specific hackage version using callHackage. Only works if the
-    # version you want is in the version of all-cabal-hashes that you have.
-    # bytestring = "0.10.8.1";
-    #
-    # Use a particular commit from github
+    beam-core = "${beam-src}/beam-core";
+    beam-migrate = "${beam-src}/beam-migrate";
+    beam-postgres = "${beam-src}/beam-postgres";
+
     chainweb-api = pkgs.fetchFromGitHub {
       owner = "kadena-io";
       repo = "chainweb-api";
