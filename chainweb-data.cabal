@@ -21,9 +21,11 @@ common commons
     -funclutter-valid-hole-fits -fmax-relevant-binds=0
 
   build-depends:
-    , aeson  >=0.11.3.0 && <1.5
-    , base   >=4.7      && <5
-    , text   >=1.2
+    , aeson         >=0.11.3.0 && <1.5
+    , base          >=4.7      && <5
+    , beam-core     ^>=0.8
+    , chainweb-api  ^>=1.0
+    , text          >=1.2
 
 library
   import:          commons
@@ -36,25 +38,20 @@ library
     ChainwebDb.Types.PubKey
     ChainwebDb.Types.Transaction
 
-  build-depends:
-    , beam-core      ^>=0.8
-    , beam-migrate   ^>=0.4
-    , beam-postgres  ^>=0.4
-    , beam-sqlite    ^>=0.4
-    , bytestring
-    , Decimal        >=0.4.2 && <0.6
-    , time
+  build-depends:   time
 
 executable chainweb-data
   import:         commons
   main-is:        Main.hs
   hs-source-dirs: exec
   build-depends:
-    , chainweb-api         ^>=1.0
+    , beam-sqlite          ^>=0.4
+    , chainweb-data
     , http-client          ^>=0.6
     , http-client-tls      ^>=0.3
     , microlens            ^>=0.4
     , microlens-aeson      ^>=2.3
     , servant-client-core  ^>=0.16
+    , sqlite-simple        ^>=0.4
     , streaming            ^>=0.2
     , streaming-events     ^>=1.0.1
