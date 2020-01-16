@@ -64,7 +64,7 @@ instance ToJSON (PubKeyT Maybe) where
 instance FromJSON (PubKeyT Maybe)
 
 instance Table PubKeyT where
-  data PrimaryKey PubKeyT f = PubKeyId (Columnar f Int)
+  data PrimaryKey PubKeyT f = PubKeyId (C f Int)
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = PubKeyId . _pubkey_id

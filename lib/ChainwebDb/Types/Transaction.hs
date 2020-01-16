@@ -84,7 +84,7 @@ instance ToJSON (TransactionT Maybe) where
 instance FromJSON (TransactionT Maybe)
 
 instance Table TransactionT where
-  data PrimaryKey TransactionT f = TransactionId (Columnar f Int)
+  data PrimaryKey TransactionT f = TransactionId (C f Int)
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = TransactionId . _transaction_id

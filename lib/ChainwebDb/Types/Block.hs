@@ -17,7 +17,6 @@ import Data.Word
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
-import ChainwebDb.Types.Miner
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
@@ -26,12 +25,12 @@ data BlockT f = Block
   , _block_chainId      :: C f Int
   , _block_height       :: C f Int
   , _block_hash         :: C f DbHash
-  , _block_powHash      :: C f DbHash
+  -- , _block_powHash      :: C f DbHash
   , _block_target       :: C f DbHash
   , _block_weight       :: C f DbHash
   , _block_epochStart   :: C f UTCTime
-  , _block_nonce        :: C f Word64
-  , _block_miner        :: PrimaryKey MinerT f }
+  , _block_nonce        :: C f Word64 }
+  -- , _block_miner        :: PrimaryKey MinerT f }
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
@@ -41,12 +40,12 @@ Block
   (LensFor block_chainId)
   (LensFor block_height)
   (LensFor block_hash)
-  (LensFor block_powHash)
+  -- (LensFor block_powHash)
   (LensFor block_target)
   (LensFor block_weight)
   (LensFor block_epochStart)
   (LensFor block_nonce)
-  (MinerId (LensFor block_miner))
+  -- (MinerId (LensFor block_miner))
   = tableLenses
 
 type Block = BlockT Identity
@@ -83,7 +82,7 @@ instance ToJSON (BlockT Maybe) where
 instance FromJSON (BlockT Maybe)
 
 instance Table BlockT where
-  data PrimaryKey BlockT f = BlockId (Columnar f Int)
+  data PrimaryKey BlockT f = BlockId (C f Int)
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = BlockId . _block_id

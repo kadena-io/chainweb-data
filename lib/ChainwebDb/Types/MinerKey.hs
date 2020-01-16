@@ -68,7 +68,7 @@ instance ToJSON (MinerKeyT Maybe) where
 instance FromJSON (MinerKeyT Maybe)
 
 instance Table MinerKeyT where
-  data PrimaryKey MinerKeyT f = MinerKeyId (Columnar f Int)
+  data PrimaryKey MinerKeyT f = MinerKeyId (C f Int)
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = MinerKeyId . _minerKey_id
