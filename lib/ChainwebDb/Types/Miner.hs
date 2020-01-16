@@ -1,34 +1,30 @@
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts   #-}
+{-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies       #-}
+
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module ChainwebDb.Types.Miner where
 
 ------------------------------------------------------------------------------
-import           Data.Aeson
-import           Data.Text (Text)
-import           Database.Beam
+import Data.Aeson
+import Data.Text (Text)
+import Database.Beam
 ------------------------------------------------------------------------------
 
 
 ------------------------------------------------------------------------------
 data MinerT f = Miner
-  { _miner_id :: C f Int
+  { _miner_id      :: C f Int
   , _miner_account :: C f Text
-  , _miner_pred :: C f Text
-  } deriving Generic
+  , _miner_pred    :: C f Text }
+  deriving stock (Generic)
+  deriving anyclass (Beamable)
 
 Miner
   (LensFor miner_id)
@@ -69,11 +65,10 @@ instance ToJSON (MinerT Maybe) where
 
 instance FromJSON (MinerT Maybe)
 
-instance Beamable MinerT
-
 instance Table MinerT where
   data PrimaryKey MinerT f = MinerId (Columnar f Int)
-    deriving (Generic, Beamable)
+    deriving stock (Generic)
+    deriving anyclass (Beamable)
   primaryKey = MinerId . _miner_id
 
 minerKeyToInt :: PrimaryKey MinerT Identity -> Int

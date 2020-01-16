@@ -1,46 +1,39 @@
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts   #-}
+{-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies       #-}
+
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module ChainwebDb.Types.Block where
 
+import Data.Aeson
+import Data.Time
+import Data.Word
+import Database.Beam
 ------------------------------------------------------------------------------
-import           Data.Aeson
-import           Data.Time
-import           Data.Word
-import           Database.Beam
-------------------------------------------------------------------------------
-import           ChainwebDb.Types.DbHash
-import           ChainwebDb.Types.Miner
-------------------------------------------------------------------------------
-
+import ChainwebDb.Types.DbHash
+import ChainwebDb.Types.Miner
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
-  { _block_id :: C f Int
+  { _block_id           :: C f Int
   , _block_creationTime :: C f UTCTime
-  , _block_chainId :: C f Int
-  , _block_height :: C f Int
-  , _block_hash :: C f DbHash
-  , _block_powHash :: C f DbHash
-  , _block_target :: C f DbHash
-  , _block_weight :: C f DbHash
-  , _block_epochStart :: C f UTCTime
-  , _block_nonce :: C f Word64
-  , _block_miner :: PrimaryKey MinerT f
-  } deriving Generic
+  , _block_chainId      :: C f Int
+  , _block_height       :: C f Int
+  , _block_hash         :: C f DbHash
+  , _block_powHash      :: C f DbHash
+  , _block_target       :: C f DbHash
+  , _block_weight       :: C f DbHash
+  , _block_epochStart   :: C f UTCTime
+  , _block_nonce        :: C f Word64
+  , _block_miner        :: PrimaryKey MinerT f }
+  deriving stock (Generic)
+  deriving anyclass (Beamable)
 
 Block
   (LensFor block_id)
@@ -89,11 +82,10 @@ instance ToJSON (BlockT Maybe) where
 
 instance FromJSON (BlockT Maybe)
 
-instance Beamable BlockT
-
 instance Table BlockT where
   data PrimaryKey BlockT f = BlockId (Columnar f Int)
-    deriving (Generic, Beamable)
+    deriving stock (Generic)
+    deriving anyclass (Beamable)
   primaryKey = BlockId . _block_id
 
 blockKeyToInt :: PrimaryKey BlockT Identity -> Int

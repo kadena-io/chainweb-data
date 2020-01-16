@@ -1,44 +1,41 @@
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE DeriveAnyClass       #-}
+{-# LANGUAGE DeriveGeneric        #-}
+{-# LANGUAGE DerivingStrategies   #-}
+{-# LANGUAGE FlexibleContexts     #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE ImpredicativeTypes   #-}
+{-# LANGUAGE StandaloneDeriving   #-}
+{-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE UndecidableInstances #-}
+
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module ChainwebDb.Types.Transaction where
 
 ------------------------------------------------------------------------------
-import           Data.Aeson
-import           Data.Text (Text)
-import           Data.Time
-import           Database.Beam
+import Data.Aeson
+import Data.Text (Text)
+import Data.Time
+import Database.Beam
 ------------------------------------------------------------------------------
-import           ChainwebDb.Types.Block
+import ChainwebDb.Types.Block
 ------------------------------------------------------------------------------
 
 
 ------------------------------------------------------------------------------
 data TransactionT f = Transaction
-  { _transaction_id :: C f Int
-  , _transaction_chainId :: C f Int
-  , _transaction_block :: PrimaryKey BlockT f
+  { _transaction_id           :: C f Int
+  , _transaction_chainId      :: C f Int
+  , _transaction_block        :: PrimaryKey BlockT f
   , _transaction_creationTime :: C f UTCTime
-  , _transaction_ttl :: C f Int
-  , _transaction_gasLimit :: C f Int
-  , _transaction_gasPrice :: C f Double
-  , _transaction_sender :: C f Text
-  , _transaction_nonce :: C f Text
-  , _transaction_requestKey :: C f Text
-  } deriving Generic
+  , _transaction_ttl          :: C f Int
+  , _transaction_gasLimit     :: C f Int
+  , _transaction_gasPrice     :: C f Double
+  , _transaction_sender       :: C f Text
+  , _transaction_nonce        :: C f Text
+  , _transaction_requestKey   :: C f Text }
+  deriving stock (Generic)
+  deriving anyclass (Beamable)
 
 Transaction
   (LensFor transaction_id)
@@ -86,11 +83,10 @@ instance ToJSON (TransactionT Maybe) where
 
 instance FromJSON (TransactionT Maybe)
 
-instance Beamable TransactionT
-
 instance Table TransactionT where
   data PrimaryKey TransactionT f = TransactionId (Columnar f Int)
-    deriving (Generic, Beamable)
+    deriving stock (Generic)
+    deriving anyclass (Beamable)
   primaryKey = TransactionId . _transaction_id
 
 repoKeyToInt :: PrimaryKey TransactionT Identity -> Int

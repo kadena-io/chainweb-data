@@ -27,7 +27,7 @@ common commons
 
 library
   import:          commons
-  hs-source-dirs:  src
+  hs-source-dirs:  lib
   exposed-modules:
     ChainwebDb.Types.Block
     ChainwebDb.Types.DbHash
