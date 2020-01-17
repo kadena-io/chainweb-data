@@ -24,8 +24,11 @@ common commons
     , aeson         >=0.11.3.0 && <1.5
     , base          >=4.7      && <5
     , beam-core     ^>=0.8
+    , beam-migrate  >=0.4
+    , beam-sqlite   ^>=0.4
     , chainweb-api  ^>=1.0
     , text          >=1.2
+    , time
 
 library
   import:          commons
@@ -38,14 +41,11 @@ library
     ChainwebDb.Types.PubKey
     ChainwebDb.Types.Transaction
 
-  build-depends:   time
-
 executable chainweb-data
   import:         commons
   main-is:        Main.hs
   hs-source-dirs: exec
   build-depends:
-    , beam-sqlite          ^>=0.4
     , chainweb-data
     , http-client          ^>=0.6
     , http-client-tls      ^>=0.3

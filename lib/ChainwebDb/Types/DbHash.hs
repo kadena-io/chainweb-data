@@ -9,6 +9,8 @@ module ChainwebDb.Types.DbHash where
 import Data.Aeson
 import Data.Text (Text)
 import Database.Beam.Backend.SQL.SQL92 (HasSqlValueSyntax)
+import Database.Beam.Migrate (HasDefaultSqlDataType)
+import Database.Beam.Sqlite (Sqlite)
 import Database.Beam.Sqlite.Syntax (SqliteValueSyntax)
 import GHC.Generics (Generic)
 ------------------------------------------------------------------------------
@@ -17,4 +19,4 @@ import GHC.Generics (Generic)
 newtype DbHash = DbHash { unDbHash :: Text }
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
-  deriving newtype (HasSqlValueSyntax SqliteValueSyntax)
+  deriving newtype (HasSqlValueSyntax SqliteValueSyntax, HasDefaultSqlDataType Sqlite)

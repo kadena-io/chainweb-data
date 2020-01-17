@@ -12,7 +12,6 @@
 module ChainwebDb.Types.Block where
 
 import Data.Aeson
-import Data.Time
 import Data.Word
 import Database.Beam
 ------------------------------------------------------------------------------
@@ -21,14 +20,14 @@ import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 data BlockT f = Block
   { _block_id           :: C f Int
-  , _block_creationTime :: C f UTCTime
+  , _block_creationTime :: C f Int
   , _block_chainId      :: C f Int
   , _block_height       :: C f Int
   , _block_hash         :: C f DbHash
   -- , _block_powHash      :: C f DbHash
   , _block_target       :: C f DbHash
   , _block_weight       :: C f DbHash
-  , _block_epochStart   :: C f UTCTime
+  , _block_epochStart   :: C f Int
   , _block_nonce        :: C f Word64 }
   -- , _block_miner        :: PrimaryKey MinerT f }
   deriving stock (Generic)
