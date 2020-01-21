@@ -31,27 +31,27 @@ import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Network.Wai.EventSource.Streaming
+import           Options.Generic
 import           Servant.Client.Core (BaseUrl(..), Scheme(..))
 import qualified Streaming.Prelude as SP
 
 --------------------------------------------------------------------------------
 -- Environment
 
-databaseFile :: String
-databaseFile = "chainweb-data.db"
-
-url :: BaseUrl
-url = BaseUrl Https "honmono.fosskers.ca" 443 ""
+data Env = Env { database :: String, url :: String }
+  deriving stock (Generic)
+  deriving anyclass (ParseRecord)
 
 --------------------------------------------------------------------------------
 -- Work
 
 main :: IO ()
 main = do
+  Env d u <- getRecord "Chainweb Data"
   m <- newManager tlsManagerSettings
-  bracket (open databaseFile) close $ \conn -> do
+  bracket (open d) close $ \conn -> do
     initializeTables conn
-    ingest m url conn
+    ingest m (BaseUrl Https u 443 "") conn
 
 ingest :: Manager -> BaseUrl -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ f . dataOnly @BlockHeader
@@ -59,7 +59,7 @@ ingest m u c = withEvents (req u) m $ SP.mapM_ f . dataOnly @BlockHeader
     f :: BlockHeader -> IO ()
     f bh = runBeamSqliteDebug putStrLn c  -- TODO Take out the debug
       . runInsert
-      . insert (blocks $ unCheckDatabase database)
+      . insert (blocks $ unCheckDatabase dbSettings)
       $ insertExpressions [g bh]
 
     g :: BlockHeader -> BlockT (QExpr Sqlite s)
@@ -100,12 +100,12 @@ data ChainwebDataDb f = ChainwebDataDb
   deriving stock (Generic)
   deriving anyclass (Database be)
 
-database :: CheckedDatabaseSettings Sqlite ChainwebDataDb
-database = defaultMigratableDbSettings
+dbSettings :: CheckedDatabaseSettings Sqlite ChainwebDataDb
+dbSettings = defaultMigratableDbSettings
 
 -- | Create the DB tables if necessary.
 initializeTables :: Connection -> IO ()
 initializeTables conn = runBeamSqlite conn $
-  verifySchema migrationBackend database >>= \case
-    VerificationFailed _  -> createSchema migrationBackend database
+  verifySchema migrationBackend dbSettings >>= \case
+    VerificationFailed _  -> createSchema migrationBackend dbSettings
     VerificationSucceeded -> pure ()

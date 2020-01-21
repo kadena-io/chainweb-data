@@ -5,7 +5,7 @@ description:        Data ingestion for Chainweb.
 homepage:           https://github.com/kadena-io/chainweb-data
 author:             Colin Woodbury
 maintainer:         colin@kadena.io
-copyright:          2019 Kadena LLC
+copyright:          2020 Kadena LLC
 license:            BSD-3-Clause
 license-file:       LICENSE
 build-type:         Simple
@@ -51,6 +51,7 @@ executable chainweb-data
     , http-client-tls      ^>=0.3
     , microlens            ^>=0.4
     , microlens-aeson      ^>=2.3
+    , optparse-generic     ^>=1.3
     , servant-client-core  ^>=0.16
     , sqlite-simple        ^>=0.4
     , streaming            ^>=0.2
