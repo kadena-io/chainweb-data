@@ -35,13 +35,15 @@ import qualified Streaming.Prelude as SP
 
 ---
 
+databaseFile :: String
+databaseFile = "chainweb-data.db"
+
 main :: IO ()
 main = do
   m <- newManager tlsManagerSettings
-  putStrLn "Making tables..."
-  createTables
-  putStrLn "Done"
-  -- bracket (open "chainweb-data.db") close $ ingest m url
+  bracket (open databaseFile) close $ \conn -> do
+    createTables conn
+    ingest m url conn
   where
     url = BaseUrl Https "honmono.fosskers.ca" 443 ""
 
@@ -49,7 +51,10 @@ ingest :: Manager -> BaseUrl -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ f . dataOnly @BlockHeader
   where
     f :: BlockHeader -> IO ()
-    f bh = runBeamSqlite c . runInsert . insert (blocks database) $ insertExpressions [g bh]
+    f bh = runBeamSqlite c
+      . runInsert
+      . insert (blocks $ unCheckDatabase database)
+      $ insertExpressions [g bh]
 
     g :: BlockHeader -> BlockT (QExpr Sqlite s)
     g bh = Block
@@ -89,12 +94,8 @@ data ChainwebDataDb f = ChainwebDataDb
   deriving stock (Generic)
   deriving anyclass (Database be)
 
-database :: DatabaseSettings be ChainwebDataDb
-database = defaultDbSettings
+database :: CheckedDatabaseSettings Sqlite ChainwebDataDb
+database = defaultMigratableDbSettings
 
-d8abase :: CheckedDatabaseSettings Sqlite ChainwebDataDb
-d8abase = defaultMigratableDbSettings
-
-createTables :: IO ()
-createTables = bracket (open "chainweb-data.db") close $ \conn ->
-  runBeamSqlite conn $ createSchema migrationBackend d8abase
+createTables :: Connection -> IO ()
+createTables conn = runBeamSqlite conn $ createSchema migrationBackend database
