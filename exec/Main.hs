@@ -22,8 +22,7 @@ import qualified Data.Text.Encoding as T
 import           Database.Beam
 import           Database.Beam.Migrate
 import           Database.Beam.Migrate.Simple
-import           Database.Beam.Sqlite
-    (Sqlite, runBeamSqlite, runBeamSqliteDebug)
+import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
 import           Database.Beam.Sqlite.Migrate (migrationBackend)
 import           Database.SQLite.Simple (Connection, close, open)
 import           Lens.Micro ((^?))
@@ -34,6 +33,7 @@ import           Network.Wai.EventSource.Streaming
 import           Options.Generic
 import           Servant.Client.Core (BaseUrl(..), Scheme(..))
 import qualified Streaming.Prelude as SP
+import           Text.Printf (printf)
 
 --------------------------------------------------------------------------------
 -- Environment
@@ -54,10 +54,10 @@ main = do
     ingest m (BaseUrl Https u 443 "") conn
 
 ingest :: Manager -> BaseUrl -> Connection -> IO ()
-ingest m u c = withEvents (req u) m $ SP.mapM_ f . dataOnly @BlockHeader
+ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @BlockHeader
   where
     f :: BlockHeader -> IO ()
-    f bh = runBeamSqliteDebug putStrLn c  -- TODO Take out the debug
+    f bh = runBeamSqlite c
       . runInsert
       . insert (blocks $ unCheckDatabase dbSettings)
       $ insertExpressions [g bh]
@@ -73,6 +73,9 @@ ingest m u c = withEvents (req u) m $ SP.mapM_ f . dataOnly @BlockHeader
       , _block_weight       = val_ . DbHash . hexBytesLE $ _blockHeader_weight bh
       , _block_epochStart   = val_ . floor $ _blockHeader_epochStart bh
       , _block_nonce        = val_ $ _blockHeader_nonce bh }
+
+    h :: BlockHeader -> IO ()
+    h bh = printf "Chain %d: %d\n" (unChainId $ _blockHeader_chainId bh) (_blockHeader_height bh)
 
 req :: BaseUrl -> Request
 req u = defaultRequest
