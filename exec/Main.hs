@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE LambdaCase         #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE TypeApplications   #-}
 
@@ -20,10 +21,11 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Database.Beam
 import           Database.Beam.Migrate
-import           Database.Beam.Migrate.Simple (createSchema)
+import           Database.Beam.Migrate.Simple
 import           Database.Beam.Sqlite
+    (Sqlite, runBeamSqlite, runBeamSqliteDebug)
 import           Database.Beam.Sqlite.Migrate (migrationBackend)
-import           Database.SQLite.Simple
+import           Database.SQLite.Simple (Connection, close, open)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
@@ -32,26 +34,30 @@ import           Network.Wai.EventSource.Streaming
 import           Servant.Client.Core (BaseUrl(..), Scheme(..))
 import qualified Streaming.Prelude as SP
 
-
----
+--------------------------------------------------------------------------------
+-- Environment
 
 databaseFile :: String
 databaseFile = "chainweb-data.db"
+
+url :: BaseUrl
+url = BaseUrl Https "honmono.fosskers.ca" 443 ""
+
+--------------------------------------------------------------------------------
+-- Work
 
 main :: IO ()
 main = do
   m <- newManager tlsManagerSettings
   bracket (open databaseFile) close $ \conn -> do
-    createTables conn
+    initializeTables conn
     ingest m url conn
-  where
-    url = BaseUrl Https "honmono.fosskers.ca" 443 ""
 
 ingest :: Manager -> BaseUrl -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ f . dataOnly @BlockHeader
   where
     f :: BlockHeader -> IO ()
-    f bh = runBeamSqlite c
+    f bh = runBeamSqliteDebug putStrLn c  -- TODO Take out the debug
       . runInsert
       . insert (blocks $ unCheckDatabase database)
       $ insertExpressions [g bh]
@@ -97,5 +103,9 @@ data ChainwebDataDb f = ChainwebDataDb
 database :: CheckedDatabaseSettings Sqlite ChainwebDataDb
 database = defaultMigratableDbSettings
 
-createTables :: Connection -> IO ()
-createTables conn = runBeamSqlite conn $ createSchema migrationBackend database
+-- | Create the DB tables if necessary.
+initializeTables :: Connection -> IO ()
+initializeTables conn = runBeamSqlite conn $
+  verifySchema migrationBackend database >>= \case
+    VerificationFailed _  -> createSchema migrationBackend database
+    VerificationSucceeded -> pure ()
