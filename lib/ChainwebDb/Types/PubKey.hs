@@ -1,11 +1,11 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleContexts   #-}
-{-# LANGUAGE FlexibleInstances  #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
@@ -20,7 +20,7 @@ import Database.Beam
 
 ------------------------------------------------------------------------------
 data PubKeyT f = PubKey
-  { _pubkey_id  :: C f Int
+  { _pubkey_id :: C f Int
   , _pubkey_key :: C f Text }
   deriving stock (Generic)
   deriving anyclass (Beamable)

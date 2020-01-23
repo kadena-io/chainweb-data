@@ -1,11 +1,11 @@
-{-# LANGUAGE DeriveAnyClass       #-}
-{-# LANGUAGE DeriveGeneric        #-}
-{-# LANGUAGE DerivingStrategies   #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE ImpredicativeTypes   #-}
-{-# LANGUAGE StandaloneDeriving   #-}
-{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
@@ -24,16 +24,16 @@ import ChainwebDb.Types.Block
 
 ------------------------------------------------------------------------------
 data TransactionT f = Transaction
-  { _transaction_id           :: C f Int
-  , _transaction_chainId      :: C f Int
-  , _transaction_block        :: PrimaryKey BlockT f
+  { _transaction_id :: C f Int
+  , _transaction_chainId :: C f Int
+  , _transaction_block :: PrimaryKey BlockT f
   , _transaction_creationTime :: C f UTCTime
-  , _transaction_ttl          :: C f Int
-  , _transaction_gasLimit     :: C f Int
-  , _transaction_gasPrice     :: C f Double
-  , _transaction_sender       :: C f Text
-  , _transaction_nonce        :: C f Text
-  , _transaction_requestKey   :: C f Text }
+  , _transaction_ttl :: C f Int
+  , _transaction_gasLimit :: C f Int
+  , _transaction_gasPrice :: C f Double
+  , _transaction_sender :: C f Text
+  , _transaction_nonce :: C f Text
+  , _transaction_requestKey :: C f Text }
   deriving stock (Generic)
   deriving anyclass (Beamable)
 

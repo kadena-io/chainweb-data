@@ -1,11 +1,11 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleContexts   #-}
-{-# LANGUAGE FlexibleInstances  #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
@@ -17,12 +17,11 @@ import Data.Text (Text)
 import Database.Beam
 ------------------------------------------------------------------------------
 
-
 ------------------------------------------------------------------------------
 data MinerT f = Miner
-  { _miner_id      :: C f Int
+  { _miner_id :: C f Int
   , _miner_account :: C f Text
-  , _miner_pred    :: C f Text }
+  , _miner_pred :: C f Text }
   deriving stock (Generic)
   deriving anyclass (Beamable)
 

@@ -1,11 +1,11 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleContexts   #-}
-{-# LANGUAGE FlexibleInstances  #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
@@ -22,9 +22,9 @@ import ChainwebDb.Types.PubKey
 
 ------------------------------------------------------------------------------
 data MinerKeyT f = MinerKey
-  { _minerKey_id    :: C f Int
+  { _minerKey_id :: C f Int
   , _minerKey_miner :: PrimaryKey MinerT f
-  , _minerKey_key   :: PrimaryKey PubKeyT f }
+  , _minerKey_key :: PrimaryKey PubKeyT f }
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
