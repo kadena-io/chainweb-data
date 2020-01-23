@@ -1,27 +1,22 @@
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module ChainwebDb.Types.MinerKey where
 
 ------------------------------------------------------------------------------
-import           Data.Aeson
-import           Database.Beam
+import Data.Aeson
+import Database.Beam
 ------------------------------------------------------------------------------
-import           ChainwebDb.Types.Miner
-import           ChainwebDb.Types.PubKey
+import ChainwebDb.Types.Miner
+import ChainwebDb.Types.PubKey
 ------------------------------------------------------------------------------
 
 
@@ -29,8 +24,9 @@ import           ChainwebDb.Types.PubKey
 data MinerKeyT f = MinerKey
   { _minerKey_id :: C f Int
   , _minerKey_miner :: PrimaryKey MinerT f
-  , _minerKey_key :: PrimaryKey PubKeyT f
-  } deriving Generic
+  , _minerKey_key :: PrimaryKey PubKeyT f }
+  deriving stock (Generic)
+  deriving anyclass (Beamable)
 
 MinerKey
   (LensFor minerKey_id)
@@ -71,9 +67,8 @@ instance ToJSON (MinerKeyT Maybe) where
 
 instance FromJSON (MinerKeyT Maybe)
 
-instance Beamable MinerKeyT
-
 instance Table MinerKeyT where
-  data PrimaryKey MinerKeyT f = MinerKeyId (Columnar f Int)
-    deriving (Generic, Beamable)
+  data PrimaryKey MinerKeyT f = MinerKeyId (C f Int)
+    deriving stock (Generic)
+    deriving anyclass (Beamable)
   primaryKey = MinerKeyId . _minerKey_id

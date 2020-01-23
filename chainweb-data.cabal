@@ -5,7 +5,7 @@ description:        Data ingestion for Chainweb.
 homepage:           https://github.com/kadena-io/chainweb-data
 author:             Colin Woodbury
 maintainer:         colin@kadena.io
-copyright:          2019 Kadena LLC
+copyright:          2020 Kadena LLC
 license:            BSD-3-Clause
 license-file:       LICENSE
 build-type:         Simple
@@ -13,52 +13,46 @@ extra-source-files:
   README.md
   ChangeLog.md
 
-library
-  exposed-modules:
-      ChainwebDb.Types.Block
-    , ChainwebDb.Types.DbHash
-    , ChainwebDb.Types.Miner
-    , ChainwebDb.Types.MinerKey
-    , ChainwebDb.Types.PubKey
-    , ChainwebDb.Types.Transaction
+common commons
+  default-language: Haskell2010
+  ghc-options:
+    -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -Wpartial-fields
+    -Wincomplete-record-updates -Wincomplete-uni-patterns -Widentities
+    -funclutter-valid-hole-fits -fmax-relevant-binds=0
 
   build-depends:
-      Decimal >= 0.4.2 && < 0.6
-    , aeson >= 0.11.3.0 && < 1.5
-    , base >= 4.9 && < 4.14
-    , beam-core
-    , beam-migrate
-    , beam-postgres
-    , bytestring
-    , text
+    , aeson         >=0.11.3.0 && <1.5
+    , base          >=4.7      && <5
+    , beam-core     ^>=0.8
+    , beam-migrate  >=0.4
+    , beam-sqlite   ^>=0.4
+    , chainweb-api  ^>=1.0
+    , text          >=1.2
     , time
 
-
-  hs-source-dirs:      src
-  default-language:    Haskell2010
-  ghc-options:
-    -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -Wpartial-fields
-    -Wincomplete-record-updates -Wincomplete-uni-patterns -Widentities
-    -funclutter-valid-hole-fits -fmax-relevant-binds=0
+library
+  import:          commons
+  hs-source-dirs:  lib
+  exposed-modules:
+    ChainwebDb.Types.Block
+    ChainwebDb.Types.DbHash
+    ChainwebDb.Types.Miner
+    ChainwebDb.Types.MinerKey
+    ChainwebDb.Types.PubKey
+    ChainwebDb.Types.Transaction
 
 executable chainweb-data
-  default-language: Haskell2010
-  main-is:          Main.hs
-  hs-source-dirs:   exec
-  ghc-options:
-    -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -Wpartial-fields
-    -Wincomplete-record-updates -Wincomplete-uni-patterns -Widentities
-    -funclutter-valid-hole-fits -fmax-relevant-binds=0
-
+  import:         commons
+  main-is:        Main.hs
+  hs-source-dirs: exec
   build-depends:
-    , aeson
-    , base                 >=4.7   && <5
-    , chainweb-api         ^>=1.0
+    , chainweb-data
     , http-client          ^>=0.6
     , http-client-tls      ^>=0.3
     , microlens            ^>=0.4
     , microlens-aeson      ^>=2.3
+    , optparse-generic     ^>=1.3
     , servant-client-core  ^>=0.16
+    , sqlite-simple        ^>=0.4
     , streaming            ^>=0.2
     , streaming-events     ^>=1.0.1
-    , text
