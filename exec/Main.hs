@@ -43,30 +43,42 @@ import           Text.Printf (printf)
 --------------------------------------------------------------------------------
 -- Environment
 
-data Env = Env DBPath Url
+data Env = Env Command DBPath Url
 
 newtype DBPath = DBPath String deriving newtype (IsString)
 
 newtype Url = Url String deriving newtype (IsString)
 
+data Command = Server
+
 envP :: Parser Env
 envP = Env
-  <$> strOption (long "database" <> metavar "PATH" <> help "Path to database file")
+  <$> commands
+  <*> strOption (long "database" <> metavar "PATH" <> help "Path to database file")
   <*> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node")
+
+commands :: Parser Command
+commands = subparser
+  (command "server" (info (pure Server) (progDesc "Start the analysis server")))
 
 --------------------------------------------------------------------------------
 -- Work
 
 main :: IO ()
 main = do
-  Env (DBPath d) (Url u) <- execParser opts
+  Env c d u <- execParser opts
+  case c of
+    Server -> server d u
+  where
+    opts = info (envP <**> helper)
+      (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
+
+server :: DBPath -> Url -> IO ()
+server (DBPath d) (Url u) = do
   m <- newManager tlsManagerSettings
   bracket (open d) close $ \conn -> do
     initializeTables conn
     ingest m (BaseUrl Https u 443 "") conn
-  where
-    opts = info (envP <**> helper)
-      ( fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data" )
 
 ingest :: Manager -> BaseUrl -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @BlockHeader
