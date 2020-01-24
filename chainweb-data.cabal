@@ -62,3 +62,4 @@ executable chainweb-data
     Chainweb.Database
     Chainweb.Env
     Chainweb.Server
+    Chainweb.Update

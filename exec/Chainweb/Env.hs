@@ -20,7 +20,7 @@ newtype DBPath = DBPath String deriving newtype (IsString)
 
 newtype Url = Url String deriving newtype (IsString)
 
-data Command = Server
+data Command = Server | Update
 
 envP :: Parser Env
 envP = Env
@@ -30,4 +30,6 @@ envP = Env
 
 commands :: Parser Command
 commands = subparser
-  (command "server" (info (pure Server) (progDesc "Start the analysis server")))
+  (  command "server" (info (pure Server) (progDesc "Start the analysis server"))
+  <> command "update" (info (pure Update) (progDesc "Process all queued Header data"))
+  )
