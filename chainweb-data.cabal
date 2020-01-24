@@ -36,6 +36,7 @@ library
   exposed-modules:
     ChainwebDb.Types.Block
     ChainwebDb.Types.DbHash
+    ChainwebDb.Types.Header
     ChainwebDb.Types.Miner
     ChainwebDb.Types.MinerKey
     ChainwebDb.Types.PubKey

@@ -88,13 +88,6 @@ req u = defaultRequest
   , responseTimeout = responseTimeoutNone
   , checkResponse = throwErrorStatusCodes }
 
--- TODO Adopt this orphan?
-instance FromEvent BlockHeader where
-  fromEvent bs = bs ^? key "header" . _JSON
-
-instance ToJSON BlockHeader where
-  toJSON _ = object []
-
 --------------------------------------------------------------------------------
 -- Database Definition
 
@@ -112,3 +105,12 @@ initializeTables conn = runBeamSqlite conn $
   verifySchema migrationBackend dbSettings >>= \case
     VerificationFailed _  -> createSchema migrationBackend dbSettings
     VerificationSucceeded -> pure ()
+
+--------------------------------------------------------------------------------
+-- Orphans
+
+instance FromEvent BlockHeader where
+  fromEvent bs = bs ^? key "header" . _JSON
+
+instance ToJSON BlockHeader where
+  toJSON _ = object []
