@@ -1,9 +1,10 @@
-{-# LANGUAGE DeriveAnyClass     #-}
-{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE LambdaCase         #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE TypeApplications   #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}  -- TODO Remove if orphan is adopted.
 
@@ -20,6 +21,7 @@ import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
 import           Control.Exception (bracket)
 import           Data.Aeson (ToJSON(..), object)
+import           Data.String (IsString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Database.Beam
@@ -33,7 +35,7 @@ import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Network.Wai.EventSource.Streaming
-import           Options.Generic
+import           Options.Applicative
 import           Servant.Client.Core (BaseUrl(..), Scheme(..))
 import qualified Streaming.Prelude as SP
 import           Text.Printf (printf)
@@ -41,20 +43,30 @@ import           Text.Printf (printf)
 --------------------------------------------------------------------------------
 -- Environment
 
-data Env = Env { database :: String, url :: String }
-  deriving stock (Generic)
-  deriving anyclass (ParseRecord)
+data Env = Env DBPath Url
+
+newtype DBPath = DBPath String deriving newtype (IsString)
+
+newtype Url = Url String deriving newtype (IsString)
+
+envP :: Parser Env
+envP = Env
+  <$> strOption (long "database" <> metavar "PATH" <> help "Path to database file")
+  <*> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node")
 
 --------------------------------------------------------------------------------
 -- Work
 
 main :: IO ()
 main = do
-  Env d u <- getRecord "Chainweb Data"
+  Env (DBPath d) (Url u) <- execParser opts
   m <- newManager tlsManagerSettings
   bracket (open d) close $ \conn -> do
     initializeTables conn
     ingest m (BaseUrl Https u 443 "") conn
+  where
+    opts = info (envP <**> helper)
+      ( fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data" )
 
 ingest :: Manager -> BaseUrl -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @BlockHeader
@@ -109,7 +121,7 @@ dbSettings = defaultMigratableDbSettings
 initializeTables :: Connection -> IO ()
 initializeTables conn = runBeamSqlite conn $
   verifySchema migrationBackend dbSettings >>= \case
-    VerificationFailed _  -> createSchema migrationBackend dbSettings
+    VerificationFailed _ -> createSchema migrationBackend dbSettings
     VerificationSucceeded -> pure ()
 
 --------------------------------------------------------------------------------
