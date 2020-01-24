@@ -13,8 +13,8 @@ import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.BytesLE
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
-import           ChainwebDb.Types.Block (BlockT(..))
 import           ChainwebDb.Types.DbHash (DbHash(..))
+import           ChainwebDb.Types.Header
 import           Control.Exception (bracket)
 import           Data.Aeson (ToJSON(..), object)
 import qualified Data.Text as T
@@ -59,20 +59,20 @@ ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly 
     f :: BlockHeader -> IO ()
     f bh = runBeamSqlite c
       . runInsert
-      . insert (blocks $ unCheckDatabase dbSettings)
+      . insert (headers $ unCheckDatabase dbSettings)
       $ insertExpressions [g bh]
 
-    g :: BlockHeader -> BlockT (QExpr Sqlite s)
-    g bh = Block
-      { _block_id           = default_
-      , _block_creationTime = val_ . floor $ _blockHeader_creationTime bh
-      , _block_chainId      = val_ . unChainId $ _blockHeader_chainId bh
-      , _block_height       = val_ $ _blockHeader_height bh
-      , _block_hash         = val_ . DbHash . hashB64U $ _blockHeader_hash bh
-      , _block_target       = val_ . DbHash . hexBytesLE $ _blockHeader_target bh
-      , _block_weight       = val_ . DbHash . hexBytesLE $ _blockHeader_weight bh
-      , _block_epochStart   = val_ . floor $ _blockHeader_epochStart bh
-      , _block_nonce        = val_ $ _blockHeader_nonce bh }
+    g :: BlockHeader -> HeaderT (QExpr Sqlite s)
+    g bh = Header
+      { _header_id           = default_
+      , _header_creationTime = val_ . floor $ _blockHeader_creationTime bh
+      , _header_chainId      = val_ . unChainId $ _blockHeader_chainId bh
+      , _header_height       = val_ $ _blockHeader_height bh
+      , _header_hash         = val_ . DbHash . hashB64U $ _blockHeader_hash bh
+      , _header_target       = val_ . DbHash . hexBytesLE $ _blockHeader_target bh
+      , _header_weight       = val_ . DbHash . hexBytesLE $ _blockHeader_weight bh
+      , _header_epochStart   = val_ . floor $ _blockHeader_epochStart bh
+      , _header_nonce        = val_ $ _blockHeader_nonce bh }
 
     h :: BlockHeader -> IO ()
     h bh = printf "Chain %d: %d\n" (unChainId $ _blockHeader_chainId bh) (_blockHeader_height bh)
@@ -92,7 +92,7 @@ req u = defaultRequest
 -- Database Definition
 
 data ChainwebDataDb f = ChainwebDataDb
-  { blocks :: f (TableEntity BlockT) }
+  { headers :: f (TableEntity HeaderT) }
   deriving stock (Generic)
   deriving anyclass (Database be)
 
