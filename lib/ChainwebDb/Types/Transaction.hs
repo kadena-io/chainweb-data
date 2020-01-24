@@ -15,7 +15,6 @@ module ChainwebDb.Types.Transaction where
 ------------------------------------------------------------------------------
 import Data.Aeson
 import Data.Text (Text)
-import Data.Time
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
@@ -27,7 +26,7 @@ data TransactionT f = Transaction
   { _transaction_id :: C f Int
   , _transaction_chainId :: C f Int
   , _transaction_block :: PrimaryKey BlockT f
-  , _transaction_creationTime :: C f UTCTime
+  , _transaction_creationTime :: C f Int
   , _transaction_ttl :: C f Int
   , _transaction_gasLimit :: C f Int
   , _transaction_gasPrice :: C f Double

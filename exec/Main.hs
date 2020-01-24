@@ -13,8 +13,11 @@ import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.BytesLE
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
+import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           ChainwebDb.Types.Header
+import           ChainwebDb.Types.Miner
+import           ChainwebDb.Types.Transaction
 import           Control.Exception (bracket)
 import           Data.Aeson (ToJSON(..), object)
 import qualified Data.Text as T
@@ -92,7 +95,10 @@ req u = defaultRequest
 -- Database Definition
 
 data ChainwebDataDb f = ChainwebDataDb
-  { headers :: f (TableEntity HeaderT) }
+  { headers :: f (TableEntity HeaderT)
+  , blocks :: f (TableEntity BlockT)
+  , transactions :: f (TableEntity TransactionT)
+  , miners :: f (TableEntity MinerT) }
   deriving stock (Generic)
   deriving anyclass (Database be)
 
