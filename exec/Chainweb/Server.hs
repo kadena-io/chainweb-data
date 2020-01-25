@@ -13,14 +13,13 @@ import           Chainweb.Database
 import           Chainweb.Env
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           ChainwebDb.Types.Header
-import           Control.Exception (bracket)
 import           Data.Aeson (ToJSON(..), object)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Database.Beam
 import           Database.Beam.Migrate
 import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
-import           Database.SQLite.Simple (Connection, close, open)
+import           Database.SQLite.Simple (Connection)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
@@ -32,12 +31,10 @@ import           Text.Printf (printf)
 
 ---
 
-server :: DBPath -> Url -> IO ()
-server (DBPath d) (Url u) = do
+server :: Connection -> Url -> IO ()
+server conn (Url u) = do
   m <- newManager tlsManagerSettings
-  bracket (open d) close $ \conn -> do
-    initializeTables conn
-    ingest m (BaseUrl Https u 443 "") conn
+  ingest m (BaseUrl Https u 443 "") conn
 
 ingest :: Manager -> BaseUrl -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @BlockHeader
@@ -55,6 +52,7 @@ ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly 
       , _header_chainId      = val_ . unChainId $ _blockHeader_chainId bh
       , _header_height       = val_ $ _blockHeader_height bh
       , _header_hash         = val_ . DbHash . hashB64U $ _blockHeader_hash bh
+      , _header_payloadHash  = val_ . DbHash . hashB64U $ _blockHeader_payloadHash bh
       , _header_target       = val_ . DbHash . hexBytesLE $ _blockHeader_target bh
       , _header_weight       = val_ . DbHash . hexBytesLE $ _blockHeader_weight bh
       , _header_epochStart   = val_ . floor $ _blockHeader_epochStart bh

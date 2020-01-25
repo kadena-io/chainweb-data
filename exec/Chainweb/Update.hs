@@ -1,6 +1,9 @@
 module Chainweb.Update where
 
+import Database.SQLite.Simple (Connection)
+
 ---
 
-update :: IO ()
-update = putStrLn "Update goes here."
+update :: Connection -> IO ()
+update c = do
+  putStrLn "Update goes here."
