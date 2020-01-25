@@ -23,7 +23,6 @@ import           Database.SQLite.Simple (Connection)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
-import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Network.Wai.EventSource.Streaming
 import           Servant.Client.Core (BaseUrl(..), Scheme(..))
 import qualified Streaming.Prelude as SP
@@ -31,10 +30,8 @@ import           Text.Printf (printf)
 
 ---
 
-server :: Connection -> Url -> IO ()
-server conn (Url u) = do
-  m <- newManager tlsManagerSettings
-  ingest m (BaseUrl Https u 443 "") conn
+server :: Manager -> Connection -> Url -> IO ()
+server m conn (Url u) = ingest m (BaseUrl Https u 443 "") conn
 
 ingest :: Manager -> BaseUrl -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @BlockHeader
