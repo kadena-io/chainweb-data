@@ -8,19 +8,24 @@ module Chainweb.Update ( updates ) where
 
 import           Chainweb.Api.BlockPayload
 import           Chainweb.Api.ChainId
+import           Chainweb.Api.ChainwebMeta
+import           Chainweb.Api.Hash
 import           Chainweb.Api.MinerData
-import           Chainweb.Api.Transaction
+import           Chainweb.Api.PactCommand
+import qualified Chainweb.Api.Transaction as CW
+import           Chainweb.Database
 import           Chainweb.Env (ChainwebVersion, Url(..))
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
 import           ChainwebDb.Types.Miner
-import           ChainwebDb.Types.Transaction hiding (Transaction)
+import           ChainwebDb.Types.Transaction
 import           Control.Error.Util (hush)
 import           Control.Monad.Trans.Maybe
 import           Data.Proxy (Proxy(..))
 import qualified Data.Text as T
 import           Database.Beam
+import           Database.Beam.Migrate.Types (unCheckDatabase)
 import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
 import           Database.SQLite.Simple (Connection)
 import           Network.HTTP.Client (Manager)
@@ -37,10 +42,13 @@ data Trio s = Trio
 
 updates :: Manager -> Connection -> Url -> IO ()
 updates m c (Url u) = do
+  hs <- runBeamSqlite c . runSelectReturningList $ select prd
+  _  <- traverse (lookups env) hs
   putStrLn "Update goes here."
   where
     env = ClientEnv m url Nothing
     url = BaseUrl Https u 443 ""
+    prd = all_ . headers $ unCheckDatabase dbSettings
 
 lookups :: ClientEnv -> Header -> IO (Maybe (Trio s))
 lookups cenv h = runMaybeT $ do
@@ -72,8 +80,21 @@ block h m = Block
   , _block_nonce = val_ $ _header_nonce h
   , _block_miner = pk m }
 
-transaction :: BlockT (QExpr Sqlite s) -> Transaction -> TransactionT (QExpr Sqlite s)
-transaction b = undefined
+transaction :: BlockT (QExpr Sqlite s) -> CW.Transaction -> TransactionT (QExpr Sqlite s)
+transaction b tx = Transaction
+  { _transaction_id = default_
+  , _transaction_chainId = _block_chainId b
+  , _transaction_block = pk b
+  , _transaction_creationTime = val_ . floor $ _chainwebMeta_creationTime mta
+  , _transaction_ttl = val_ $ _chainwebMeta_ttl mta
+  , _transaction_gasLimit = val_ $ _chainwebMeta_gasLimit mta
+  , _transaction_gasPrice = val_ $ _chainwebMeta_gasPrice mta
+  , _transaction_sender = val_ $ _chainwebMeta_sender mta
+  , _transaction_nonce = val_ $ _pactCommand_nonce cmd
+  , _transaction_requestKey = val_ . hashB64U $ CW._transaction_hash tx }
+  where
+    cmd = CW._transaction_cmd tx
+    mta = _pactCommand_meta cmd
 
 payload :: ClientEnv -> Header -> IO (Maybe BlockPayload)
 payload cenv h = hush <$> runClientM (payload' "mainnet01" cid hsh) cenv
@@ -84,6 +105,8 @@ payload cenv h = hush <$> runClientM (payload' "mainnet01" cid hsh) cenv
 --------------------------------------------------------------------------------
 -- Endpoints
 
+-- TODO Consider ripping this out in favour of vanilla http-client.
+-- The approaches are isomorphic, and this usage isn't "the point" of servant.
 type PayloadAPI = "chainweb"
   :> "0.0"
   :> Capture "version" ChainwebVersion
