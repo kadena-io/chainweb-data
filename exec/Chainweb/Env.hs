@@ -1,24 +1,33 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Chainweb.Env
   ( Env(..)
   , DBPath(..)
   , Url(..)
+  , ChainwebVersion(..)
   , Command(..)
   , envP
   ) where
 
 import Data.String (IsString)
+import Data.Text (Text)
 import Options.Applicative
+import Servant.API (ToHttpApiData(..))
 
 ---
 
-data Env = Env Command DBPath Url
+data Env = Env Command DBPath Url ChainwebVersion
 
-newtype DBPath = DBPath String deriving newtype (IsString)
+newtype DBPath = DBPath String
+  deriving newtype (IsString)
 
-newtype Url = Url String deriving newtype (IsString)
+newtype Url = Url String
+  deriving newtype (IsString)
+
+newtype ChainwebVersion = ChainwebVersion Text
+  deriving newtype (IsString, ToHttpApiData)
 
 data Command = Server | Update
 
@@ -27,6 +36,7 @@ envP = Env
   <$> commands
   <*> strOption (long "database" <> metavar "PATH" <> help "Path to database file")
   <*> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node")
+  <*> strOption (long "version" <> metavar "VERSION" <> value "mainnet01" <> help "Network Version")
 
 commands :: Parser Command
 commands = subparser

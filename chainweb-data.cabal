@@ -48,6 +48,7 @@ executable chainweb-data
   hs-source-dirs: exec
   build-depends:
     , chainweb-data
+    , errors                ^>=2.3
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , microlens             ^>=0.4
@@ -59,6 +60,7 @@ executable chainweb-data
     , sqlite-simple         ^>=0.4
     , streaming             ^>=0.2
     , streaming-events      ^>=1.0.1
+    , transformers ^>= 0.5
 
   other-modules:
     Chainweb.Database
