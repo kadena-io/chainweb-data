@@ -47,6 +47,7 @@ executable chainweb-data
   main-is:        Main.hs
   hs-source-dirs: exec
   build-depends:
+    , bytestring            ^>=0.10
     , chainweb-data
     , errors                ^>=2.3
     , http-client           ^>=0.6
@@ -60,7 +61,7 @@ executable chainweb-data
     , sqlite-simple         ^>=0.4
     , streaming             ^>=0.2
     , streaming-events      ^>=1.0.1
-    , transformers ^>= 0.5
+    , transformers          ^>=0.5
 
   other-modules:
     Chainweb.Database
