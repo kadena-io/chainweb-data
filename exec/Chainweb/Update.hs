@@ -21,9 +21,12 @@ import           ChainwebDb.Types.Header
 import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
 import           Control.Error.Util (hush)
+import           Control.Monad ((>=>))
 import           Control.Monad.Trans.Maybe
+import           Data.Foldable (traverse_)
 import           Data.Proxy (Proxy(..))
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import           Database.Beam
 import           Database.Beam.Migrate.Types (unCheckDatabase)
 import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
@@ -35,7 +38,8 @@ import           Servant.Client
 ---
 
 -- | A wrapper to massage some types below.
-data Trio s = Trio
+data Quad s = Quad
+  BlockPayload
   (BlockT (QExpr Sqlite s))
   (MinerT (QExpr Sqlite s))
   [TransactionT (QExpr Sqlite s)]
@@ -43,20 +47,23 @@ data Trio s = Trio
 updates :: Manager -> Connection -> Url -> IO ()
 updates m c (Url u) = do
   hs <- runBeamSqlite c . runSelectReturningList $ select prd
-  _  <- traverse (lookups env) hs
-  putStrLn "Update goes here."
+  traverse_ (lookups env >=> foobar) hs
   where
     env = ClientEnv m url Nothing
     url = BaseUrl Https u 443 ""
     prd = all_ . headers $ unCheckDatabase dbSettings
 
-lookups :: ClientEnv -> Header -> IO (Maybe (Trio s))
+foobar :: Maybe (Quad s) -> IO ()
+foobar Nothing = putStrLn "Darn!"
+foobar (Just (Quad p _ _ _)) = T.putStrLn . _minerData_account $ _blockPayload_minerData p
+
+lookups :: ClientEnv -> Header -> IO (Maybe (Quad s))
 lookups cenv h = runMaybeT $ do
   pl <- MaybeT $ payload cenv h
   let !mi = miner pl
       !bl = block h mi
       !ts = map (transaction bl) $ _blockPayload_transactions pl
-  pure $ Trio bl mi ts
+  pure $ Quad pl bl mi ts
 
 miner :: BlockPayload -> MinerT (QExpr Sqlite s)
 miner pl = Miner
