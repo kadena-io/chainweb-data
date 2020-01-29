@@ -26,12 +26,18 @@ data ChainwebDataDb f = ChainwebDataDb
   deriving stock (Generic)
   deriving anyclass (Database be)
 
-dbSettings :: CheckedDatabaseSettings Sqlite ChainwebDataDb
-dbSettings = defaultMigratableDbSettings
+migratableDb :: CheckedDatabaseSettings Sqlite ChainwebDataDb
+migratableDb = defaultMigratableDbSettings
+
+database :: DatabaseSettings Sqlite ChainwebDataDb
+database = unCheckDatabase migratableDb
 
 -- | Create the DB tables if necessary.
 initializeTables :: Connection -> IO ()
 initializeTables conn = runBeamSqlite conn $
-  verifySchema migrationBackend dbSettings >>= \case
-    VerificationFailed _ -> createSchema migrationBackend dbSettings
+  verifySchema migrationBackend migratableDb >>= \case
+    VerificationFailed e -> do
+      liftIO $ print e
+      -- createSchema migrationBackend migratableDb
+      autoMigrate migrationBackend migratableDb
     VerificationSucceeded -> pure ()

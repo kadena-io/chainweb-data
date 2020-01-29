@@ -18,7 +18,6 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Database.Beam
-import           Database.Beam.Migrate
 import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
 import           Database.SQLite.Simple (Connection)
 import           Lens.Micro ((^?))
@@ -51,7 +50,7 @@ ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly 
     f :: HeaderWithPow -> IO ()
     f bh = runBeamSqlite c
       . runInsert
-      . insert (headers $ unCheckDatabase dbSettings)
+      . insert (headers database)
       $ insertExpressions [g bh]
 
     g :: HeaderWithPow -> HeaderT (QExpr Sqlite s)
