@@ -4,37 +4,34 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Chainweb.Update ( updates ) where
 
 import           Chainweb.Api.BlockPayload
-import           Chainweb.Api.ChainId
 import           Chainweb.Api.ChainwebMeta
 import           Chainweb.Api.Hash
 import           Chainweb.Api.MinerData
 import           Chainweb.Api.PactCommand
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Database
-import           Chainweb.Env (ChainwebVersion, Url(..))
+import           Chainweb.Env (ChainwebVersion(..), Url(..))
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
 import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
-import           Control.Error.Util (hush)
 import           Control.Monad.Trans.Maybe
+import           Data.Aeson (decode')
 import           Data.Foldable (traverse_)
 import           Data.Maybe (catMaybes, fromJust, isJust, mapMaybe)
-import           Data.Proxy (Proxy(..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam
 import           Database.Beam.Sqlite
 import           Database.SQLite.Simple (Connection)
-import           Network.HTTP.Client (Manager)
-import           Servant.API hiding (Header)
-import           Servant.Client
+import           Network.HTTP.Client hiding (Proxy)
 
 ---
 
@@ -45,14 +42,12 @@ data Quad = Quad
   !(MinerT Maybe)
   ![TransactionT Maybe]
 
-updates :: Manager -> Connection -> Url -> IO ()
-updates m c (Url u) = do
+updates :: Manager -> Connection -> Url -> ChainwebVersion -> IO ()
+updates m c (Url _) v = do
   hs <- runBeamSqlite c . runSelectReturningList $ select prd
   -- TODO Be concurrent via `scheduler`.
-  traverse_ (\h -> lookups env h >>= writes c h) hs
+  traverse_ (\h -> lookups m v h >>= writes c h) hs
   where
-    env = ClientEnv m url Nothing
-    url = BaseUrl Https u 443 ""
     prd = all_ $ headers database
 
 writes :: Connection -> Header -> Maybe Quad -> IO ()
@@ -119,9 +114,9 @@ writes' c h (Quad p b m ts) = runBeamSqlite c $ do
       <*> (val_ <$> _transaction_nonce t)
       <*> (val_ <$> _transaction_requestKey t)
 
-lookups :: ClientEnv -> Header -> IO (Maybe Quad)
-lookups cenv h = runMaybeT $ do
-  pl <- MaybeT $ payload cenv h
+lookups :: Manager -> ChainwebVersion -> Header -> IO (Maybe Quad)
+lookups m v h = runMaybeT $ do
+  pl <- MaybeT $ payload'' m v h
   let !mi = miner pl
       !bl = block h mi
       !ts = map (transaction bl) $ _blockPayload_transactions pl
@@ -165,31 +160,16 @@ transaction b tx = Transaction
     cmd = CW._transaction_cmd tx
     mta = _pactCommand_meta cmd
 
-payload :: ClientEnv -> Header -> IO (Maybe BlockPayload)
-payload cenv h = hush <$> runClientM (payload' "mainnet01" cid hsh) cenv
-  where
-    cid = ChainId $ _header_chainId h
-    hsh = _header_payloadHash h
-
 --------------------------------------------------------------------------------
 -- Endpoints
 
--- TODO Consider ripping this out in favour of vanilla http-client.
--- The approaches are isomorphic, and this usage isn't "the point" of servant.
-type PayloadAPI = "chainweb"
-  :> "0.0"
-  :> Capture "version" ChainwebVersion
-  :> "chain"
-  :> Capture "chainId" ChainId
-  :> "payload"
-  :> Capture "BlockPayloadHash" DbHash
-  :> Get '[JSON] BlockPayload
-
-api :: Proxy PayloadAPI
-api = Proxy
-
-payload' :: ChainwebVersion -> ChainId -> DbHash -> ClientM BlockPayload
-payload' = client api
-
-instance ToHttpApiData ChainId where
-  toUrlPiece (ChainId cid) = T.pack $ show cid
+payload'' :: Manager -> ChainwebVersion -> Header -> IO (Maybe BlockPayload)
+payload'' m (ChainwebVersion v) h = do
+  req <- parseRequest url
+  res <- httpLbs req m
+  pure . decode' $ responseBody res
+  where
+    url = "https://tetsu.fosskers.ca" <> T.unpack query
+    query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh
+    cid = T.pack . show $ _header_chainId h
+    hsh = unDbHash $ _header_payloadHash h

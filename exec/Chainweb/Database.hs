@@ -3,7 +3,11 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Chainweb.Database where
+module Chainweb.Database
+  ( ChainwebDataDb(..)
+  , database
+  , initializeTables
+  ) where
 
 import ChainwebDb.Types.Block
 import ChainwebDb.Types.Header

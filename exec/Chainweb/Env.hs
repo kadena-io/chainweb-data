@@ -14,7 +14,6 @@ module Chainweb.Env
 import Data.String (IsString)
 import Data.Text (Text)
 import Options.Applicative
-import Servant.API (ToHttpApiData(..))
 
 ---
 
@@ -27,7 +26,7 @@ newtype Url = Url String
   deriving newtype (IsString)
 
 newtype ChainwebVersion = ChainwebVersion Text
-  deriving newtype (IsString, ToHttpApiData)
+  deriving newtype (IsString)
 
 data Command = Server | Update
 
