@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
@@ -24,12 +25,12 @@ import           ChainwebDb.Types.Transaction
 import           Control.Error.Util (hush)
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (traverse_)
-import           Data.Maybe (catMaybes, mapMaybe)
+import           Data.Maybe (catMaybes, fromJust, isJust, mapMaybe)
 import           Data.Proxy (Proxy(..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam
-import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
+import           Database.Beam.Sqlite
 import           Database.SQLite.Simple (Connection)
 import           Network.HTTP.Client (Manager)
 import           Servant.API hiding (Header)
@@ -59,35 +60,43 @@ writes c h (Just q) = writes' c h q >> T.putStrLn ("[SUCCESS] " <> unDbHash (_he
 writes _ h _ = T.putStrLn $ "[FAILURE] Payload fetch for Block: " <> unDbHash (_header_hash h)
 
 writes' :: Connection -> Header -> Quad -> IO ()
-writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
+writes' c h (Quad p b m ts) = runBeamSqlite c $ do
   -- Remove the Header from the work queue --
   runDelete
     $ delete (headers database)
     (\x -> _header_id x ==. val_ (_header_id h))
   -- Write the Miner if unique --
-  -- TODO Actually check for uniqueness.
-  runInsert
-    $ insert (miners database)
-    $ insertExpressions
-    $ catMaybes [m']
+  alreadyMined <- runSelectReturningOne
+    $ select
+    $ filter_ (\mnr -> _miner_account mnr ==. val_ macc)
+    $ all_ (miners database)
+  mnr <- if | isJust alreadyMined -> pure $ fromJust alreadyMined
+            | otherwise -> fmap head
+              $ runInsertReturningList
+              $ insert (miners database)
+              $ insertExpressions
+              $ catMaybes [m']
   -- Write the Block --
+  let !blk = b' mnr
   runInsert
     $ insert (blocks database)
     $ insertExpressions
-    $ catMaybes [b']
+    $ catMaybes [blk]
   -- Write the Transactions --
   runInsert
     $ insert (transactions database)
     $ insertExpressions
-    $ mapMaybe t' ts
+    $ mapMaybe (t' blk) ts
   where
+    MinerData macc _ _ = _blockPayload_minerData p
+
     m' :: Maybe (MinerT (QExpr Sqlite s))
     m' = Miner default_
       <$> (val_ <$> _miner_account m)
       <*> (val_ <$> _miner_pred m)
 
-    b' :: Maybe (BlockT (QExpr Sqlite s))
-    b' = Block default_
+    b' :: Miner -> Maybe (BlockT (QExpr Sqlite s))
+    b' mnr = Block default_
       <$> (val_ <$> _block_creationTime b)
       <*> (val_ <$> _block_chainId b)
       <*> (val_ <$> _block_height b)
@@ -97,12 +106,12 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
       <*> (val_ <$> _block_weight b)
       <*> (val_ <$> _block_epochStart b)
       <*> (val_ <$> _block_nonce b)
-      <*> (pk   <$> m')
+      <*> pure (val_ $ pk mnr)
 
-    t' :: TransactionT Maybe -> Maybe (TransactionT (QExpr Sqlite s))
-    t' t = Transaction default_
+    t' :: Maybe (BlockT (QExpr Sqlite s)) -> TransactionT Maybe -> Maybe (TransactionT (QExpr Sqlite s))
+    t' blk t = Transaction default_
       <$> (val_ <$> _transaction_chainId t)
-      <*> (pk   <$> b')
+      <*> (pk   <$> blk)
       <*> (val_ <$> _transaction_creationTime t)
       <*> (val_ <$> _transaction_ttl t)
       <*> (val_ <$> _transaction_gasLimit t)
