@@ -36,8 +36,5 @@ database = unCheckDatabase migratableDb
 initializeTables :: Connection -> IO ()
 initializeTables conn = runBeamSqlite conn $
   verifySchema migrationBackend migratableDb >>= \case
-    VerificationFailed e -> do
-      liftIO $ print e
-      -- createSchema migrationBackend migratableDb
-      autoMigrate migrationBackend migratableDb
+    VerificationFailed e -> autoMigrate migrationBackend migratableDb
     VerificationSucceeded -> pure ()
