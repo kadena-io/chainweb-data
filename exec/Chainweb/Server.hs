@@ -13,18 +13,16 @@ import           Chainweb.Database
 import           Chainweb.Env
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           ChainwebDb.Types.Header
-import           Control.Exception (bracket)
-import           Data.Aeson (ToJSON(..), object)
+import           Data.Aeson (ToJSON(..), Value, decode', object)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Database.Beam
-import           Database.Beam.Migrate
 import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
-import           Database.SQLite.Simple (Connection, close, open)
+import           Database.SQLite.Simple (Connection)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
-import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Network.Wai.EventSource.Streaming
 import           Servant.Client.Core (BaseUrl(..), Scheme(..))
 import qualified Streaming.Prelude as SP
@@ -32,36 +30,46 @@ import           Text.Printf (printf)
 
 ---
 
-server :: DBPath -> Url -> IO ()
-server (DBPath d) (Url u) = do
-  m <- newManager tlsManagerSettings
-  bracket (open d) close $ \conn -> do
-    initializeTables conn
-    ingest m (BaseUrl Https u 443 "") conn
+data HeaderWithPow = HeaderWithPow
+  { _hwp_header :: BlockHeader
+  , _hwp_powHash :: T.Text }
+
+instance FromEvent HeaderWithPow where
+  fromEvent bs = do
+    hu <- decode' @Value $ BL.fromStrict bs
+    HeaderWithPow
+      <$> (hu ^? key "header"  . _JSON)
+      <*> (hu ^? key "powHash" . _JSON)
+
+server :: Manager -> Connection -> Url -> IO ()
+server m conn (Url u) = ingest m (BaseUrl Https u 443 "") conn
 
 ingest :: Manager -> BaseUrl -> Connection -> IO ()
-ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @BlockHeader
+ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @HeaderWithPow
   where
-    f :: BlockHeader -> IO ()
+    f :: HeaderWithPow -> IO ()
     f bh = runBeamSqlite c
       . runInsert
-      . insert (headers $ unCheckDatabase dbSettings)
+      . insert (headers database)
       $ insertExpressions [g bh]
 
-    g :: BlockHeader -> HeaderT (QExpr Sqlite s)
-    g bh = Header
+    g :: HeaderWithPow -> HeaderT (QExpr Sqlite s)
+    g (HeaderWithPow bh ph) = Header
       { _header_id           = default_
       , _header_creationTime = val_ . floor $ _blockHeader_creationTime bh
       , _header_chainId      = val_ . unChainId $ _blockHeader_chainId bh
       , _header_height       = val_ $ _blockHeader_height bh
       , _header_hash         = val_ . DbHash . hashB64U $ _blockHeader_hash bh
+      , _header_payloadHash  = val_ . DbHash . hashB64U $ _blockHeader_payloadHash bh
       , _header_target       = val_ . DbHash . hexBytesLE $ _blockHeader_target bh
       , _header_weight       = val_ . DbHash . hexBytesLE $ _blockHeader_weight bh
       , _header_epochStart   = val_ . floor $ _blockHeader_epochStart bh
-      , _header_nonce        = val_ $ _blockHeader_nonce bh }
+      , _header_nonce        = val_ $ _blockHeader_nonce bh
+      , _header_powHash      = val_ $ DbHash ph }
 
-    h :: BlockHeader -> IO ()
-    h bh = printf "Chain %d: %d\n" (unChainId $ _blockHeader_chainId bh) (_blockHeader_height bh)
+    h :: HeaderWithPow -> IO ()
+    h (HeaderWithPow bh _) =
+      printf "Chain %d: %d\n" (unChainId $ _blockHeader_chainId bh) (_blockHeader_height bh)
 
 req :: BaseUrl -> Request
 req u = defaultRequest
@@ -76,9 +84,6 @@ req u = defaultRequest
 
 --------------------------------------------------------------------------------
 -- Orphans
-
-instance FromEvent BlockHeader where
-  fromEvent bs = bs ^? key "header" . _JSON
 
 instance ToJSON BlockHeader where
   toJSON _ = object []

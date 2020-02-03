@@ -19,10 +19,12 @@ data HeaderT f = Header
   , _header_chainId :: C f Int
   , _header_height :: C f Int
   , _header_hash :: C f DbHash
+  , _header_payloadHash :: C f DbHash
   , _header_target :: C f DbHash
   , _header_weight :: C f DbHash
   , _header_epochStart :: C f Int
-  , _header_nonce :: C f Word64 }
+  , _header_nonce :: C f Word64
+  , _header_powHash :: C f DbHash }
   deriving stock (Generic)
   deriving anyclass (Beamable)
 

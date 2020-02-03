@@ -29,7 +29,9 @@ data TransactionT f = Transaction
   , _transaction_creationTime :: C f Int
   , _transaction_ttl :: C f Int
   , _transaction_gasLimit :: C f Int
-  , _transaction_gasPrice :: C f Double
+  -- TODO Reinstate!
+  -- See https://github.com/tathougies/beam/issues/431
+  -- , _transaction_gasPrice :: C f Double
   , _transaction_sender :: C f Text
   , _transaction_nonce :: C f Text
   , _transaction_requestKey :: C f Text }
@@ -43,7 +45,7 @@ Transaction
   (LensFor transaction_creationTime)
   (LensFor transaction_ttl)
   (LensFor transaction_gasLimit)
-  (LensFor transaction_gasPrice)
+  -- (LensFor transaction_gasPrice)
   (LensFor transaction_sender)
   (LensFor transaction_nonce)
   (LensFor transaction_requestKey)
