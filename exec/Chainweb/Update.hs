@@ -43,10 +43,10 @@ data Quad = Quad
   ![TransactionT Maybe]
 
 updates :: Manager -> Connection -> Url -> ChainwebVersion -> IO ()
-updates m c (Url _) v = do
+updates m c u v = do
   hs <- runBeamSqlite c . runSelectReturningList $ select prd
   -- TODO Be concurrent via `scheduler`.
-  traverse_ (\h -> lookups m v h >>= writes c h) hs
+  traverse_ (\h -> lookups m u v h >>= writes c h) hs
   where
     prd = all_ $ headers database
 
@@ -114,9 +114,9 @@ writes' c h (Quad p b m ts) = runBeamSqlite c $ do
       <*> (val_ <$> _transaction_nonce t)
       <*> (val_ <$> _transaction_requestKey t)
 
-lookups :: Manager -> ChainwebVersion -> Header -> IO (Maybe Quad)
-lookups m v h = runMaybeT $ do
-  pl <- MaybeT $ payload'' m v h
+lookups :: Manager -> Url -> ChainwebVersion -> Header -> IO (Maybe Quad)
+lookups m u v h = runMaybeT $ do
+  pl <- MaybeT $ payload m u v h
   let !mi = miner pl
       !bl = block h mi
       !ts = map (transaction bl) $ _blockPayload_transactions pl
@@ -163,13 +163,13 @@ transaction b tx = Transaction
 --------------------------------------------------------------------------------
 -- Endpoints
 
-payload'' :: Manager -> ChainwebVersion -> Header -> IO (Maybe BlockPayload)
-payload'' m (ChainwebVersion v) h = do
+payload :: Manager -> Url -> ChainwebVersion -> Header -> IO (Maybe BlockPayload)
+payload m (Url u) (ChainwebVersion v) h = do
   req <- parseRequest url
   res <- httpLbs req m
   pure . decode' $ responseBody res
   where
-    url = "https://tetsu.fosskers.ca" <> T.unpack query
+    url = "https://" <> u <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh
     cid = T.pack . show $ _header_chainId h
     hsh = unDbHash $ _header_payloadHash h
