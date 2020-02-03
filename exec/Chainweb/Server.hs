@@ -14,9 +14,9 @@ import           Chainweb.Env
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           ChainwebDb.Types.Header
 import           Data.Aeson (ToJSON(..), Value, decode', object)
+import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import           Database.Beam
 import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
 import           Database.SQLite.Simple (Connection)
@@ -24,7 +24,6 @@ import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
-import           Servant.Client.Core (BaseUrl(..), Scheme(..))
 import qualified Streaming.Prelude as SP
 import           Text.Printf (printf)
 
@@ -42,9 +41,9 @@ instance FromEvent HeaderWithPow where
       <*> (hu ^? key "powHash" . _JSON)
 
 server :: Manager -> Connection -> Url -> IO ()
-server m conn (Url u) = ingest m (BaseUrl Https u 443 "") conn
+server m conn u = ingest m u conn
 
-ingest :: Manager -> BaseUrl -> Connection -> IO ()
+ingest :: Manager -> Url -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @HeaderWithPow
   where
     f :: HeaderWithPow -> IO ()
@@ -71,11 +70,11 @@ ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly 
     h (HeaderWithPow bh _) =
       printf "Chain %d: %d\n" (unChainId $ _blockHeader_chainId bh) (_blockHeader_height bh)
 
-req :: BaseUrl -> Request
-req u = defaultRequest
-  { host = T.encodeUtf8 . T.pack . baseUrlHost $ u
+req :: Url -> Request
+req (Url u) = defaultRequest
+  { host = B.pack u
   , path = "chainweb/0.0/mainnet01/header/updates"  -- TODO Parameterize as needed.
-  , port = baseUrlPort u
+  , port = 443
   , secure = True
   , method = "GET"
   , requestBody = mempty

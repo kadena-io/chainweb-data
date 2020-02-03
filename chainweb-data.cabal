@@ -27,7 +27,6 @@ common commons
     , beam-migrate  >=0.4
     , beam-sqlite   ^>=0.4
     , chainweb-api  ^>=1.0
-    , servant       >=0.16     && <0.18
     , text          >=1.2
     , time
 
@@ -50,14 +49,11 @@ executable chainweb-data
   build-depends:
     , bytestring            ^>=0.10
     , chainweb-data
-    , errors                ^>=2.3
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , microlens             ^>=0.4
     , microlens-aeson       ^>=2.3
     , optparse-applicative  ^>=0.14
-    , servant-client        >=0.16  && <0.18
-    , servant-client-core   >=0.16  && <0.18
     , sqlite-simple         ^>=0.4
     , streaming             ^>=0.2
     , streaming-events      ^>=1.0.1
