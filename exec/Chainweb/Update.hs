@@ -64,7 +64,7 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
   -- Remove the Header from the work queue --
   runDelete
     $ delete (headers database)
-    (\x -> _header_id x ==. val_ (_header_id h))
+    (\x -> _header_hash x ==. val_ (_header_hash h))
   -- Write the Miner if unique --
   alreadyMined <- runSelectReturningOne
     $ select

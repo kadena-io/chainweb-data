@@ -18,7 +18,7 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import           Database.Beam
-import           Database.Beam.Sqlite (Sqlite, runBeamSqlite)
+import           Database.Beam.Sqlite (runBeamSqlite)
 import           Database.SQLite.Simple (Connection)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
@@ -46,24 +46,20 @@ ingest :: Manager -> Url -> Connection -> IO ()
 ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly @HeaderWithPow
   where
     f :: HeaderWithPow -> IO ()
-    f bh = runBeamSqlite c
-      . runInsert
-      . insert (headers database)
-      $ insertExpressions [g bh]
+    f bh = runBeamSqlite c . runInsert . insert (headers database) $ insertValues [g bh]
 
-    g :: HeaderWithPow -> HeaderT (QExpr Sqlite s)
+    g :: HeaderWithPow -> Header
     g (HeaderWithPow bh ph) = Header
-      { _header_id           = default_
-      , _header_creationTime = val_ . floor $ _blockHeader_creationTime bh
-      , _header_chainId      = val_ . unChainId $ _blockHeader_chainId bh
-      , _header_height       = val_ $ _blockHeader_height bh
-      , _header_hash         = val_ . DbHash . hashB64U $ _blockHeader_hash bh
-      , _header_payloadHash  = val_ . DbHash . hashB64U $ _blockHeader_payloadHash bh
-      , _header_target       = val_ . DbHash . hexBytesLE $ _blockHeader_target bh
-      , _header_weight       = val_ . DbHash . hexBytesLE $ _blockHeader_weight bh
-      , _header_epochStart   = val_ . floor $ _blockHeader_epochStart bh
-      , _header_nonce        = val_ $ _blockHeader_nonce bh
-      , _header_powHash      = val_ $ DbHash ph }
+      { _header_creationTime = floor $ _blockHeader_creationTime bh
+      , _header_chainId      = unChainId $ _blockHeader_chainId bh
+      , _header_height       = _blockHeader_height bh
+      , _header_hash         = DbHash . hashB64U $ _blockHeader_hash bh
+      , _header_payloadHash  = DbHash . hashB64U $ _blockHeader_payloadHash bh
+      , _header_target       = DbHash . hexBytesLE $ _blockHeader_target bh
+      , _header_weight       = DbHash . hexBytesLE $ _blockHeader_weight bh
+      , _header_epochStart   = floor $ _blockHeader_epochStart bh
+      , _header_nonce        = _blockHeader_nonce bh
+      , _header_powHash      = DbHash ph }
 
     h :: HeaderWithPow -> IO ()
     h (HeaderWithPow bh _) =
