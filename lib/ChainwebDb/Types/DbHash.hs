@@ -6,6 +6,7 @@
 module ChainwebDb.Types.DbHash where
 
 ------------------------------------------------------------------------------
+import BasePrelude
 import Data.Aeson
 import Data.Text (Text)
 import Database.Beam.Backend.SQL.Row (FromBackendRow)
@@ -13,7 +14,6 @@ import Database.Beam.Backend.SQL.SQL92 (HasSqlValueSyntax)
 import Database.Beam.Migrate (HasDefaultSqlDataType)
 import Database.Beam.Sqlite (Sqlite)
 import Database.Beam.Sqlite.Syntax (SqliteValueSyntax)
-import GHC.Generics (Generic)
 ------------------------------------------------------------------------------
 
 -- | DB hashes stored as Base64Url encoded text for more convenient querying.

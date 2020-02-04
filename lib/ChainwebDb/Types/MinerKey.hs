@@ -12,6 +12,7 @@
 module ChainwebDb.Types.MinerKey where
 
 ------------------------------------------------------------------------------
+import BasePrelude
 import Data.Aeson
 import Database.Beam
 ------------------------------------------------------------------------------

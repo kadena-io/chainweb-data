@@ -13,6 +13,7 @@
 module ChainwebDb.Types.Transaction where
 
 ------------------------------------------------------------------------------
+import BasePrelude
 import Data.Aeson
 import Data.Text (Text)
 import Database.Beam

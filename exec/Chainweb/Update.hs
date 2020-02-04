@@ -1,14 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Chainweb.Update ( updates ) where
 
+import           BasePrelude hiding (delete, insert)
 import           Chainweb.Api.BlockPayload
 import           Chainweb.Api.ChainwebMeta
 import           Chainweb.Api.Hash
@@ -24,8 +22,6 @@ import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
 import           Control.Monad.Trans.Maybe
 import           Data.Aeson (decode')
-import           Data.Foldable (traverse_)
-import           Data.Maybe (catMaybes, fromJust, isJust, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam

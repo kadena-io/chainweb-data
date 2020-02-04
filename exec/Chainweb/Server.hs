@@ -1,10 +1,10 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Chainweb.Server ( server ) where
 
+import           BasePrelude hiding (insert)
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.BytesLE
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -25,7 +25,6 @@ import           Lens.Micro.Aeson (key, _JSON)
 import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
-import           Text.Printf (printf)
 
 ---
 

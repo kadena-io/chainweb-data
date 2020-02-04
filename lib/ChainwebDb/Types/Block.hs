@@ -11,8 +11,8 @@
 
 module ChainwebDb.Types.Block where
 
+import BasePrelude
 import Data.Aeson
-import Data.Word
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash

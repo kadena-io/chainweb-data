@@ -7,7 +7,7 @@
 
 module ChainwebDb.Types.Header where
 
-import Data.Word
+import BasePrelude
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
