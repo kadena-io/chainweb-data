@@ -9,6 +9,7 @@ module Chainweb.Database
   , initializeTables
   ) where
 
+import BasePrelude
 import ChainwebDb.Types.Block
 import ChainwebDb.Types.Header
 import ChainwebDb.Types.Miner

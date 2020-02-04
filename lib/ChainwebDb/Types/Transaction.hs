@@ -13,6 +13,7 @@
 module ChainwebDb.Types.Transaction where
 
 ------------------------------------------------------------------------------
+import BasePrelude
 import Data.Aeson
 import Data.Text (Text)
 import Database.Beam
@@ -23,8 +24,7 @@ import ChainwebDb.Types.Block
 
 ------------------------------------------------------------------------------
 data TransactionT f = Transaction
-  { _transaction_id :: C f Int
-  , _transaction_chainId :: C f Int
+  { _transaction_chainId :: C f Int
   , _transaction_block :: PrimaryKey BlockT f
   , _transaction_creationTime :: C f Int
   , _transaction_ttl :: C f Int
@@ -39,7 +39,6 @@ data TransactionT f = Transaction
   deriving anyclass (Beamable)
 
 Transaction
-  (LensFor transaction_id)
   (LensFor transsaction_chainId)
   (BlockId (LensFor transaction_block))
   (LensFor transaction_creationTime)
@@ -85,10 +84,7 @@ instance ToJSON (TransactionT Maybe) where
 instance FromJSON (TransactionT Maybe)
 
 instance Table TransactionT where
-  data PrimaryKey TransactionT f = TransactionId (C f Int)
+  data PrimaryKey TransactionT f = TransactionId (C f Text)
     deriving stock (Generic)
     deriving anyclass (Beamable)
-  primaryKey = TransactionId . _transaction_id
-
-repoKeyToInt :: PrimaryKey TransactionT Identity -> Int
-repoKeyToInt (TransactionId k) = k
+  primaryKey = TransactionId . _transaction_requestKey

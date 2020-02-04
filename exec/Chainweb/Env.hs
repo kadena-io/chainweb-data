@@ -1,6 +1,5 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 module Chainweb.Env
   ( Env(..)
@@ -11,7 +10,7 @@ module Chainweb.Env
   , envP
   ) where
 
-import Data.String (IsString)
+import BasePrelude
 import Data.Text (Text)
 import Options.Applicative
 

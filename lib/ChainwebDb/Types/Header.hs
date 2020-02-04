@@ -7,15 +7,14 @@
 
 module ChainwebDb.Types.Header where
 
-import Data.Word
+import BasePrelude
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 
 data HeaderT f = Header
-  { _header_id :: C f Int
-  , _header_creationTime :: C f Int
+  { _header_creationTime :: C f Int
   , _header_chainId :: C f Int
   , _header_height :: C f Int
   , _header_hash :: C f DbHash
@@ -32,7 +31,7 @@ type Header = HeaderT Identity
 type HeaderId = PrimaryKey HeaderT Identity
 
 instance Table HeaderT where
-  data PrimaryKey HeaderT f = HeaderId (C f Int)
+  data PrimaryKey HeaderT f = HeaderId (C f DbHash)
     deriving stock (Generic)
     deriving anyclass (Beamable)
-  primaryKey = HeaderId . _header_id
+  primaryKey = HeaderId . _header_hash

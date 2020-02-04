@@ -1,5 +1,6 @@
 module Main where
 
+import BasePrelude
 import Chainweb.Database (initializeTables)
 import Chainweb.Env
 import Chainweb.Server (server)
