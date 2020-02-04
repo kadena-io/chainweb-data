@@ -3,7 +3,7 @@ module Main where
 import BasePrelude
 import Chainweb.Database (initializeTables)
 import Chainweb.Env
-import Chainweb.Server (server)
+import Chainweb.New (ingest)
 import Chainweb.Update (updates)
 import Control.Exception (bracket)
 import Database.SQLite.Simple (close, open)
@@ -20,7 +20,7 @@ main = do
     initializeTables conn
     m <- newManager tlsManagerSettings
     case c of
-      Server -> server m conn u
+      New -> ingest m conn u
       Update -> updates m conn u v
   where
     opts = info (envP <**> helper)

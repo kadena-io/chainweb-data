@@ -69,5 +69,5 @@ executable chainweb-data
   other-modules:
     Chainweb.Database
     Chainweb.Env
-    Chainweb.Server
+    Chainweb.New
     Chainweb.Update

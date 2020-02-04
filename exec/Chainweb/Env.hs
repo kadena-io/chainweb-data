@@ -27,7 +27,7 @@ newtype Url = Url String
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
-data Command = Server | Update
+data Command = New | Update
 
 envP :: Parser Env
 envP = Env
@@ -38,6 +38,6 @@ envP = Env
 
 commands :: Parser Command
 commands = subparser
-  (  command "server" (info (pure Server) (progDesc "Start the analysis server"))
+  (  command "new" (info (pure New) (progDesc "Start the analysis server"))
   <> command "update" (info (pure Update) (progDesc "Process all queued Header data"))
   )
