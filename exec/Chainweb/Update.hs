@@ -42,22 +42,11 @@ updates m c u v = do
   where
     prd = all_ $ headers database
 
--- | Blocks queue for insertion that don't already exist in the database.
--- uniques :: Connection -> Quad -> IO (Maybe Quad)
--- uniques c (Quad p b m ts) = do
---   r <- runBeamSqlite c $ do
---     already <- runSelectReturningOne
---       $ select
---       $ filter_ (\b' -> _block_hash b' ==. _block_hash b)
---       $ all_ (blocks database)
---     undefined
---   undefined
-
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
 writes :: Connection -> Header -> Maybe Quad -> IO ()
-writes c h (Just q) = writes' c h q >> T.putStrLn ("[SUCCESS] " <> unDbHash (_header_hash h))
-writes _ h _ = T.putStrLn $ "[FAILURE] Payload fetch for Block: " <> unDbHash (_header_hash h)
+writes c h (Just q) = writes' c h q >> T.putStrLn ("[OKAY] " <> unDbHash (_header_hash h))
+writes _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
 
 writes' :: Connection -> Header -> Quad -> IO ()
 writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
@@ -71,10 +60,14 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
   case alreadyMined of
     Just _ -> pure ()
     Nothing -> runInsert . insert (miners database) $ insertValues [m]
-  -- Write the Block --
-  runInsert $ insert (blocks database) $ insertValues [b]
-  -- Write the Transactions --
-  runInsert $ insert (transactions database) $ insertValues ts
+  -- Write the Block and TXs if unique --
+  alreadyIn <- runSelectReturningOne
+    $ lookup_ (blocks database) (BlockId $ _block_hash b)
+  case alreadyIn of
+    Just _ -> liftIO . T.putStrLn $ "[WARN] Block already in DB: " <> unDbHash (_block_hash b)
+    Nothing -> do
+      runInsert . insert (blocks database) $ insertValues [b]
+      runInsert . insert (transactions database) $ insertValues ts
 
 lookups :: Manager -> Url -> ChainwebVersion -> Header -> IO (Maybe Quad)
 lookups m u v h = runMaybeT $ do
