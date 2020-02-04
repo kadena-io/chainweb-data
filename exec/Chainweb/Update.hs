@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -21,6 +20,7 @@ import           ChainwebDb.Types.Header
 import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
 import           Control.Monad.Trans.Maybe
+import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Aeson (decode')
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -37,8 +37,7 @@ data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 updates :: Manager -> Connection -> Url -> ChainwebVersion -> IO ()
 updates m c u v = do
   hs <- runBeamSqlite c . runSelectReturningList $ select prd
-  -- TODO Be concurrent via `scheduler`.
-  traverse_ (\h -> lookups m u v h >>= writes c h) hs
+  traverseConcurrently_ Par' (\h -> lookups m u v h >>= writes c h) hs
   where
     prd = all_ $ headers database
 

@@ -20,9 +20,9 @@ common commons
     OverloadedStrings
 
   ghc-options:
-    -threaded -rtsopts -with-rtsopts=-N -Wall -Wcompat -Wpartial-fields
-    -Wincomplete-record-updates -Wincomplete-uni-patterns -Widentities
-    -funclutter-valid-hole-fits -fmax-relevant-binds=0
+    -Wall -Wcompat -Wpartial-fields -Wincomplete-record-updates
+    -Wincomplete-uni-patterns -Widentities -funclutter-valid-hole-fits
+    -fmax-relevant-binds=0
 
   build-depends:
     , aeson         >=0.11.3.0 && <1.5
@@ -51,6 +51,7 @@ executable chainweb-data
   import:         commons
   main-is:        Main.hs
   hs-source-dirs: exec
+  ghc-options:    -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     , bytestring            ^>=0.10
     , chainweb-data
@@ -59,6 +60,7 @@ executable chainweb-data
     , microlens             ^>=0.4
     , microlens-aeson       ^>=2.3
     , optparse-applicative  ^>=0.14
+    , scheduler             ^>=1.4
     , sqlite-simple         ^>=0.4
     , streaming             ^>=0.2
     , streaming-events      ^>=1.0.1

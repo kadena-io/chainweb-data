@@ -62,8 +62,10 @@ ingest m u c = withEvents (req u) m $ SP.mapM_ (\bh -> f bh >> h bh) . dataOnly 
       , _header_powHash      = DbHash ph }
 
     h :: HeaderWithPow -> IO ()
-    h (HeaderWithPow bh _) =
-      printf "Chain %d: %d\n" (unChainId $ _blockHeader_chainId bh) (_blockHeader_height bh)
+    h (HeaderWithPow bh _) = printf "Chain %d: %d: %s\n"
+      (unChainId $ _blockHeader_chainId bh)
+      (_blockHeader_height bh)
+      (hashB64U $ _blockHeader_hash bh)
 
 req :: Url -> Request
 req (Url u) = defaultRequest
