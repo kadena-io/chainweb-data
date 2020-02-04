@@ -13,7 +13,7 @@ import           Chainweb.Api.MinerData
 import           Chainweb.Api.PactCommand
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Database
-import           Chainweb.Env (ChainwebVersion(..), Url(..))
+import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
@@ -34,10 +34,10 @@ import           Network.HTTP.Client hiding (Proxy)
 -- | A wrapper to massage some types below.
 data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 
-updates :: Manager -> Connection -> Url -> ChainwebVersion -> IO ()
-updates m c u v = do
+updates :: Env -> IO ()
+updates e@(Env _ c _ _) = do
   hs <- runBeamSqlite c . runSelectReturningList $ select prd
-  traverseConcurrently_ Par' (\h -> lookups m u v h >>= writes c h) hs
+  traverseConcurrently_ Par' (\h -> lookups e h >>= writes c h) hs
   where
     prd = all_ $ headers database
 
@@ -68,9 +68,9 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
       runInsert . insert (blocks database) $ insertValues [b]
       runInsert . insert (transactions database) $ insertValues ts
 
-lookups :: Manager -> Url -> ChainwebVersion -> Header -> IO (Maybe Quad)
-lookups m u v h = runMaybeT $ do
-  pl <- MaybeT $ payload m u v h
+lookups :: Env -> Header -> IO (Maybe Quad)
+lookups e h = runMaybeT $ do
+  pl <- MaybeT $ payload e h
   let !mi = miner pl
       !bl = block h mi
       !ts = map (transaction bl) $ _blockPayload_transactions pl
@@ -112,8 +112,8 @@ transaction b tx = Transaction
 --------------------------------------------------------------------------------
 -- Endpoints
 
-payload :: Manager -> Url -> ChainwebVersion -> Header -> IO (Maybe BlockPayload)
-payload m (Url u) (ChainwebVersion v) h = do
+payload :: Env -> Header -> IO (Maybe BlockPayload)
+payload (Env m _ (Url u) (ChainwebVersion v)) h = do
   req <- parseRequest url
   res <- httpLbs req m
   pure . decode' $ responseBody res

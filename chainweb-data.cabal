@@ -67,6 +67,7 @@ executable chainweb-data
     , transformers          ^>=0.5
 
   other-modules:
+    Chainweb.Backfill
     Chainweb.Database
     Chainweb.Env
     Chainweb.New
