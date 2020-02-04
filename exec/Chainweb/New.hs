@@ -51,6 +51,7 @@ ingest (Env m c u _) = withEvents (req u) m
       { _header_creationTime = floor $ _blockHeader_creationTime bh
       , _header_chainId      = unChainId $ _blockHeader_chainId bh
       , _header_height       = _blockHeader_height bh
+      , _header_parent       = DbHash . hashB64U $ _blockHeader_parent bh
       , _header_hash         = DbHash . hashB64U $ _blockHeader_hash bh
       , _header_payloadHash  = DbHash . hashB64U $ _blockHeader_payloadHash bh
       , _header_target       = DbHash . hexBytesLE $ _blockHeader_target bh
