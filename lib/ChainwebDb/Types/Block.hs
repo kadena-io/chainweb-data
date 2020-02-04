@@ -20,8 +20,7 @@ import ChainwebDb.Types.Miner
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
-  { _block_id :: C f Int
-  , _block_creationTime :: C f Int
+  { _block_creationTime :: C f Int
   , _block_chainId :: C f Int
   , _block_height :: C f Int
   , _block_hash :: C f DbHash
@@ -35,7 +34,6 @@ data BlockT f = Block
   deriving anyclass (Beamable)
 
 Block
-  (LensFor block_id)
   (LensFor block_creationTime)
   (LensFor block_chainId)
   (LensFor block_height)
@@ -82,10 +80,7 @@ instance ToJSON (BlockT Maybe) where
 instance FromJSON (BlockT Maybe)
 
 instance Table BlockT where
-  data PrimaryKey BlockT f = BlockId (C f Int)
+  data PrimaryKey BlockT f = BlockId (C f DbHash)
     deriving stock (Generic)
     deriving anyclass (Beamable)
-  primaryKey = BlockId . _block_id
-
-blockKeyToInt :: PrimaryKey BlockT Identity -> Int
-blockKeyToInt (BlockId k) = k
+  primaryKey = BlockId . _block_hash

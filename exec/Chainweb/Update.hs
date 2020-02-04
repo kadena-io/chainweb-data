@@ -67,50 +67,25 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
     (\x -> _header_hash x ==. val_ (_header_hash h))
   -- Write the Miner if unique --
   alreadyMined <- runSelectReturningOne
-    $ select
-    $ filter_ (\mnr -> _miner_account mnr ==. val_ (_miner_account m))
-    $ all_ (miners database)
-  mnr <- if | isJust alreadyMined -> pure $ fromJust alreadyMined
-            | otherwise -> fmap head
-              $ runInsertReturningList
-              $ insert (miners database)
-              $ insertExpressions [m']
+    $ lookup_ (miners database) (MinerId $ _miner_account m)
+  case alreadyMined of
+    Just _ -> pure ()
+    Nothing -> runInsert . insert (miners database) $ insertValues [m]
   -- Write the Block --
-  let !blk = b' mnr
   runInsert
     $ insert (blocks database)
-    $ insertExpressions [blk]
+    $ insertValues [b]
   -- Write the Transactions --
   runInsert
     $ insert (transactions database)
     $ insertExpressions
-    $ map (t' blk) ts
+    $ map (t' b) ts
   where
-    m' :: MinerT (QExpr Sqlite s)
-    m' = Miner
-      { _miner_id = default_
-      , _miner_account = val_ $ _miner_account m
-      , _miner_pred = val_ $ _miner_pred m }
-
-    b' :: Miner -> BlockT (QExpr Sqlite s)
-    b' mnr = Block
-      { _block_id = default_
-      , _block_creationTime = val_ $ _block_creationTime b
-      , _block_chainId = val_ $ _block_chainId b
-      , _block_height = val_ $ _block_height b
-      , _block_hash = val_ $ _block_hash b
-      , _block_powHash = val_ $ _block_powHash b
-      , _block_target = val_ $ _block_target b
-      , _block_weight = val_ $ _block_weight b
-      , _block_epochStart = val_ $ _block_epochStart b
-      , _block_nonce = val_ $ _block_nonce b
-      , _block_miner = val_ $ pk mnr }
-
-    t' :: BlockT (QExpr Sqlite s) -> Transaction -> TransactionT (QExpr Sqlite s)
+    t' :: Block -> Transaction -> TransactionT (QExpr Sqlite s)
     t' blk t = Transaction
       { _transaction_id = default_
       , _transaction_chainId = val_ $ _transaction_chainId t
-      , _transaction_block = pk blk
+      , _transaction_block = val_ $ pk blk
       , _transaction_creationTime = val_ $ _transaction_creationTime t
       , _transaction_ttl = val_ $ _transaction_ttl t
       , _transaction_gasLimit = val_ $ _transaction_gasLimit t
@@ -127,17 +102,13 @@ lookups m u v h = runMaybeT $ do
   pure $ Quad pl bl mi ts
 
 miner :: BlockPayload -> Miner
-miner pl = Miner
-  { _miner_id = 0
-  , _miner_account = acc
-  , _miner_pred = prd }
+miner pl = Miner acc prd
   where
     MinerData acc prd _ = _blockPayload_minerData pl
 
 block :: Header -> Miner -> Block
 block h m = Block
-  { _block_id = 0
-  , _block_creationTime = _header_creationTime h
+  { _block_creationTime = _header_creationTime h
   , _block_chainId = _header_chainId h
   , _block_height = _header_height h
   , _block_hash = _header_hash h
