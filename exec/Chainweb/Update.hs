@@ -72,26 +72,9 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
     Just _ -> pure ()
     Nothing -> runInsert . insert (miners database) $ insertValues [m]
   -- Write the Block --
-  runInsert
-    $ insert (blocks database)
-    $ insertValues [b]
+  runInsert $ insert (blocks database) $ insertValues [b]
   -- Write the Transactions --
-  runInsert
-    $ insert (transactions database)
-    $ insertExpressions
-    $ map (t' b) ts
-  where
-    t' :: Block -> Transaction -> TransactionT (QExpr Sqlite s)
-    t' blk t = Transaction
-      { _transaction_id = default_
-      , _transaction_chainId = val_ $ _transaction_chainId t
-      , _transaction_block = val_ $ pk blk
-      , _transaction_creationTime = val_ $ _transaction_creationTime t
-      , _transaction_ttl = val_ $ _transaction_ttl t
-      , _transaction_gasLimit = val_ $ _transaction_gasLimit t
-      , _transaction_sender = val_ $ _transaction_sender t
-      , _transaction_nonce = val_ $ _transaction_nonce t
-      , _transaction_requestKey = val_ $ _transaction_requestKey t }
+  runInsert $ insert (transactions database) $ insertValues ts
 
 lookups :: Manager -> Url -> ChainwebVersion -> Header -> IO (Maybe Quad)
 lookups m u v h = runMaybeT $ do
@@ -121,8 +104,7 @@ block h m = Block
 
 transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction
-  { _transaction_id = 0
-  , _transaction_chainId = _block_chainId b
+  { _transaction_chainId = _block_chainId b
   , _transaction_block = pk b
   , _transaction_creationTime = floor $ _chainwebMeta_creationTime mta
   , _transaction_ttl = _chainwebMeta_ttl mta
