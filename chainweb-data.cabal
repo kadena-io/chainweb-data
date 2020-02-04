@@ -71,4 +71,5 @@ executable chainweb-data
     Chainweb.Database
     Chainweb.Env
     Chainweb.New
+    Chainweb.Types
     Chainweb.Update
