@@ -22,16 +22,16 @@ import qualified Streaming.Prelude as SP
 ingest :: Env -> IO ()
 ingest (Env m c u _) = withEvents (req u) m
   $ SP.mapM_ (\bh -> f bh >> h bh)
-  . dataOnly @HeaderWithPow
+  . dataOnly @PowHeader
   where
-    f :: HeaderWithPow -> IO ()
+    f :: PowHeader -> IO ()
     f bh = runBeamSqlite c
       . runInsert
       . insert (headers database)
       $ insertValues [asHeader bh]
 
-    h :: HeaderWithPow -> IO ()
-    h (HeaderWithPow bh _) = printf "Chain %d: %d: %s\n"
+    h :: PowHeader -> IO ()
+    h (PowHeader bh _) = printf "Chain %d: %d: %s\n"
       (unChainId $ _blockHeader_chainId bh)
       (_blockHeader_height bh)
       (hashB64U $ _blockHeader_hash bh)

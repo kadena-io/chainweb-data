@@ -1,15 +1,26 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Chainweb.Backfill where
 
-import BasePrelude
-import Chainweb.Env (Env(..))
-import ChainwebDb.Types.DbHash
+import           BasePrelude hiding (insert)
+import           Chainweb.Api.ChainId (ChainId(..))
+import           Chainweb.Database
+import           Chainweb.Env
+import           Chainweb.Types
+import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.DbHash
+import           ChainwebDb.Types.Header
+import           Control.Scheduler (Comp(..), traverseConcurrently_)
+import           Data.Aeson (decode')
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import           Database.Beam
+import           Database.Beam.Sqlite
+import           Network.HTTP.Client hiding (Proxy)
 
 ---
 
 newtype Parent = Parent DbHash
-
-backfill :: Env -> IO ()
-backfill _ = putStrLn "Not implemented."
 
 {-
 
@@ -21,5 +32,39 @@ backfill _ = putStrLn "Not implemented."
 
 -}
 
-work :: Env -> Parent -> IO ()
-work = undefined
+backfill :: Env -> IO ()
+backfill e@(Env _ c _ _) = do
+  bs <- runBeamSqlite c . runSelectReturningList . select . all_ $ blocks database
+  traverseConcurrently_ Par' f bs
+  where
+    f :: Block -> IO ()
+    f b = work e (Parent $ _block_parent b) (ChainId $ _block_chainId b)
+
+-- | If necessary, fetch a parent Header and write it to the work queue.
+work :: Env -> Parent -> ChainId -> IO ()
+work e@(Env _ c _ _) p@(Parent h) cid = inBlocks >>= \case
+  Just _ -> pure ()
+  Nothing -> inQueue >>= \case
+    Just _ -> pure ()
+    Nothing -> parent e p cid >>= \case
+      Nothing -> T.putStrLn $ "[FAIL] Couldn't fetch parent: " <> unDbHash h
+      Just hd -> do
+        runBeamSqlite c . runInsert . insert (headers database) $ insertValues [hd]
+        T.putStrLn $ "[OKAY] Queued new parent: " <> unDbHash h
+        work e (Parent $ _header_parent hd) cid
+  where
+    inBlocks = runBeamSqlite c . runSelectReturningOne $ lookup_ (blocks database) (BlockId h)
+    inQueue = runBeamSqlite c . runSelectReturningOne $ lookup_ (headers database) (HeaderId h)
+
+--------------------------------------------------------------------------------
+-- Endpoints
+
+-- | Fetch a parent header.
+parent :: Env -> Parent -> ChainId -> IO (Maybe Header)
+parent (Env m _ (Url u) (ChainwebVersion v)) (Parent (DbHash hsh)) (ChainId cid) = do
+  req <- parseRequest url
+  res <- httpLbs req m
+  pure . fmap asHeader . decode' $ responseBody res
+  where
+    url = "https://" <> u <> T.unpack query
+    query = "/chainweb/0.0/" <> v <> "/chain/" <> T.pack (show cid) <> "/header/" <> hsh <> "/pow"

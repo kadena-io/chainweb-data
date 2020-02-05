@@ -16,6 +16,8 @@ import Options.Applicative
 
 ---
 
+-- Note: The `bracket` here catches exceptions (including Ctrl+C) and safely
+-- closes the connection to the database.
 main :: IO ()
 main = do
   Args c (DBPath d) u v <- execParser opts

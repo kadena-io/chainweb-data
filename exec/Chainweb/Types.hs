@@ -3,7 +3,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Chainweb.Types
-  ( HeaderWithPow(..)
+  ( PowHeader(..)
   , asHeader
   ) where
 
@@ -14,7 +14,7 @@ import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           ChainwebDb.Types.Header
-import           Data.Aeson (ToJSON(..), Value, decode', object)
+import           Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import           Lens.Micro ((^?))
@@ -23,19 +23,26 @@ import           Network.Wai.EventSource.Streaming
 
 ---
 
-data HeaderWithPow = HeaderWithPow
+-- TODO No this needs to live in `chainweb-api` as `RichHeader`.
+
+data PowHeader = PowHeader
   { _hwp_header :: BlockHeader
   , _hwp_powHash :: T.Text }
 
-instance FromEvent HeaderWithPow where
+instance FromEvent PowHeader where
   fromEvent bs = do
     hu <- decode' @Value $ BL.fromStrict bs
-    HeaderWithPow
+    PowHeader
       <$> (hu ^? key "header"  . _JSON)
       <*> (hu ^? key "powHash" . _JSON)
 
-asHeader :: HeaderWithPow -> Header
-asHeader (HeaderWithPow bh ph) = Header
+instance FromJSON PowHeader where
+    parseJSON = withObject "PowHeader" $ \v -> PowHeader
+        <$> v .: "header"
+        <*> v .: "powHash"
+
+asHeader :: PowHeader -> Header
+asHeader (PowHeader bh ph) = Header
   { _header_creationTime = floor $ _blockHeader_creationTime bh
   , _header_chainId      = unChainId $ _blockHeader_chainId bh
   , _header_height       = _blockHeader_height bh

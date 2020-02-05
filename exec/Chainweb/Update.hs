@@ -87,6 +87,7 @@ block h m = Block
   , _block_chainId = _header_chainId h
   , _block_height = _header_height h
   , _block_hash = _header_hash h
+  , _block_parent = _header_parent h
   , _block_powHash = _header_powHash h
   , _block_target = _header_target h
   , _block_weight = _header_weight h
