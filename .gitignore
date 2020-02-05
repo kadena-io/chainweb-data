@@ -2,3 +2,5 @@
 dist*
 *.swp
 *.dump-hi
+.stylish-haskell.yaml
+*.db

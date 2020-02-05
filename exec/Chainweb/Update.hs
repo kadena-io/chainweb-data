@@ -13,12 +13,13 @@ import           Chainweb.Api.MinerData
 import           Chainweb.Api.PactCommand
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Database
-import           Chainweb.Env (ChainwebVersion(..), Url(..))
+import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
 import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
+import           Control.Concurrent.STM.TVar
 import           Control.Monad.Trans.Maybe
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Aeson (decode')
@@ -34,21 +35,22 @@ import           Network.HTTP.Client hiding (Proxy)
 -- | A wrapper to massage some types below.
 data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 
-updates :: Manager -> Connection -> Url -> ChainwebVersion -> IO ()
-updates m c u v = do
+updates :: Env -> IO ()
+updates e@(Env _ c _ _) = do
   hs <- runBeamSqlite c . runSelectReturningList $ select prd
-  traverseConcurrently_ Par' (\h -> lookups m u v h >>= writes c h) hs
+  cn <- newTVarIO 0
+  traverseConcurrently_ Par' (\h -> lookups e h >>= writes cn c h) hs
   where
     prd = all_ $ headers database
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: Connection -> Header -> Maybe Quad -> IO ()
-writes c h (Just q) = writes' c h q >> T.putStrLn ("[OKAY] " <> unDbHash (_header_hash h))
-writes _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
+writes :: TVar Int -> Connection -> Header -> Maybe Quad -> IO ()
+writes cn c h (Just q) = writes' cn c h q
+writes _ _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
 
-writes' :: Connection -> Header -> Quad -> IO ()
-writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
+writes' :: TVar Int -> Connection -> Header -> Quad -> IO ()
+writes' cn c h (Quad _ b m ts) = runBeamSqlite c $ do
   -- Remove the Header from the work queue --
   runDelete
     $ delete (headers database)
@@ -67,10 +69,12 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
     Nothing -> do
       runInsert . insert (blocks database) $ insertValues [b]
       runInsert . insert (transactions database) $ insertValues ts
+      cnt <- liftIO . atomically $ modifyTVar' cn (+ 1) >> readTVar cn
+      liftIO . T.putStrLn $ "[OKAY] " <> unDbHash (_header_hash h) <> " " <> T.pack (show cnt)
 
-lookups :: Manager -> Url -> ChainwebVersion -> Header -> IO (Maybe Quad)
-lookups m u v h = runMaybeT $ do
-  pl <- MaybeT $ payload m u v h
+lookups :: Env -> Header -> IO (Maybe Quad)
+lookups e h = runMaybeT $ do
+  pl <- MaybeT $ payload e h
   let !mi = miner pl
       !bl = block h mi
       !ts = map (transaction bl) $ _blockPayload_transactions pl
@@ -87,6 +91,7 @@ block h m = Block
   , _block_chainId = _header_chainId h
   , _block_height = _header_height h
   , _block_hash = _header_hash h
+  , _block_parent = _header_parent h
   , _block_powHash = _header_powHash h
   , _block_target = _header_target h
   , _block_weight = _header_weight h
@@ -112,8 +117,8 @@ transaction b tx = Transaction
 --------------------------------------------------------------------------------
 -- Endpoints
 
-payload :: Manager -> Url -> ChainwebVersion -> Header -> IO (Maybe BlockPayload)
-payload m (Url u) (ChainwebVersion v) h = do
+payload :: Env -> Header -> IO (Maybe BlockPayload)
+payload (Env m _ (Url u) (ChainwebVersion v)) h = do
   req <- parseRequest url
   res <- httpLbs req m
   pure . decode' $ responseBody res

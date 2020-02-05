@@ -24,6 +24,7 @@ data BlockT f = Block
   , _block_chainId :: C f Int
   , _block_height :: C f Int
   , _block_hash :: C f DbHash
+  , _block_parent :: C f DbHash
   , _block_powHash :: C f DbHash
   , _block_target :: C f DbHash
   , _block_weight :: C f DbHash
@@ -38,6 +39,7 @@ Block
   (LensFor block_chainId)
   (LensFor block_height)
   (LensFor block_hash)
+  (LensFor block_parent)
   (LensFor block_powHash)
   (LensFor block_target)
   (LensFor block_weight)
