@@ -10,6 +10,7 @@ import           Chainweb.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
+import           Control.Concurrent.STM.TVar
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Aeson (decode')
 import qualified Data.Text as T
@@ -35,14 +36,15 @@ newtype Parent = Parent DbHash
 backfill :: Env -> IO ()
 backfill e@(Env _ c _ _) = do
   bs <- runBeamSqlite c . runSelectReturningList . select . all_ $ blocks database
-  traverseConcurrently_ Par' f bs
+  cn <- newTVarIO 0
+  traverseConcurrently_ Par' (f cn) bs
   where
-    f :: Block -> IO ()
-    f b = work e (Parent $ _block_parent b) (ChainId $ _block_chainId b)
+    f :: TVar Int -> Block -> IO ()
+    f cn b = work e cn (Parent $ _block_parent b) (ChainId $ _block_chainId b)
 
 -- | If necessary, fetch a parent Header and write it to the work queue.
-work :: Env -> Parent -> ChainId -> IO ()
-work e@(Env _ c _ _) p@(Parent h) cid = inBlocks >>= \case
+work :: Env -> TVar Int -> Parent -> ChainId -> IO ()
+work e@(Env _ c _ _) cn p@(Parent h) cid = inBlocks >>= \case
   Just _ -> pure ()
   Nothing -> inQueue >>= \case
     Just _ -> pure ()
@@ -50,8 +52,9 @@ work e@(Env _ c _ _) p@(Parent h) cid = inBlocks >>= \case
       Nothing -> T.putStrLn $ "[FAIL] Couldn't fetch parent: " <> unDbHash h
       Just hd -> do
         runBeamSqlite c . runInsert . insert (headers database) $ insertValues [hd]
-        T.putStrLn $ "[OKAY] Queued new parent: " <> unDbHash h
-        work e (Parent $ _header_parent hd) cid
+        count <- atomically $ modifyTVar' cn (+ 1) >> readTVar cn
+        T.putStrLn $ "[OKAY] Queued new parent: " <> unDbHash h <> " " <> T.pack (show count)
+        work e cn (Parent $ _header_parent hd) cid
   where
     inBlocks = runBeamSqlite c . runSelectReturningOne $ lookup_ (blocks database) (BlockId h)
     inQueue = runBeamSqlite c . runSelectReturningOne $ lookup_ (headers database) (HeaderId h)
