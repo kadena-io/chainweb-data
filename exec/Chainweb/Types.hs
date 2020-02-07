@@ -5,10 +5,11 @@
 module Chainweb.Types
   ( PowHeader(..)
   , asHeader
+  , asPow
   ) where
 
 import           BasePrelude
-import           Chainweb.Api.BlockHeader (BlockHeader(..))
+import           Chainweb.Api.BlockHeader (BlockHeader(..), powHash)
 import           Chainweb.Api.BytesLE
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
@@ -23,8 +24,6 @@ import           Network.Wai.EventSource.Streaming
 
 ---
 
--- TODO No this needs to live in `chainweb-api` as `RichHeader`.
-
 data PowHeader = PowHeader
   { _hwp_header :: BlockHeader
   , _hwp_powHash :: T.Text }
@@ -36,10 +35,8 @@ instance FromEvent PowHeader where
       <$> (hu ^? key "header"  . _JSON)
       <*> (hu ^? key "powHash" . _JSON)
 
-instance FromJSON PowHeader where
-    parseJSON = withObject "PowHeader" $ \v -> PowHeader
-        <$> v .: "header"
-        <*> v .: "powHash"
+asPow :: BlockHeader -> PowHeader
+asPow bh = PowHeader bh (hashB64U $ powHash bh)
 
 asHeader :: PowHeader -> Header
 asHeader (PowHeader bh ph) = Header

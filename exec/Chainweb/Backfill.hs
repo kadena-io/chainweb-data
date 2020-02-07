@@ -1,8 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Chainweb.Backfill where
+module Chainweb.Backfill ( backfill ) where
 
 import           BasePrelude hiding (insert)
+import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Database
 import           Chainweb.Env
@@ -11,8 +12,9 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
 import           Control.Concurrent.STM.TVar
+import           Control.Error.Util (hush)
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
-import           Data.Aeson (decode')
+import           Data.Serialize (runGetLazy)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam
@@ -66,8 +68,9 @@ work e@(Env _ c _ _) cn p@(Parent h) cid = inBlocks >>= \case
 parent :: Env -> Parent -> ChainId -> IO (Maybe Header)
 parent (Env m _ (Url u) (ChainwebVersion v)) (Parent (DbHash hsh)) (ChainId cid) = do
   req <- parseRequest url
-  res <- httpLbs req m
-  pure . fmap asHeader . decode' $ responseBody res
+  res <- httpLbs (req { requestHeaders = requestHeaders req <> octet }) m
+  pure . hush . fmap (asHeader . asPow) . runGetLazy decodeBlockHeader $ responseBody res
   where
     url = "https://" <> u <> T.unpack query
-    query = "/chainweb/0.0/" <> v <> "/chain/" <> T.pack (show cid) <> "/header/" <> hsh <> "/pow"
+    query = "/chainweb/0.0/" <> v <> "/chain/" <> T.pack (show cid) <> "/header/" <> hsh
+    octet = [("accept", "application/octet-stream")]
