@@ -55,7 +55,11 @@ work e@(Env _ c _ _) cn p@(Parent h) cid = inBlocks >>= \case
       Just hd -> do
         runBeamSqlite c . runInsert . insert (headers database) $ insertValues [hd]
         count <- atomically $ modifyTVar' cn (+ 1) >> readTVar cn
-        T.putStrLn $ "[OKAY] Queued new parent: " <> unDbHash h <> " " <> T.pack (show count)
+        liftIO $ printf "[OKAY] Chain %d: %d: %s: %d\n"
+          (_header_chainId hd)
+          (_header_height hd)
+          (unDbHash $ _header_hash hd)
+          count
         work e cn (Parent $ _header_parent hd) cid
   where
     inBlocks = runBeamSqlite c . runSelectReturningOne $ lookup_ (blocks database) (BlockId h)
