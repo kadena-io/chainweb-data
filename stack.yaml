@@ -5,4 +5,4 @@ ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 extra-deps:
   - streaming-events-1.0.1
   - github: kadena-io/chainweb-api
-    commit: 0ebb4dfa66a35868af3f4c9a8eed992af0aedec3
+    commit: 5ff81646fca933024653cae3101f81c03c7f19d8
