@@ -54,7 +54,9 @@ executable chainweb-data
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     , bytestring            ^>=0.10
+    , cereal                ^>=0.5
     , chainweb-data
+    , errors                ^>=2.3
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , microlens             ^>=0.4

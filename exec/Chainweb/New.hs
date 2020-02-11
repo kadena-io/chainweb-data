@@ -31,7 +31,7 @@ ingest (Env m c u _) = withEvents (req u) m
       $ insertValues [asHeader bh]
 
     h :: PowHeader -> IO ()
-    h (PowHeader bh _) = printf "Chain %d: %d: %s\n"
+    h (PowHeader bh _) = printf "[OKAY] Chain %d: %d: %s\n"
       (unChainId $ _blockHeader_chainId bh)
       (_blockHeader_height bh)
       (hashB64U $ _blockHeader_hash bh)

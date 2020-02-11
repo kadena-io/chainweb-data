@@ -19,7 +19,6 @@ import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
 import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
-import           Control.Concurrent.STM.TVar
 import           Control.Monad.Trans.Maybe
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Aeson (decode')
@@ -38,19 +37,18 @@ data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 updates :: Env -> IO ()
 updates e@(Env _ c _ _) = do
   hs <- runBeamSqlite c . runSelectReturningList $ select prd
-  cn <- newTVarIO 0
-  traverseConcurrently_ Par' (\h -> lookups e h >>= writes cn c h) hs
+  traverseConcurrently_ (ParN 8) (\h -> lookups e h >>= writes c h) hs
   where
     prd = all_ $ headers database
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: TVar Int -> Connection -> Header -> Maybe Quad -> IO ()
-writes cn c h (Just q) = writes' cn c h q
-writes _ _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
+writes :: Connection -> Header -> Maybe Quad -> IO ()
+writes c h (Just q) = writes' c h q
+writes _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
 
-writes' :: TVar Int -> Connection -> Header -> Quad -> IO ()
-writes' cn c h (Quad _ b m ts) = runBeamSqlite c $ do
+writes' :: Connection -> Header -> Quad -> IO ()
+writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
   -- Remove the Header from the work queue --
   runDelete
     $ delete (headers database)
@@ -69,8 +67,10 @@ writes' cn c h (Quad _ b m ts) = runBeamSqlite c $ do
     Nothing -> do
       runInsert . insert (blocks database) $ insertValues [b]
       runInsert . insert (transactions database) $ insertValues ts
-      cnt <- liftIO . atomically $ modifyTVar' cn (+ 1) >> readTVar cn
-      liftIO . T.putStrLn $ "[OKAY] " <> unDbHash (_header_hash h) <> " " <> T.pack (show cnt)
+      liftIO $ printf "[OKAY] Chain %d: %d: %s\n"
+        (_block_chainId b)
+        (_block_height b)
+        (unDbHash $ _block_hash b)
 
 lookups :: Env -> Header -> IO (Maybe Quad)
 lookups e h = runMaybeT $ do

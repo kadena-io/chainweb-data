@@ -23,6 +23,7 @@ main = do
   Args c (DBPath d) u v <- execParser opts
   bracket (open d) close $ \conn -> do
     initializeTables conn
+    putStrLn "DB Tables Initialized"
     m <- newManager tlsManagerSettings
     let !env = Env m conn u v
     case c of

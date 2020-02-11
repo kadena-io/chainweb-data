@@ -1,8 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Chainweb.Backfill where
+module Chainweb.Backfill ( backfill ) where
 
 import           BasePrelude hiding (insert)
+import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Database
 import           Chainweb.Env
@@ -10,9 +11,9 @@ import           Chainweb.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
-import           Control.Concurrent.STM.TVar
+import           Control.Error.Util (hush)
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
-import           Data.Aeson (decode')
+import           Data.Serialize (runGetLazy)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam
@@ -36,15 +37,14 @@ newtype Parent = Parent DbHash
 backfill :: Env -> IO ()
 backfill e@(Env _ c _ _) = do
   bs <- runBeamSqlite c . runSelectReturningList . select . all_ $ blocks database
-  cn <- newTVarIO 0
-  traverseConcurrently_ Par' (f cn) bs
+  traverseConcurrently_ (ParN 10) f bs
   where
-    f :: TVar Int -> Block -> IO ()
-    f cn b = work e cn (Parent $ _block_parent b) (ChainId $ _block_chainId b)
+    f :: Block -> IO ()
+    f b = work e (Parent $ _block_parent b) (ChainId $ _block_chainId b)
 
 -- | If necessary, fetch a parent Header and write it to the work queue.
-work :: Env -> TVar Int -> Parent -> ChainId -> IO ()
-work e@(Env _ c _ _) cn p@(Parent h) cid = inBlocks >>= \case
+work :: Env -> Parent -> ChainId -> IO ()
+work e@(Env _ c _ _) p@(Parent h) cid = inBlocks >>= \case
   Just _ -> pure ()
   Nothing -> inQueue >>= \case
     Just _ -> pure ()
@@ -52,9 +52,11 @@ work e@(Env _ c _ _) cn p@(Parent h) cid = inBlocks >>= \case
       Nothing -> T.putStrLn $ "[FAIL] Couldn't fetch parent: " <> unDbHash h
       Just hd -> do
         runBeamSqlite c . runInsert . insert (headers database) $ insertValues [hd]
-        count <- atomically $ modifyTVar' cn (+ 1) >> readTVar cn
-        T.putStrLn $ "[OKAY] Queued new parent: " <> unDbHash h <> " " <> T.pack (show count)
-        work e cn (Parent $ _header_parent hd) cid
+        liftIO $ printf "[OKAY] Chain %d: %d: %s\n"
+          (_header_chainId hd)
+          (_header_height hd)
+          (unDbHash $ _header_hash hd)
+        work e (Parent $ _header_parent hd) cid
   where
     inBlocks = runBeamSqlite c . runSelectReturningOne $ lookup_ (blocks database) (BlockId h)
     inQueue = runBeamSqlite c . runSelectReturningOne $ lookup_ (headers database) (HeaderId h)
@@ -66,8 +68,9 @@ work e@(Env _ c _ _) cn p@(Parent h) cid = inBlocks >>= \case
 parent :: Env -> Parent -> ChainId -> IO (Maybe Header)
 parent (Env m _ (Url u) (ChainwebVersion v)) (Parent (DbHash hsh)) (ChainId cid) = do
   req <- parseRequest url
-  res <- httpLbs req m
-  pure . fmap asHeader . decode' $ responseBody res
+  res <- httpLbs (req { requestHeaders = requestHeaders req <> octet }) m
+  pure . hush . fmap (asHeader . asPow) . runGetLazy decodeBlockHeader $ responseBody res
   where
     url = "https://" <> u <> T.unpack query
-    query = "/chainweb/0.0/" <> v <> "/chain/" <> T.pack (show cid) <> "/header/" <> hsh <> "/pow"
+    query = "/chainweb/0.0/" <> v <> "/chain/" <> T.pack (show cid) <> "/header/" <> hsh
+    octet = [("accept", "application/octet-stream")]
