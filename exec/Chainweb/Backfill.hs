@@ -11,7 +11,6 @@ import           Chainweb.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
-import           Control.Concurrent.STM.TVar
 import           Control.Error.Util (hush)
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Serialize (runGetLazy)
@@ -38,15 +37,14 @@ newtype Parent = Parent DbHash
 backfill :: Env -> IO ()
 backfill e@(Env _ c _ _) = do
   bs <- runBeamSqlite c . runSelectReturningList . select . all_ $ blocks database
-  cn <- newTVarIO 0
-  traverseConcurrently_ Par' (f cn) bs
+  traverseConcurrently_ (ParN 10) f bs
   where
-    f :: TVar Int -> Block -> IO ()
-    f cn b = work e cn (Parent $ _block_parent b) (ChainId $ _block_chainId b)
+    f :: Block -> IO ()
+    f b = work e (Parent $ _block_parent b) (ChainId $ _block_chainId b)
 
 -- | If necessary, fetch a parent Header and write it to the work queue.
-work :: Env -> TVar Int -> Parent -> ChainId -> IO ()
-work e@(Env _ c _ _) cn p@(Parent h) cid = inBlocks >>= \case
+work :: Env -> Parent -> ChainId -> IO ()
+work e@(Env _ c _ _) p@(Parent h) cid = inBlocks >>= \case
   Just _ -> pure ()
   Nothing -> inQueue >>= \case
     Just _ -> pure ()
@@ -54,13 +52,11 @@ work e@(Env _ c _ _) cn p@(Parent h) cid = inBlocks >>= \case
       Nothing -> T.putStrLn $ "[FAIL] Couldn't fetch parent: " <> unDbHash h
       Just hd -> do
         runBeamSqlite c . runInsert . insert (headers database) $ insertValues [hd]
-        count <- atomically $ modifyTVar' cn (+ 1) >> readTVar cn
-        liftIO $ printf "[OKAY] Chain %d: %d: %s: %d\n"
+        liftIO $ printf "[OKAY] Chain %d: %d: %s\n"
           (_header_chainId hd)
           (_header_height hd)
           (unDbHash $ _header_hash hd)
-          count
-        work e cn (Parent $ _header_parent hd) cid
+        work e (Parent $ _header_parent hd) cid
   where
     inBlocks = runBeamSqlite c . runSelectReturningOne $ lookup_ (blocks database) (BlockId h)
     inQueue = runBeamSqlite c . runSelectReturningOne $ lookup_ (headers database) (HeaderId h)
