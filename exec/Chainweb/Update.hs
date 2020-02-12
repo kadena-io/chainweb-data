@@ -27,6 +27,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
+import qualified Database.Beam.Postgres.Full as PG
 import           Network.HTTP.Client hiding (Proxy)
 
 ---
@@ -54,24 +55,22 @@ writes' c h (Quad _ b m ts) = runBeamPostgres c $ do
     $ delete (headers database)
     (\x -> _header_hash x ==. val_ (_header_hash h))
   -- Write the Miner if unique --
-  alreadyMined <- runSelectReturningOne
-    $ lookup_ (miners database) (MinerId $ _miner_account m)
-  case alreadyMined of
-    Just _ -> pure ()
-    Nothing -> runInsert . insert (miners database) $ insertValues [m]
-  -- Write the Block and TXs if unique --
-  alreadyIn <- runSelectReturningOne
-    $ lookup_ (blocks database) (BlockId $ _block_hash b)
-  case alreadyIn of
-    Just _ -> liftIO . T.putStrLn $ "[WARN] Block already in DB: " <> unDbHash (_block_hash b)
-    Nothing -> do
-      runInsert . insert (blocks database) $ insertValues [b]
-      runInsert . insert (transactions database) $ insertValues ts
-      liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
-        (_block_chainId b)
-        (_block_height b)
-        (unDbHash $ _block_hash b)
-        (map (const '.') ts)
+  runInsert
+    $ PG.insert (miners database) (insertValues [m])
+    $ PG.onConflict (PG.conflictingFields primaryKey) PG.onConflictDoNothing
+  -- Write the Block if unique --
+  runInsert
+    $ PG.insert (blocks database) (insertValues [b])
+    $ PG.onConflict (PG.conflictingFields primaryKey) PG.onConflictDoNothing
+  -- Write the TXs if unique --
+  runInsert
+    $ PG.insert (transactions database) (insertValues ts)
+    $ PG.onConflict (PG.conflictingFields primaryKey) PG.onConflictDoNothing
+  liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
+    (_block_chainId b)
+    (_block_height b)
+    (unDbHash $ _block_hash b)
+    (map (const '.') ts)
 
 lookups :: Env -> Header -> IO (Maybe Quad)
 lookups e h = runMaybeT $ do
