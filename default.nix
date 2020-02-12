@@ -24,6 +24,13 @@ let gitignoreSrc = pkgs.fetchFromGitHub {
       sha256 = "0ml5aa88rq5g9zaw9wi1v83na1y9v7x3hj9qnp9k1i288cbdyj2r";
     };
 
+    gargoyle-src = pkgs.fetchFromGitHub {
+      owner = "obsidiansystems";
+      repo = "gargoyle";
+      rev = "48ddcca4e977c69ace9b7a67cb2054600c30f8ca";
+      sha256 = "0209vy4n5isqdpg9zdmfs1irnsy1b0wrybn9yfhjgab7c82whcvj";
+    };
+
 in
 pkgs.haskell.packages.${compiler}.developPackage {
   name = builtins.baseNameOf ./.;
@@ -82,6 +89,9 @@ pkgs.haskell.packages.${compiler}.developPackage {
       rev = "0792df840e49821f60a8e6e5a1cdc6c5862137a1";
       sha256 = "0r1b0fch6dcxnhlpdmdbqgdy7y6gi71ggvwk9l7fn9v77vd86q05";
     };
+
+    gargoyle = "${gargoyle-src}/gargoyle";
+    gargoyle-postgresql = "${gargoyle-src}/gargoyle-postgresql";
 
     streaming-events = pkgs.fetchFromGitHub {
       owner = "kadena-io";

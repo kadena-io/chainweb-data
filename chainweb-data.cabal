@@ -57,6 +57,8 @@ executable chainweb-data
     , cereal                ^>=0.5
     , chainweb-data
     , errors                ^>=2.3
+    , gargoyle
+    , gargoyle-postgresql
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , microlens             ^>=0.4
