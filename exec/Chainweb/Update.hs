@@ -11,6 +11,7 @@ import           Chainweb.Api.ChainwebMeta
 import           Chainweb.Api.Hash
 import           Chainweb.Api.MinerData
 import           Chainweb.Api.PactCommand
+import           Chainweb.Api.Payload
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Database
 import           Chainweb.Env
@@ -67,10 +68,11 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
     Nothing -> do
       runInsert . insert (blocks database) $ insertValues [b]
       runInsert . insert (transactions database) $ insertValues ts
-      liftIO $ printf "[OKAY] Chain %d: %d: %s\n"
+      liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
         (_block_chainId b)
         (_block_height b)
         (unDbHash $ _block_hash b)
+        (map (const '.') ts)
 
 lookups :: Env -> Header -> IO (Maybe Quad)
 lookups e h = runMaybeT $ do
@@ -101,18 +103,30 @@ block h m = Block
 
 transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction
-  { _transaction_chainId = _block_chainId b
-  , _transaction_block = pk b
-  , _transaction_creationTime = floor $ _chainwebMeta_creationTime mta
-  , _transaction_ttl = _chainwebMeta_ttl mta
-  , _transaction_gasLimit = _chainwebMeta_gasLimit mta
-  -- , _transaction_gasPrice = _chainwebMeta_gasPrice mta
-  , _transaction_sender = _chainwebMeta_sender mta
-  , _transaction_nonce = _pactCommand_nonce cmd
-  , _transaction_requestKey = hashB64U $ CW._transaction_hash tx }
+  { _tx_chainId = _block_chainId b
+  , _tx_block = pk b
+  , _tx_creationTime = floor $ _chainwebMeta_creationTime mta
+  , _tx_ttl = _chainwebMeta_ttl mta
+  , _tx_gasLimit = _chainwebMeta_gasLimit mta
+  -- , _tx_gasPrice = _chainwebMeta_gasPrice mta
+  , _tx_sender = _chainwebMeta_sender mta
+  , _tx_nonce = _pactCommand_nonce cmd
+  , _tx_requestKey = hashB64U $ CW._transaction_hash tx
+  , _tx_code = _exec_code <$> exc
+  , _tx_pactId = _cont_pactId <$> cnt
+  , _tx_rollback = _cont_rollback <$> cnt
+  , _tx_step = _cont_step <$> cnt
+  , _tx_proof = _cont_proof <$> cnt }
   where
     cmd = CW._transaction_cmd tx
     mta = _pactCommand_meta cmd
+    pay = _pactCommand_payload cmd
+    exc = case pay of
+      ExecPayload e -> Just e
+      ContPayload _ -> Nothing
+    cnt = case pay of
+      ExecPayload _ -> Nothing
+      ContPayload c -> Just c
 
 --------------------------------------------------------------------------------
 -- Endpoints

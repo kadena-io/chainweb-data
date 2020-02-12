@@ -43,7 +43,7 @@ envP = Args
 
 commands :: Parser Command
 commands = subparser
-  (  command "new"    (info (pure New)      (progDesc "Start the analysis server"))
+  (  command "new"    (info (pure New)      (progDesc "Pull new work from a Header stream"))
   <> command "update" (info (pure Update)   (progDesc "Process all queued Header data"))
-  <> command "old"    (info (pure Backfill) (progDesc "Backfill all missing Blocks"))
+  <> command "old"    (info (pure Backfill) (progDesc "Backfill all missing data"))
   )
