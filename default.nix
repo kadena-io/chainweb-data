@@ -51,13 +51,20 @@ pkgs.haskell.packages.${compiler}.developPackage {
     # Get a specific hackage version straight from hackage. Unlike the above
     # callHackage approach, this will always succeed if the version is on
     # hackage. The downside is that you have to specify the hash manually.
-    # aeson = callHackageDirect {
-    #   pkg = "aeson";
-    #   ver = "1.4.2.0";
-    #   sha256 = "0qcczw3l596knj9s4ha07wjspd9wkva0jv4734sv3z3vdad5piqh";
-    # };
 
     beam-postgres = dontCheck super.beam-postgres;
+
+    blake2 = callHackageDirect {
+      pkg = "blake2";
+      ver = "0.3.0";
+      sha256 = "0n366qqhz7azh9fgjqvj99b3ni57721a2q5xxlawwmkxrxy36hb2";
+    };
+
+    scheduler = callHackageDirect {
+      pkg = "scheduler";
+      ver = "1.4.2.2";
+      sha256 = "16ljs9sypcc90rnnc4kdqi2y7dm6nri2nvisdy6n17gl7vmvy4vq";
+    };
 
     # To discover more functions that can be used to modify haskell
     # packages, run "nix-repl", type "pkgs.haskell.lib.", then hit
@@ -72,8 +79,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
     chainweb-api = pkgs.fetchFromGitHub {
       owner = "kadena-io";
       repo = "chainweb-api";
-      rev = "07a515e9b5401b73ff59af55b369590273decce7";
-      sha256 = "1jak9b7adydhryfv6znywv7djxddipy1p22g33y88jkc7zrbr568";
+      rev = "0792df840e49821f60a8e6e5a1cdc6c5862137a1";
+      sha256 = "0r1b0fch6dcxnhlpdmdbqgdy7y6gi71ggvwk9l7fn9v77vd86q05";
     };
 
     streaming-events = pkgs.fetchFromGitHub {
