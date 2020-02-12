@@ -68,10 +68,11 @@ writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
     Nothing -> do
       runInsert . insert (blocks database) $ insertValues [b]
       runInsert . insert (transactions database) $ insertValues ts
-      liftIO $ printf "[OKAY] Chain %d: %d: %s\n"
+      liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
         (_block_chainId b)
         (_block_height b)
         (unDbHash $ _block_hash b)
+        (map (const '.') ts)
 
 lookups :: Env -> Header -> IO (Maybe Quad)
 lookups e h = runMaybeT $ do
