@@ -112,7 +112,8 @@ transaction b tx = Transaction
   , _tx_sender = _chainwebMeta_sender mta
   , _tx_nonce = _pactCommand_nonce cmd
   , _tx_requestKey = hashB64U $ CW._transaction_hash tx
-  , _tx_code = payloadCode pay
+  , _tx_code = _exec_code <$> exc
+  , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
   , _tx_step = _cont_step <$> cnt
   , _tx_proof = _cont_proof <$> cnt }
@@ -120,6 +121,9 @@ transaction b tx = Transaction
     cmd = CW._transaction_cmd tx
     mta = _pactCommand_meta cmd
     pay = _pactCommand_payload cmd
+    exc = case pay of
+      ExecPayload e -> Just e
+      ContPayload _ -> Nothing
     cnt = case pay of
       ExecPayload _ -> Nothing
       ContPayload c -> Just c
