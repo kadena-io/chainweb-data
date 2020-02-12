@@ -24,30 +24,42 @@ import ChainwebDb.Types.Block
 
 ------------------------------------------------------------------------------
 data TransactionT f = Transaction
-  { _transaction_chainId :: C f Int
-  , _transaction_block :: PrimaryKey BlockT f
-  , _transaction_creationTime :: C f Int
-  , _transaction_ttl :: C f Int
-  , _transaction_gasLimit :: C f Int
+  { _tx_chainId :: C f Int
+  , _tx_block :: PrimaryKey BlockT f
+  , _tx_creationTime :: C f Int
+  , _tx_ttl :: C f Int
+  , _tx_gasLimit :: C f Int
   -- TODO Reinstate!
   -- See https://github.com/tathougies/beam/issues/431
-  -- , _transaction_gasPrice :: C f Double
-  , _transaction_sender :: C f Text
-  , _transaction_nonce :: C f Text
-  , _transaction_requestKey :: C f Text }
+  -- , _tx_gasPrice :: C f Double
+  , _tx_sender :: C f Text
+  , _tx_nonce :: C f Text
+  , _tx_requestKey :: C f Text
+  , _tx_code :: C f (Maybe Text)
+  , _tx_pactId :: C f (Maybe Text)
+  , _tx_rollback :: C f (Maybe Bool)
+  , _tx_step :: C f (Maybe Int)
+  -- , _tx_data :: C f (Maybe Value)  -- TODO Deal with JSON
+  , _tx_proof :: C f (Maybe Text) }
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
 Transaction
-  (LensFor transsaction_chainId)
-  (BlockId (LensFor transaction_block))
-  (LensFor transaction_creationTime)
-  (LensFor transaction_ttl)
-  (LensFor transaction_gasLimit)
-  -- (LensFor transaction_gasPrice)
-  (LensFor transaction_sender)
-  (LensFor transaction_nonce)
-  (LensFor transaction_requestKey)
+  (LensFor tx_chainId)
+  (BlockId (LensFor tx_block))
+  (LensFor tx_creationTime)
+  (LensFor tx_ttl)
+  (LensFor tx_gasLimit)
+  -- (LensFor tx_gasPrice)
+  (LensFor tx_sender)
+  (LensFor tx_nonce)
+  (LensFor tx_requestKey)
+  (LensFor tx_code)
+  (LensFor tx_pactId)
+  (LensFor tx_rollback)
+  (LensFor tx_step)
+  -- (LensFor tx_data)
+  (LensFor tx_proof)
   = tableLenses
 
 type Transaction = TransactionT Identity
@@ -87,4 +99,4 @@ instance Table TransactionT where
   data PrimaryKey TransactionT f = TransactionId (C f Text)
     deriving stock (Generic)
     deriving anyclass (Beamable)
-  primaryKey = TransactionId . _transaction_requestKey
+  primaryKey = TransactionId . _tx_requestKey
