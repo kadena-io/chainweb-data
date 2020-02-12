@@ -32,7 +32,7 @@ newtype Url = Url String
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
-data Command = New | Update | Backfill
+data Command = Listen | Worker | Backfill
 
 envP :: Parser Args
 envP = Args
@@ -43,7 +43,7 @@ envP = Args
 
 commands :: Parser Command
 commands = subparser
-  (  command "new"    (info (pure New)      (progDesc "Start the analysis server"))
-  <> command "update" (info (pure Update)   (progDesc "Process all queued Header data"))
-  <> command "old"    (info (pure Backfill) (progDesc "Backfill all missing Blocks"))
+  (  command "listen"   (info (pure Listen)   (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
+  <> command "worker"   (info (pure Worker)   (progDesc "New Block Worker - Removes blocks from queue and adds them to DB"))
+  <> command "backfill" (info (pure Backfill) (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
   )
