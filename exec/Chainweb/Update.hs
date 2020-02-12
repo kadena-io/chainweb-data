@@ -101,15 +101,15 @@ block h m = Block
 
 transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction
-  { _transaction_chainId = _block_chainId b
-  , _transaction_block = pk b
-  , _transaction_creationTime = floor $ _chainwebMeta_creationTime mta
-  , _transaction_ttl = _chainwebMeta_ttl mta
-  , _transaction_gasLimit = _chainwebMeta_gasLimit mta
-  -- , _transaction_gasPrice = _chainwebMeta_gasPrice mta
-  , _transaction_sender = _chainwebMeta_sender mta
-  , _transaction_nonce = _pactCommand_nonce cmd
-  , _transaction_requestKey = hashB64U $ CW._transaction_hash tx }
+  { _tx_chainId = _block_chainId b
+  , _tx_block = pk b
+  , _tx_creationTime = floor $ _chainwebMeta_creationTime mta
+  , _tx_ttl = _chainwebMeta_ttl mta
+  , _tx_gasLimit = _chainwebMeta_gasLimit mta
+  -- , _tx_gasPrice = _chainwebMeta_gasPrice mta
+  , _tx_sender = _chainwebMeta_sender mta
+  , _tx_nonce = _pactCommand_nonce cmd
+  , _tx_requestKey = hashB64U $ CW._transaction_hash tx }
   where
     cmd = CW._transaction_cmd tx
     mta = _pactCommand_meta cmd
