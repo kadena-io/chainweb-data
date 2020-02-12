@@ -12,7 +12,7 @@ import           Chainweb.Env
 import           Chainweb.Types
 import qualified Data.ByteString.Char8 as B
 import           Database.Beam
-import           Database.Beam.Sqlite (runBeamSqlite)
+import           Database.Beam.Postgres (runBeamPostgres)
 import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
@@ -25,7 +25,7 @@ ingest (Env m c u _) = withEvents (req u) m
   . dataOnly @PowHeader
   where
     f :: PowHeader -> IO ()
-    f bh = runBeamSqlite c
+    f bh = runBeamPostgres c
       . runInsert
       . insert (headers database)
       $ insertValues [asHeader bh]

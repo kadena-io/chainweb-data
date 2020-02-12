@@ -26,8 +26,7 @@ import           Data.Aeson (decode')
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam
-import           Database.Beam.Sqlite
-import           Database.SQLite.Simple (Connection)
+import           Database.Beam.Postgres (Connection, runBeamPostgres)
 import           Network.HTTP.Client hiding (Proxy)
 
 ---
@@ -37,7 +36,7 @@ data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 
 updates :: Env -> IO ()
 updates e@(Env _ c _ _) = do
-  hs <- runBeamSqlite c . runSelectReturningList $ select prd
+  hs <- runBeamPostgres c . runSelectReturningList $ select prd
   traverseConcurrently_ (ParN 8) (\h -> lookups e h >>= writes c h) hs
   where
     prd = all_ $ headers database
@@ -49,7 +48,7 @@ writes c h (Just q) = writes' c h q
 writes _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
 
 writes' :: Connection -> Header -> Quad -> IO ()
-writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
+writes' c h (Quad _ b m ts) = runBeamPostgres c $ do
   -- Remove the Header from the work queue --
   runDelete
     $ delete (headers database)

@@ -9,7 +9,7 @@ import Chainweb.Env
 import Chainweb.New (ingest)
 import Chainweb.Update (updates)
 import Control.Exception (bracket)
-import Database.SQLite.Simple (close, open)
+import Database.Beam.Postgres (close, connect)
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Options.Applicative
@@ -20,8 +20,8 @@ import Options.Applicative
 -- closes the connection to the database.
 main :: IO ()
 main = do
-  Args c (DBPath d) u v <- execParser opts
-  bracket (open d) close $ \conn -> do
+  Args c (DBPath _) u v <- execParser opts
+  bracket (connect undefined) close $ \conn -> do
     initializeTables conn
     putStrLn "DB Tables Initialized"
     m <- newManager tlsManagerSettings

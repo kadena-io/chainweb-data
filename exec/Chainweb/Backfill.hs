@@ -17,7 +17,7 @@ import           Data.Serialize (runGetLazy)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam
-import           Database.Beam.Sqlite
+import           Database.Beam.Postgres (runBeamPostgres)
 import           Network.HTTP.Client hiding (Proxy)
 
 ---
@@ -36,7 +36,7 @@ newtype Parent = Parent DbHash
 
 backfill :: Env -> IO ()
 backfill e@(Env _ c _ _) = do
-  bs <- runBeamSqlite c . runSelectReturningList . select . all_ $ blocks database
+  bs <- runBeamPostgres c . runSelectReturningList . select . all_ $ blocks database
   traverseConcurrently_ (ParN 10) f bs
   where
     f :: Block -> IO ()
@@ -51,15 +51,15 @@ work e@(Env _ c _ _) p@(Parent h) cid = inBlocks >>= \case
     Nothing -> parent e p cid >>= \case
       Nothing -> T.putStrLn $ "[FAIL] Couldn't fetch parent: " <> unDbHash h
       Just hd -> do
-        runBeamSqlite c . runInsert . insert (headers database) $ insertValues [hd]
+        runBeamPostgres c . runInsert . insert (headers database) $ insertValues [hd]
         liftIO $ printf "[OKAY] Chain %d: %d: %s\n"
           (_header_chainId hd)
           (_header_height hd)
           (unDbHash $ _header_hash hd)
         work e (Parent $ _header_parent hd) cid
   where
-    inBlocks = runBeamSqlite c . runSelectReturningOne $ lookup_ (blocks database) (BlockId h)
-    inQueue = runBeamSqlite c . runSelectReturningOne $ lookup_ (headers database) (HeaderId h)
+    inBlocks = runBeamPostgres c . runSelectReturningOne $ lookup_ (blocks database) (BlockId h)
+    inQueue = runBeamPostgres c . runSelectReturningOne $ lookup_ (headers database) (HeaderId h)
 
 --------------------------------------------------------------------------------
 -- Endpoints

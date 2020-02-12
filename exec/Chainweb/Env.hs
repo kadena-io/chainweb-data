@@ -13,7 +13,7 @@ module Chainweb.Env
 
 import BasePrelude
 import Data.Text (Text)
-import Database.SQLite.Simple (Connection)
+import Database.Beam.Postgres (Connection)
 import Network.HTTP.Client (Manager)
 import Options.Applicative
 
