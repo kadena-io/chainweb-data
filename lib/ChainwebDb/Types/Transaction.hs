@@ -35,6 +35,7 @@ data TransactionT f = Transaction
   , _tx_sender :: C f Text
   , _tx_nonce :: C f Text
   , _tx_requestKey :: C f Text
+  , _tx_code :: C f Text
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -49,6 +50,7 @@ Transaction
   (LensFor tx_sender)
   (LensFor tx_nonce)
   (LensFor tx_requestKey)
+  (LensFor tx_code)
   = tableLenses
 
 type Transaction = TransactionT Identity

@@ -11,6 +11,7 @@ import           Chainweb.Api.ChainwebMeta
 import           Chainweb.Api.Hash
 import           Chainweb.Api.MinerData
 import           Chainweb.Api.PactCommand
+import           Chainweb.Api.Payload
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Database
 import           Chainweb.Env
@@ -109,10 +110,12 @@ transaction b tx = Transaction
   -- , _tx_gasPrice = _chainwebMeta_gasPrice mta
   , _tx_sender = _chainwebMeta_sender mta
   , _tx_nonce = _pactCommand_nonce cmd
-  , _tx_requestKey = hashB64U $ CW._transaction_hash tx }
+  , _tx_requestKey = hashB64U $ CW._transaction_hash tx
+  , _tx_code = payloadCode pay }
   where
     cmd = CW._transaction_cmd tx
     mta = _pactCommand_meta cmd
+    pay = _pactCommand_payload cmd
 
 --------------------------------------------------------------------------------
 -- Endpoints
