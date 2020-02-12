@@ -36,7 +36,10 @@ data TransactionT f = Transaction
   , _tx_nonce :: C f Text
   , _tx_requestKey :: C f Text
   , _tx_code :: C f Text
-  }
+  , _tx_rollback :: C f (Maybe Bool)
+  , _tx_step :: C f (Maybe Int)
+  -- , _tx_data :: C f (Maybe Value)  -- TODO Deal with JSON
+  , _tx_proof :: C f (Maybe Text) }
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
@@ -51,6 +54,10 @@ Transaction
   (LensFor tx_nonce)
   (LensFor tx_requestKey)
   (LensFor tx_code)
+  (LensFor tx_rollback)
+  (LensFor tx_step)
+  -- (LensFor tx_data)
+  (LensFor tx_proof)
   = tableLenses
 
 type Transaction = TransactionT Identity
