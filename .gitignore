@@ -4,3 +4,4 @@ dist*
 *.dump-hi
 .stylish-haskell.yaml
 *.db
+result
