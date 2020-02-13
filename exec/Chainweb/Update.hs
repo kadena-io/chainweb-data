@@ -25,9 +25,10 @@ import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Aeson (decode')
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
-import           Database.Beam
+import           Database.Beam hiding (insert)
+import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
-import qualified Database.Beam.Postgres.Full as PG
+import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Network.HTTP.Client hiding (Proxy)
 
 ---
@@ -56,16 +57,16 @@ writes' c h (Quad _ b m ts) = runBeamPostgres c $ do
     (\x -> _header_hash x ==. val_ (_header_hash h))
   -- Write the Miner if unique --
   runInsert
-    $ PG.insert (miners database) (insertValues [m])
-    $ PG.onConflict (PG.conflictingFields primaryKey) PG.onConflictDoNothing
+    $ insert (miners database) (insertValues [m])
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the Block if unique --
   runInsert
-    $ PG.insert (blocks database) (insertValues [b])
-    $ PG.onConflict (PG.conflictingFields primaryKey) PG.onConflictDoNothing
+    $ insert (blocks database) (insertValues [b])
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the TXs if unique --
   runInsert
-    $ PG.insert (transactions database) (insertValues ts)
-    $ PG.onConflict (PG.conflictingFields primaryKey) PG.onConflictDoNothing
+    $ insert (transactions database) (insertValues ts)
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
     (_block_chainId b)
     (_block_height b)
