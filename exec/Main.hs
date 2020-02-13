@@ -20,8 +20,8 @@ import Options.Applicative
 -- closes the connection to the database.
 main :: IO ()
 main = do
-  Args c (DBPath _) u v <- execParser opts
-  bracket (connect undefined) close $ \conn -> do
+  Args c ci u v <- execParser opts
+  bracket (connect ci) close $ \conn -> do
     initializeTables conn
     putStrLn "DB Tables Initialized"
     m <- newManager tlsManagerSettings

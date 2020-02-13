@@ -4,27 +4,23 @@
 module Chainweb.Env
   ( Args(..)
   , Env(..)
-  , DBPath(..)
   , Url(..)
   , ChainwebVersion(..)
   , Command(..)
   , envP
   ) where
 
-import BasePrelude
+import BasePrelude hiding (option)
 import Data.Text (Text)
-import Database.Beam.Postgres (Connection)
+import Database.Beam.Postgres (ConnectInfo(..), Connection)
 import Network.HTTP.Client (Manager)
 import Options.Applicative
 
 ---
 
-data Args = Args Command DBPath Url ChainwebVersion
+data Args = Args Command ConnectInfo Url ChainwebVersion
 
 data Env = Env Manager Connection Url ChainwebVersion
-
-newtype DBPath = DBPath String
-  deriving newtype (IsString)
 
 newtype Url = Url String
   deriving newtype (IsString)
@@ -37,9 +33,18 @@ data Command = Listen | Worker | Backfill
 envP :: Parser Args
 envP = Args
   <$> commands
-  <*> strOption (long "database" <> metavar "PATH" <> help "Path to database file")
+  <*> connectP
   <*> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node")
   <*> strOption (long "version" <> metavar "VERSION" <> value "mainnet01" <> help "Network Version")
+
+-- | These defaults are pulled from the postgres-simple docs.
+connectP :: Parser ConnectInfo
+connectP = ConnectInfo
+  <$> strOption (long "dbhost" <> value "localhost" <> help "Postgres DB hostname")
+  <*> option auto (long "dbport" <> value 5432 <> help "Postgres DB port")
+  <*> strOption (long "dbuser" <> value "postgres" <> help "Postgres DB user")
+  <*> strOption (long "dbpass" <> value "" <> help "Postgres DB password")
+  <*> strOption (long "dbname" <> value "postgres" <> help "Postgres DB name")
 
 commands :: Parser Command
 commands = subparser
