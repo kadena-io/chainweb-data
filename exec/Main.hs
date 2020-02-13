@@ -27,8 +27,8 @@ main = do
     m <- newManager tlsManagerSettings
     let !env = Env m conn u v
     case c of
-      New -> ingest env
-      Update -> updates env
+      Listen -> ingest env
+      Worker -> updates env
       Backfill -> backfill env
   where
     opts = info (envP <**> helper)
