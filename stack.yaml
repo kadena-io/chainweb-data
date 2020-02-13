@@ -6,3 +6,5 @@ extra-deps:
   - streaming-events-1.0.1
   - github: kadena-io/chainweb-api
     commit: 2f54cae4c029bcdb3a7f09b5dd766cc365e14c34
+  - github: kadena-io/beam
+    commit: 7e7f7182f01959a9768d751694a47c593c125373

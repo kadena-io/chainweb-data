@@ -18,10 +18,10 @@ let gitignoreSrc = pkgs.fetchFromGitHub {
     inherit (import gitignoreSrc { inherit (pkgs) lib; }) gitignoreSource;
 
     beam-src = pkgs.fetchFromGitHub {
-      owner = "tathougies";
+      owner = "kadena-io";
       repo = "beam";
-      rev = "cdfdd636b70b98dac9c8075d3c9bcb7984d7f8f2";
-      sha256 = "0ml5aa88rq5g9zaw9wi1v83na1y9v7x3hj9qnp9k1i288cbdyj2r";
+      rev = "7e7f7182f01959a9768d751694a47c593c125373";
+      sha256 = "098sdfhyni4brsv3296anygbxiyl13n6k4xvx0chjra9hph8gvy0";
     };
 
 in
