@@ -22,12 +22,12 @@ import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
 import           Control.Monad.Trans.Maybe
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
-import           Data.Aeson (decode')
+import           Data.Aeson (Value(..), decode')
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
-import           Database.Beam.Postgres (Connection, runBeamPostgres)
+import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Network.HTTP.Client hiding (Proxy)
 
@@ -115,6 +115,8 @@ transaction b tx = Transaction
   , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
   , _tx_step = _cont_step <$> cnt
+  , _tx_data = (PgJSONB . Object . _cont_data <$> cnt)
+    <|> (PgJSONB . Object <$> (exc >>= _exec_data))
   , _tx_proof = _cont_proof <$> cnt }
   where
     cmd = CW._transaction_cmd tx
