@@ -17,9 +17,8 @@ import ChainwebDb.Types.Transaction
 import Database.Beam
 import Database.Beam.Migrate
 import Database.Beam.Migrate.Simple
-import Database.Beam.Sqlite (Sqlite, runBeamSqlite)
-import Database.Beam.Sqlite.Migrate (migrationBackend)
-import Database.SQLite.Simple (Connection)
+import Database.Beam.Postgres (Connection, Postgres, runBeamPostgres)
+import Database.Beam.Postgres.Migrate (migrationBackend)
 
 ---
 
@@ -31,15 +30,15 @@ data ChainwebDataDb f = ChainwebDataDb
   deriving stock (Generic)
   deriving anyclass (Database be)
 
-migratableDb :: CheckedDatabaseSettings Sqlite ChainwebDataDb
+migratableDb :: CheckedDatabaseSettings Postgres ChainwebDataDb
 migratableDb = defaultMigratableDbSettings
 
-database :: DatabaseSettings Sqlite ChainwebDataDb
+database :: DatabaseSettings Postgres ChainwebDataDb
 database = unCheckDatabase migratableDb
 
 -- | Create the DB tables if necessary.
 initializeTables :: Connection -> IO ()
-initializeTables conn = runBeamSqlite conn $
+initializeTables conn = runBeamPostgres conn $
   verifySchema migrationBackend migratableDb >>= \case
     VerificationFailed _ -> autoMigrate migrationBackend migratableDb
     VerificationSucceeded -> pure ()

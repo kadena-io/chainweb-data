@@ -22,12 +22,13 @@ import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
 import           Control.Monad.Trans.Maybe
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
-import           Data.Aeson (decode')
+import           Data.Aeson (Value(..), decode')
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
-import           Database.Beam
-import           Database.Beam.Sqlite
-import           Database.SQLite.Simple (Connection)
+import           Database.Beam hiding (insert)
+import           Database.Beam.Backend.SQL.BeamExtensions
+import           Database.Beam.Postgres
+import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Network.HTTP.Client hiding (Proxy)
 
 ---
@@ -37,7 +38,7 @@ data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 
 updates :: Env -> IO ()
 updates e@(Env _ c _ _) = do
-  hs <- runBeamSqlite c . runSelectReturningList $ select prd
+  hs <- runBeamPostgres c . runSelectReturningList $ select prd
   traverseConcurrently_ (ParN 8) (\h -> lookups e h >>= writes c h) hs
   where
     prd = all_ $ headers database
@@ -49,30 +50,28 @@ writes c h (Just q) = writes' c h q
 writes _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
 
 writes' :: Connection -> Header -> Quad -> IO ()
-writes' c h (Quad _ b m ts) = runBeamSqlite c $ do
+writes' c h (Quad _ b m ts) = runBeamPostgres c $ do
   -- Remove the Header from the work queue --
   runDelete
     $ delete (headers database)
     (\x -> _header_hash x ==. val_ (_header_hash h))
   -- Write the Miner if unique --
-  alreadyMined <- runSelectReturningOne
-    $ lookup_ (miners database) (MinerId $ _miner_account m)
-  case alreadyMined of
-    Just _ -> pure ()
-    Nothing -> runInsert . insert (miners database) $ insertValues [m]
-  -- Write the Block and TXs if unique --
-  alreadyIn <- runSelectReturningOne
-    $ lookup_ (blocks database) (BlockId $ _block_hash b)
-  case alreadyIn of
-    Just _ -> liftIO . T.putStrLn $ "[WARN] Block already in DB: " <> unDbHash (_block_hash b)
-    Nothing -> do
-      runInsert . insert (blocks database) $ insertValues [b]
-      runInsert . insert (transactions database) $ insertValues ts
-      liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
-        (_block_chainId b)
-        (_block_height b)
-        (unDbHash $ _block_hash b)
-        (map (const '.') ts)
+  runInsert
+    $ insert (miners database) (insertValues [m])
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  -- Write the Block if unique --
+  runInsert
+    $ insert (blocks database) (insertValues [b])
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  -- Write the TXs if unique --
+  runInsert
+    $ insert (transactions database) (insertValues ts)
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
+    (_block_chainId b)
+    (_block_height b)
+    (unDbHash $ _block_hash b)
+    (map (const '.') ts)
 
 lookups :: Env -> Header -> IO (Maybe Quad)
 lookups e h = runMaybeT $ do
@@ -108,7 +107,7 @@ transaction b tx = Transaction
   , _tx_creationTime = floor $ _chainwebMeta_creationTime mta
   , _tx_ttl = _chainwebMeta_ttl mta
   , _tx_gasLimit = _chainwebMeta_gasLimit mta
-  -- , _tx_gasPrice = _chainwebMeta_gasPrice mta
+  , _tx_gasPrice = _chainwebMeta_gasPrice mta
   , _tx_sender = _chainwebMeta_sender mta
   , _tx_nonce = _pactCommand_nonce cmd
   , _tx_requestKey = hashB64U $ CW._transaction_hash tx
@@ -116,6 +115,8 @@ transaction b tx = Transaction
   , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
   , _tx_step = _cont_step <$> cnt
+  , _tx_data = (PgJSONB . Object . _cont_data <$> cnt)
+    <|> (PgJSONB . Object <$> (exc >>= _exec_data))
   , _tx_proof = _cont_proof <$> cnt }
   where
     cmd = CW._transaction_cmd tx
