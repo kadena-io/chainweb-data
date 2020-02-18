@@ -1,13 +1,13 @@
-resolver: lts-14.25
+resolver: lts-14.27
 
 ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
 extra-deps:
   - streaming-events-1.0.1
   - github: kadena-io/chainweb-api
-    commit: 2f54cae4c029bcdb3a7f09b5dd766cc365e14c34
+    commit: 0792df840e49821f60a8e6e5a1cdc6c5862137a1
   - github: tathougies/beam
-    commit: 2b704ee1fe55ff3a6851697040123a86540f485e
+    commit: 2fa99310557e49b37a59e349032ff7236085b6f8
     subdirs:
       - beam-core
       - beam-migrate
