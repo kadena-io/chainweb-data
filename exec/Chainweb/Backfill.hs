@@ -11,10 +11,10 @@ import           Chainweb.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
-import           Control.Concurrent.Async
+import           Control.Concurrent.Async hiding (replicateConcurrently_)
 import           Control.Concurrent.STM.TBQueue
 import           Control.Error.Util (hush)
-import           Control.Scheduler (Comp(..), traverseConcurrently_)
+import           Control.Scheduler hiding (traverse_)
 import qualified Data.Pool as P
 import           Data.Serialize (runGetLazy)
 import qualified Data.Text as T
@@ -44,17 +44,20 @@ backfill e@(Env _ c _ _) = withPool c $ \pool -> do
     . select
     . orderBy_ (asc_ . _block_height)
     $ all_ (blocks database)
-  traverseConcurrently_ (ParN 10) (work e pool) bs
+  q <- newTBQueueIO 1000
+  caps <- getNumCapabilities
+  concurrently_ (traverse_ (filling pool q) bs)
+    $ replicateConcurrently_ Par' caps (work e pool q)
 
-work :: Env -> P.Pool Connection -> Block -> IO ()
-work e pool b = f $ T2 (ChainId $ _block_chainId b) (Parent $ _block_parent b)
+work :: Env -> P.Pool Connection -> TBQueue (T2 ChainId Parent) -> IO ()
+work e pool q = forever $ do
+  b <- atomically $ readTBQueue q
+  looking e pool b >>= traverse_ (atomically . writeTBQueue q)
+
+filling :: P.Pool Connection -> TBQueue (T2 ChainId Parent) -> Block -> IO ()
+filling pool q b = checking pool pair >>= traverse_ (atomically . writeTBQueue q)
   where
-    f :: T2 ChainId Parent -> IO ()
-    f p = checking pool p >>= \case
-      Nothing -> pure ()
-      Just b' -> looking e pool b' >>= \case
-        Nothing -> pure ()
-        Just nx -> f nx
+    pair = T2 (ChainId $ _block_chainId b) (Parent $ _block_parent b)
 
 checking :: P.Pool Connection -> T2 ChainId Parent -> IO (Maybe (T2 ChainId Parent))
 checking pool b@(T2 _ (Parent p)) = P.withResource pool $ \c -> do

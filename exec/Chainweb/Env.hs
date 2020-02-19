@@ -34,7 +34,7 @@ getConnection (PGString s) = connectPostgreSQL s
 
 -- | A bracket for `Connection` interaction.
 withConnection :: Connect -> (Connection -> IO a) -> IO a
-withConnection c f = bracket (getConnection c) close f
+withConnection c = bracket (getConnection c) close
 
 -- | Create a `Pool` based on `Connect` settings designated on the command line.
 getPool :: Connect -> IO (Pool Connection)
@@ -44,7 +44,7 @@ getPool c = do
 
 -- | A bracket for `Pool` interaction.
 withPool :: Connect -> (Pool Connection -> IO a) -> IO a
-withPool c f = bracket (getPool c) destroyAllResources f
+withPool c = bracket (getPool c) destroyAllResources
 
 newtype Url = Url String
   deriving newtype (IsString)
