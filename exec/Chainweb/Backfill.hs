@@ -1,4 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Backfill ( backfill ) where
 
@@ -8,6 +10,7 @@ import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Types
+import           Chainweb.Update (updates)
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
@@ -38,8 +41,26 @@ newtype Parent = Parent DbHash
 
 -}
 
+headerCount :: P.Pool Connection -> IO Int
+headerCount pool = P.withResource pool $ \c ->
+  runBeamPostgres c (runSelectReturningOne $ select count) >>= \case
+    Nothing -> pure 0
+    Just n -> pure n
+  where
+    count = aggregate_ (\_ -> as_ @Int countAll_) $ all_ (headers database)
+
 backfill :: Env -> IO ()
 backfill e@(Env _ c _ _) = withPool c $ \pool -> do
+  count <- headerCount pool
+  when (count > 0) $ do
+    putStrLn "The work queue is not empty. Running `worker` first..."
+    updates e
+    putStrLn "Worker complete. Beginning backfill."
+    threadDelay 2_000_000
+  backfill' e pool
+
+backfill' :: Env -> P.Pool Connection -> IO ()
+backfill' e pool = do
   bs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
     . select
     . orderBy_ (asc_ . _block_height)

@@ -65,7 +65,7 @@ executable chainweb-data
     , optparse-applicative  ^>=0.14
     , resource-pool         ^>=0.2
     , scheduler             ^>=1.4
-    , stm
+    , stm                   ^>=2.5
     , streaming             ^>=0.2
     , streaming-events      ^>=1.0.1
     , strict-tuple          ^>=0.1
