@@ -92,8 +92,12 @@ looking :: Env -> P.Pool Connection -> T2 ChainId Parent -> IO (Maybe (T2 ChainI
 looking e pool (T2 cid p@(Parent h)) = parent e p cid >>= \case
   Nothing -> T.putStrLn ("[FAIL] Couldn't fetch parent: " <> unDbHash h) $> Nothing
   Just hd -> do
-    P.withResource pool $ \c ->
-      runBeamPostgres c . runInsert . insert (headers database) $ insertValues [hd]
+    P.withResource pool $ \c -> do
+      r <- try @SomeException . runBeamPostgres c . runInsert
+        . insert (headers database) $ insertValues [hd]
+      case r of
+        Left err -> print err >> print hd >> error "DIE"
+        Right _ -> pure ()
     printf "[OKAY] Chain %d: %d: %s\n"
       (_header_chainId hd)
       (_header_height hd)

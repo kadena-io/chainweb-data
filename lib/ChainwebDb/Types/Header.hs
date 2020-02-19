@@ -1,6 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
@@ -28,8 +30,11 @@ data HeaderT f = Header
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
+
 type Header = HeaderT Identity
 type HeaderId = PrimaryKey HeaderT Identity
+
+deriving instance Show Header
 
 instance Table HeaderT where
   data PrimaryKey HeaderT f = HeaderId (C f DbHash)
