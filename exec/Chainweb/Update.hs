@@ -23,6 +23,7 @@ import           ChainwebDb.Types.Transaction
 import           Control.Monad.Trans.Maybe
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Aeson (Value(..), decode')
+import qualified Data.Pool as P
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Database.Beam hiding (insert)
@@ -37,20 +38,20 @@ import           Network.HTTP.Client hiding (Proxy)
 data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 
 updates :: Env -> IO ()
-updates e@(Env _ c _ _) = do
-  hs <- runBeamPostgres c . runSelectReturningList $ select prd
-  traverseConcurrently_ (ParN 8) (\h -> lookups e h >>= writes c h) hs
-  where
-    prd = all_ $ headers database
+updates e@(Env _ c _ _) = withPool c $ \pool -> do
+  hs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
+    $ select
+    $ all_ (headers database)
+  traverseConcurrently_ Par' (\h -> lookups e h >>= writes pool h) hs
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: Connection -> Header -> Maybe Quad -> IO ()
-writes c h (Just q) = writes' c h q
+writes :: P.Pool Connection -> Header -> Maybe Quad -> IO ()
+writes pool h (Just q) = writes' pool h q
 writes _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
 
-writes' :: Connection -> Header -> Quad -> IO ()
-writes' c h (Quad _ b m ts) = runBeamPostgres c $ do
+writes' :: P.Pool Connection -> Header -> Quad -> IO ()
+writes' pool h (Quad _ b m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Remove the Header from the work queue --
   runDelete
     $ delete (headers database)

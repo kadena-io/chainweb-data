@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 
 module Chainweb.Backfill ( backfill ) where
@@ -15,6 +14,8 @@ import           ChainwebDb.Types.Header
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM.TBQueue
 import           Control.Error.Util (hush)
+import           Control.Scheduler (Comp(..), traverseConcurrently_)
+import qualified Data.Pool as P
 import           Data.Serialize (runGetLazy)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -38,56 +39,42 @@ newtype Parent = Parent DbHash
 -}
 
 backfill :: Env -> IO ()
-backfill e@(Env _ c _ _) = do
-  bs <- runBeamPostgres c . runSelectReturningList . select . all_ $ blocks database
-  toCheck <- newTBQueueIO 1000
-  toLook  <- newTBQueueIO 1000
-  void . runConcurrently $ (,,)
-    <$> Concurrently (traverse_ (filling toCheck) bs)
-    <*> Concurrently (checking c toCheck toLook)
-    <*> Concurrently (looking e toCheck toLook)
+backfill e@(Env _ c _ _) = withPool c $ \pool -> do
+  bs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
+    . select
+    . orderBy_ (asc_ . _block_height)
+    $ all_ (blocks database)
+  traverseConcurrently_ (ParN 10) (work e pool) bs
 
--- TODO Order by block creation time. That should ensure that the chains are
--- mixed up when reading blocks linearly from a SELECT.
+work :: Env -> P.Pool Connection -> Block -> IO ()
+work e pool b = f $ T2 (ChainId $ _block_chainId b) (Parent $ _block_parent b)
+  where
+    f :: T2 ChainId Parent -> IO ()
+    f p = checking pool p >>= \case
+      Nothing -> pure ()
+      Just b' -> looking e pool b' >>= \case
+        Nothing -> pure ()
+        Just nx -> f nx
 
--- TODO There is an occasional STM block here somewhere.
-
--- | Fill up the `toCheck` queue with entries from the DB. This is intended to
--- be ran in a single thread.
-filling :: TBQueue (T2 ChainId Parent) -> Block -> IO ()
-filling toCheck b = atomically . writeTBQueue toCheck
-  $ T2 (ChainId $ _block_chainId b) (Parent $ _block_parent b)
-
--- | Add new parent hashes to an in-memory work queue if we've determined that
--- we don't already know about them.
---
--- This is intended to be ran in a single thread.
-checking :: Connection -> TBQueue (T2 ChainId Parent) -> TBQueue (T2 ChainId Parent) -> IO ()
-checking c toCheck toLook = forever $ do
-  b@(T2 _ (Parent p)) <- atomically $ readTBQueue toCheck
+checking :: P.Pool Connection -> T2 ChainId Parent -> IO (Maybe (T2 ChainId Parent))
+checking pool b@(T2 _ (Parent p)) = P.withResource pool $ \c -> do
   m <- runBeamPostgres c $ do
     blk <- runSelectReturningOne $ lookup_ (blocks database) (BlockId p)
     hum <- runSelectReturningOne $ lookup_ (headers database) (HeaderId p)
     pure (void blk <|> void hum)
-  maybe (atomically $ writeTBQueue toLook b) mempty m
+  pure $ maybe (Just b) (const Nothing) m
 
--- | Lookup a parent, write it to the Work Queue, and ready /its/ parent for analysis.
---
--- This can be ran over multiple threads.
-looking :: Env -> TBQueue (T2 ChainId Parent) -> TBQueue (T2 ChainId Parent) -> IO ()
-looking e@(Env _ c _ _) toCheck toLook = forever $ do
-  T2 cid p@(Parent h) <- atomically $ readTBQueue toLook
-  parent e p cid >>= \case
-    Nothing -> T.putStrLn $ "[FAIL] Couldn't fetch parent: " <> unDbHash h
-    Just hd -> do
-      -- TODO Conflict handling?
+looking :: Env -> P.Pool Connection -> T2 ChainId Parent -> IO (Maybe (T2 ChainId Parent))
+looking e pool (T2 cid p@(Parent h)) = parent e p cid >>= \case
+  Nothing -> T.putStrLn ("[FAIL] Couldn't fetch parent: " <> unDbHash h) $> Nothing
+  Just hd -> do
+    P.withResource pool $ \c ->
       runBeamPostgres c . runInsert . insert (headers database) $ insertValues [hd]
-      printf "[OKAY] Chain %d: %d: %s\n"
-        (_header_chainId hd)
-        (_header_height hd)
-        (unDbHash $ _header_hash hd)
-      let !next = T2 (ChainId $ _header_chainId hd) (Parent $ _header_parent hd)
-      atomically $ writeTBQueue toCheck next
+    printf "[OKAY] Chain %d: %d: %s\n"
+      (_header_chainId hd)
+      (_header_height hd)
+      (unDbHash $ _header_hash hd)
+    pure . Just $ T2 (ChainId $ _header_chainId hd) (Parent $ _header_parent hd)
 
 --------------------------------------------------------------------------------
 -- Endpoints

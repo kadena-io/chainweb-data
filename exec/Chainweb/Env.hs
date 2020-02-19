@@ -4,7 +4,7 @@
 module Chainweb.Env
   ( Args(..)
   , Env(..)
-  , Connect(..)
+  , Connect(..), withConnection, withPool
   , Url(..)
   , ChainwebVersion(..)
   , Command(..)
@@ -13,8 +13,9 @@ module Chainweb.Env
 
 import BasePrelude hiding (option)
 import Data.ByteString (ByteString)
+import Data.Pool
 import Data.Text (Text)
-import Database.Beam.Postgres (ConnectInfo(..), Connection)
+import Database.Beam.Postgres
 import Network.HTTP.Client (Manager)
 import Options.Applicative
 
@@ -22,9 +23,28 @@ import Options.Applicative
 
 data Args = Args Command Connect Url ChainwebVersion
 
-data Env = Env Manager Connection Url ChainwebVersion
+data Env = Env Manager Connect Url ChainwebVersion
 
 data Connect = PGInfo ConnectInfo | PGString ByteString
+
+-- | Open a postgres database connection.
+getConnection :: Connect -> IO Connection
+getConnection (PGInfo ci) = connect ci
+getConnection (PGString s) = connectPostgreSQL s
+
+-- | A bracket for `Connection` interaction.
+withConnection :: Connect -> (Connection -> IO a) -> IO a
+withConnection c f = bracket (getConnection c) close f
+
+-- | Create a `Pool` based on `Connect` settings designated on the command line.
+getPool :: Connect -> IO (Pool Connection)
+getPool c = do
+  caps <- getNumCapabilities
+  createPool (getConnection c) close 1 5 caps
+
+-- | A bracket for `Pool` interaction.
+withPool :: Connect -> (Pool Connection -> IO a) -> IO a
+withPool c f = bracket (getPool c) destroyAllResources f
 
 newtype Url = Url String
   deriving newtype (IsString)

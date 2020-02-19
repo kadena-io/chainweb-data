@@ -12,20 +12,21 @@ import           Chainweb.Env
 import           Chainweb.Types
 import qualified Data.ByteString.Char8 as B
 import           Database.Beam
-import           Database.Beam.Postgres (runBeamPostgres)
-import           Network.HTTP.Client
+import           Database.Beam.Postgres (Connection, runBeamPostgres)
+import           Network.HTTP.Client hiding (withConnection)
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
 
 ---
 
 ingest :: Env -> IO ()
-ingest (Env m c u _) = withEvents (req u) m
-  $ SP.mapM_ (\bh -> f bh >> h bh)
-  . dataOnly @PowHeader
+ingest (Env m c u _) = withConnection c $ \conn ->
+  withEvents (req u) m
+    $ SP.mapM_ (\bh -> f conn bh >> h bh)
+    . dataOnly @PowHeader
   where
-    f :: PowHeader -> IO ()
-    f bh = runBeamPostgres c
+    f :: Connection -> PowHeader -> IO ()
+    f conn bh = runBeamPostgres conn
       . runInsert
       . insert (headers database)
       $ insertValues [asHeader bh]
