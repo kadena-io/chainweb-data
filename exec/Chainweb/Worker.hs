@@ -51,7 +51,7 @@ writes :: P.Pool Connection -> Block -> Maybe (T2 Miner [Transaction]) -> IO ()
 writes pool b (Just q) = writes' pool b q
 writes _ b _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_block_hash b)
 
-writes' :: P.Pool Connection -> Block -> (T2 Miner [Transaction]) -> IO ()
+writes' :: P.Pool Connection -> Block -> T2 Miner [Transaction] -> IO ()
 writes' pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write the Miner if unique --
   runInsert
