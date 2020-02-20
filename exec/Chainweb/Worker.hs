@@ -25,44 +25,43 @@ import           Data.Aeson (Value(..), decode')
 import qualified Data.Pool as P
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Network.HTTP.Client hiding (Proxy)
 
+
 ---
 
 -- | A wrapper to massage some types below.
-data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
+-- type Quad = (Miner, [Transaction])
 
 worker :: Env -> IO ()
 worker e@(Env _ c _ _) = withPool c $ \pool -> do
   hs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
     $ select
-    $ all_ (headers database)
+    $ all_ (blocks database)
   traverseConcurrently_ Par' (\h -> lookups e h >>= writes pool h) hs
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: P.Pool Connection -> Header -> Maybe Quad -> IO ()
-writes pool h (Just q) = writes' pool h q
-writes _ h _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_header_hash h)
+writes :: P.Pool Connection -> Block -> Maybe (T2 Miner [Transaction]) -> IO ()
+writes pool b (Just q) = writes' pool b q
+writes _ b _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_block_hash b)
 
-writes' :: P.Pool Connection -> Header -> Quad -> IO ()
-writes' pool h (Quad _ b m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
-  -- Remove the Header from the work queue --
-  runDelete
-    $ delete (headers database)
-    (\x -> _header_hash x ==. val_ (_header_hash h))
+writes' :: P.Pool Connection -> Block -> (T2 Miner [Transaction]) -> IO ()
+writes' pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write the Miner if unique --
   runInsert
     $ insert (miners database) (insertValues [m])
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the Block if unique --
-  runInsert
-    $ insert (blocks database) (insertValues [b])
-    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  -- TODO Must be update!
+  -- runInsert
+  --   $ insert (blocks database) (insertValues [b])
+  --   $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the TXs if unique --
   runInsert
     $ insert (transactions database) (insertValues ts)
@@ -73,32 +72,17 @@ writes' pool h (Quad _ b m ts) = P.withResource pool $ \c -> runBeamPostgres c $
     (unDbHash $ _block_hash b)
     (map (const '.') ts)
 
-lookups :: Env -> Header -> IO (Maybe Quad)
-lookups e h = runMaybeT $ do
-  pl <- MaybeT $ payload e h
+lookups :: Env -> Block -> IO (Maybe (T2 Miner [Transaction]))
+lookups e b = runMaybeT $ do
+  pl <- MaybeT $ payload e b
   let !mi = miner pl
-      !bl = block h mi
-      !ts = map (transaction bl) $ _blockPayload_transactions pl
-  pure $ Quad pl bl mi ts
+      !ts = map (transaction b) $ _blockPayload_transactions pl
+  pure $ T2 mi ts
 
 miner :: BlockPayload -> Miner
 miner pl = Miner acc prd
   where
     MinerData acc prd _ = _blockPayload_minerData pl
-
-block :: Header -> Miner -> Block
-block h m = Block
-  { _block_creationTime = _header_creationTime h
-  , _block_chainId = _header_chainId h
-  , _block_height = _header_height h
-  , _block_hash = _header_hash h
-  , _block_parent = _header_parent h
-  , _block_powHash = _header_powHash h
-  , _block_target = _header_target h
-  , _block_weight = _header_weight h
-  , _block_epochStart = _header_epochStart h
-  , _block_nonce = _header_nonce h
-  , _block_miner = just_ $ pk m }
 
 transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction
@@ -132,13 +116,13 @@ transaction b tx = Transaction
 --------------------------------------------------------------------------------
 -- Endpoints
 
-payload :: Env -> Header -> IO (Maybe BlockPayload)
-payload (Env m _ (Url u) (ChainwebVersion v)) h = do
+payload :: Env -> Block -> IO (Maybe BlockPayload)
+payload (Env m _ (Url u) (ChainwebVersion v)) b = do
   req <- parseRequest url
   res <- httpLbs req m
   pure . decode' $ responseBody res
   where
     url = "https://" <> u <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh
-    cid = T.pack . show $ _header_chainId h
-    hsh = unDbHash $ _header_payloadHash h
+    cid = T.pack . show $ _block_chainId b
+    hsh = unDbHash $ _block_payload b
