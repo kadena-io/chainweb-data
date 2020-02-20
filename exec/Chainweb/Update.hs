@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -38,11 +39,12 @@ import           Network.HTTP.Client hiding (Proxy)
 data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 
 updates :: Env -> IO ()
-updates e@(Env _ c _ _) = withPool c $ \pool -> do
+updates e@(Env _ c _ _) = forever $ withPool c $ \pool -> do
   hs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
     $ select
     $ all_ (headers database)
   traverseConcurrently_ Par' (\h -> lookups e h >>= writes pool h) hs
+  threadDelay 5_000_000
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
