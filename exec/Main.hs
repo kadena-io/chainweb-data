@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module Main where
 
@@ -24,8 +25,8 @@ main = do
     let !env = Env m pgc u v
     case c of
       Listen -> ingest env
-      Worker -> updates env
       Backfill -> backfill env
+      Worker -> forever (updates env >> threadDelay 5_000_000)
   where
     opts = info (envP <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
