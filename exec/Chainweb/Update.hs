@@ -99,7 +99,7 @@ block h m = Block
   , _block_weight = _header_weight h
   , _block_epochStart = _header_epochStart h
   , _block_nonce = _header_nonce h
-  , _block_miner = pk m }
+  , _block_miner = just_ $ pk m }
 
 transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction

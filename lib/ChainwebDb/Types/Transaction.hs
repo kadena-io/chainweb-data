@@ -4,7 +4,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -64,15 +63,15 @@ Transaction
 type Transaction = TransactionT Identity
 type TransactionId = PrimaryKey TransactionT Identity
 
-deriving instance Eq (PrimaryKey TransactionT Identity)
-deriving instance Eq (PrimaryKey TransactionT Maybe)
-deriving instance Eq Transaction
-deriving instance Show (PrimaryKey TransactionT Identity)
-deriving instance Show (PrimaryKey TransactionT Maybe)
-deriving instance Show Transaction
-deriving instance Show (TransactionT Maybe)
-deriving instance Ord (PrimaryKey TransactionT Identity)
-deriving instance Ord (PrimaryKey TransactionT Maybe)
+-- deriving instance Eq (PrimaryKey TransactionT Identity)
+-- deriving instance Eq (PrimaryKey TransactionT Maybe)
+-- deriving instance Eq Transaction
+-- deriving instance Show (PrimaryKey TransactionT Identity)
+-- deriving instance Show (PrimaryKey TransactionT Maybe)
+-- deriving instance Show Transaction
+-- deriving instance Show (TransactionT Maybe)
+-- deriving instance Ord (PrimaryKey TransactionT Identity)
+-- deriving instance Ord (PrimaryKey TransactionT Maybe)
 
 instance Table TransactionT where
   data PrimaryKey TransactionT f = TransactionId (C f Text)
