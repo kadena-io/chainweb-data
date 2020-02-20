@@ -10,7 +10,7 @@ import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Types
-import           Chainweb.Update (updates)
+import           Chainweb.Worker (worker)
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Header
@@ -54,7 +54,7 @@ backfill e@(Env _ c _ _) = withPool c $ \pool -> do
   count <- headerCount pool
   when (count > 0) $ do
     putStrLn "The work queue is not empty. Running `worker` first..."
-    updates e
+    worker e
     putStrLn "Worker complete. Beginning backfill."
     threadDelay 2_000_000
   backfill' e pool

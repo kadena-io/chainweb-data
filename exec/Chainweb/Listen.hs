@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 
-module Chainweb.New ( ingest ) where
+module Chainweb.Listen ( listen ) where
 
 import           BasePrelude hiding (insert)
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
@@ -19,8 +19,8 @@ import qualified Streaming.Prelude as SP
 
 ---
 
-ingest :: Env -> IO ()
-ingest (Env m c u _) = withConnection c $ \conn ->
+listen :: Env -> IO ()
+listen (Env m c u _) = withConnection c $ \conn ->
   withEvents (req u) m
     $ SP.mapM_ (\bh -> f conn bh >> h bh)
     . dataOnly @PowHeader

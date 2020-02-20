@@ -3,7 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Chainweb.Update ( updates ) where
+module Chainweb.Worker ( worker ) where
 
 import           BasePrelude hiding (delete, insert)
 import           Chainweb.Api.BlockPayload
@@ -37,8 +37,8 @@ import           Network.HTTP.Client hiding (Proxy)
 -- | A wrapper to massage some types below.
 data Quad = Quad !BlockPayload !Block !Miner ![Transaction]
 
-updates :: Env -> IO ()
-updates e@(Env _ c _ _) = withPool c $ \pool -> do
+worker :: Env -> IO ()
+worker e@(Env _ c _ _) = withPool c $ \pool -> do
   hs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
     $ select
     $ all_ (headers database)

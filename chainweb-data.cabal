@@ -75,6 +75,6 @@ executable chainweb-data
     Chainweb.Backfill
     Chainweb.Database
     Chainweb.Env
-    Chainweb.New
+    Chainweb.Listen
     Chainweb.Types
-    Chainweb.Update
+    Chainweb.Worker

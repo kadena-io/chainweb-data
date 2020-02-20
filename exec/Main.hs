@@ -7,8 +7,8 @@ import BasePrelude
 import Chainweb.Backfill (backfill)
 import Chainweb.Database (initializeTables)
 import Chainweb.Env
-import Chainweb.New (ingest)
-import Chainweb.Update (updates)
+import Chainweb.Listen (listen)
+import Chainweb.Worker (worker)
 import Network.HTTP.Client hiding (withConnection)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Options.Applicative
@@ -24,9 +24,9 @@ main = do
     m <- newManager tlsManagerSettings
     let !env = Env m pgc u v
     case c of
-      Listen -> ingest env
+      Listen -> listen env
       Backfill -> backfill env
-      Worker -> forever (updates env >> threadDelay 5_000_000)
+      Worker -> forever (worker env >> threadDelay 5_000_000)
   where
     opts = info (envP <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
