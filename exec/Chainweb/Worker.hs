@@ -32,18 +32,15 @@ import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Network.HTTP.Client hiding (Proxy)
 
-
 ---
-
--- | A wrapper to massage some types below.
--- type Quad = (Miner, [Transaction])
 
 worker :: Env -> IO ()
 worker e@(Env _ c _ _) = withPool c $ \pool -> do
   hs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
     $ select
+    $ filter_ (isNothing_ . _block_miner)
     $ all_ (blocks database)
-  traverseConcurrently_ Par' (\h -> lookups e h >>= writes pool h) hs
+  traverseConcurrently_ Par' (\b -> lookups e b >>= writes pool b) hs
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
@@ -57,11 +54,8 @@ writes' pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
   runInsert
     $ insert (miners database) (insertValues [m])
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-  -- Write the Block if unique --
-  -- TODO Must be update!
-  -- runInsert
-  --   $ insert (blocks database) (insertValues [b])
-  --   $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  -- Update the Block to include its new Miner foreign key --
+  runUpdate $ save (blocks database) (b { _block_miner = just_ $ pk m })
   -- Write the TXs if unique --
   runInsert
     $ insert (transactions database) (insertValues ts)
