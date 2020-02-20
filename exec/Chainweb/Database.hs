@@ -11,7 +11,6 @@ module Chainweb.Database
 
 import BasePrelude
 import ChainwebDb.Types.Block
-import ChainwebDb.Types.Header
 import ChainwebDb.Types.Miner
 import ChainwebDb.Types.Transaction
 import Database.Beam
@@ -23,8 +22,7 @@ import Database.Beam.Postgres.Migrate (migrationBackend)
 ---
 
 data ChainwebDataDb f = ChainwebDataDb
-  { headers :: f (TableEntity HeaderT)
-  , blocks :: f (TableEntity BlockT)
+  { blocks :: f (TableEntity BlockT)
   , transactions :: f (TableEntity TransactionT)
   , miners :: f (TableEntity MinerT) }
   deriving stock (Generic)

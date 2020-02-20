@@ -13,11 +13,12 @@ import           Chainweb.Api.BlockHeader (BlockHeader(..), powHash)
 import           Chainweb.Api.BytesLE
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
+import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash (DbHash(..))
-import           ChainwebDb.Types.Header
 import           Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
+import           Database.Beam.Query (nothing_)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
 import           Network.Wai.EventSource.Streaming
@@ -38,19 +39,20 @@ instance FromEvent PowHeader where
 asPow :: BlockHeader -> PowHeader
 asPow bh = PowHeader bh (hashB64U $ powHash bh)
 
-asHeader :: PowHeader -> Header
-asHeader (PowHeader bh ph) = Header
-  { _header_creationTime = floor $ _blockHeader_creationTime bh
-  , _header_chainId      = unChainId $ _blockHeader_chainId bh
-  , _header_height       = _blockHeader_height bh
-  , _header_parent       = DbHash . hashB64U $ _blockHeader_parent bh
-  , _header_hash         = DbHash . hashB64U $ _blockHeader_hash bh
-  , _header_payloadHash  = DbHash . hashB64U $ _blockHeader_payloadHash bh
-  , _header_target       = DbHash . hexBytesLE $ _blockHeader_target bh
-  , _header_weight       = DbHash . hexBytesLE $ _blockHeader_weight bh
-  , _header_epochStart   = floor $ _blockHeader_epochStart bh
-  , _header_nonce        = _blockHeader_nonce bh
-  , _header_powHash      = DbHash ph }
+asHeader :: PowHeader -> Block
+asHeader (PowHeader bh ph) = Block
+  { _block_creationTime = floor $ _blockHeader_creationTime bh
+  , _block_chainId      = unChainId $ _blockHeader_chainId bh
+  , _block_height       = _blockHeader_height bh
+  , _block_parent       = DbHash . hashB64U $ _blockHeader_parent bh
+  , _block_hash         = DbHash . hashB64U $ _blockHeader_hash bh
+  , _block_payload      = DbHash . hashB64U $ _blockHeader_payloadHash bh
+  , _block_target       = DbHash . hexBytesLE $ _blockHeader_target bh
+  , _block_weight       = DbHash . hexBytesLE $ _blockHeader_weight bh
+  , _block_epochStart   = floor $ _blockHeader_epochStart bh
+  , _block_nonce        = _blockHeader_nonce bh
+  , _block_powHash      = DbHash ph
+  , _block_miner        = nothing_ }
 
 --------------------------------------------------------------------------------
 -- Orphans

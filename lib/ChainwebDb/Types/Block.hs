@@ -24,6 +24,7 @@ data BlockT f = Block
   , _block_hash :: C f DbHash
   , _block_parent :: C f DbHash
   , _block_powHash :: C f DbHash
+  , _block_payload :: C f DbHash
   , _block_target :: C f DbHash
   , _block_weight :: C f DbHash
   , _block_epochStart :: C f Int
@@ -39,6 +40,7 @@ Block
   (LensFor block_hash)
   (LensFor block_parent)
   (LensFor block_powHash)
+  (LensFor block_payload)
   (LensFor block_target)
   (LensFor block_weight)
   (LensFor block_epochStart)

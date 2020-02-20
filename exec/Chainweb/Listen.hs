@@ -28,7 +28,7 @@ listen (Env m c u _) = withConnection c $ \conn ->
     f :: Connection -> PowHeader -> IO ()
     f conn bh = runBeamPostgres conn
       . runInsert
-      . insert (headers database)
+      . insert (blocks database)
       $ insertValues [asHeader bh]
 
     h :: PowHeader -> IO ()

@@ -17,7 +17,6 @@ import           Chainweb.Database
 import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
-import           ChainwebDb.Types.Header
 import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
 import           Control.Monad.Trans.Maybe
