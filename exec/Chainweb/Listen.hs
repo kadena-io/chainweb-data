@@ -6,7 +6,6 @@ module Chainweb.Listen ( listen ) where
 
 import           BasePrelude hiding (insert)
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
-import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
 import           Chainweb.Env
 import           Chainweb.Types
@@ -23,9 +22,7 @@ import qualified Streaming.Prelude as SP
 
 listen :: Env -> IO ()
 listen e@(Env mgr c u _) = withPool c $ \pool ->
-  withEvents (req u) mgr
-    $ SP.mapM_ (\bh -> f pool bh >> g bh)
-    . dataOnly @PowHeader
+  withEvents (req u) mgr $ SP.mapM_ (f pool) . dataOnly @PowHeader
   where
     f :: P.Pool Connection -> PowHeader -> IO ()
     f pool ph@(PowHeader h _) = do
@@ -35,15 +32,9 @@ listen e@(Env mgr c u _) = withPool c $ \pool ->
           (hashB64U $ _blockHeader_hash h)
         Just pl -> do
           let !m = miner pl
-              !b = asBlock ph
+              !b = asBlock ph m
               !t = txs b pl
-          writes' pool b $ T2 m t
-
-    g :: PowHeader -> IO ()
-    g (PowHeader bh _) = printf "[OKAY] Chain %d: %d: %s\n"
-      (unChainId $ _blockHeader_chainId bh)
-      (_blockHeader_height bh)
-      (hashB64U $ _blockHeader_hash bh)
+          writes pool b $ T2 m t
 
 req :: Url -> Request
 req (Url u) = defaultRequest

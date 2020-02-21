@@ -4,10 +4,7 @@
 
 module Chainweb.Worker
   ( -- * DB Updates
-    worker
-  , lookups
-  , writes
-  , writes'
+    writes
     -- * Payload Lookups
   , payload
   , miner
@@ -29,11 +26,9 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
-import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Aeson (Value(..), decode')
 import qualified Data.Pool as P
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
@@ -43,22 +38,10 @@ import           Network.HTTP.Client hiding (Proxy)
 
 ---
 
-worker :: Env -> IO ()
-worker e@(Env _ c _ _) = withPool c $ \pool -> do
-  hs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
-    $ select
-    $ filter_ (isNothing_ . _block_miner)
-    $ all_ (blocks database)
-  traverseConcurrently_ Par' (\b -> lookups e b >>= writes pool b) hs
-
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: P.Pool Connection -> Block -> Maybe (T2 Miner [Transaction]) -> IO ()
-writes pool b (Just q) = writes' pool b q
-writes _ b _ = T.putStrLn $ "[FAIL] Payload fetch for Block: " <> unDbHash (_block_hash b)
-
-writes' :: P.Pool Connection -> Block -> T2 Miner [Transaction] -> IO ()
-writes' pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
+writes :: P.Pool Connection -> Block -> T2 Miner [Transaction] -> IO ()
+writes pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write the Miner if unique --
   runInsert
     $ insert (miners database) (insertValues [m])
@@ -76,14 +59,6 @@ writes' pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
     (_block_height b)
     (unDbHash $ _block_hash b)
     (map (const '.') ts)
-
-lookups :: Env -> Block -> IO (Maybe (T2 Miner [Transaction]))
-lookups e b = fmap f <$> payload e pair
-  where
-    pair = T2 (ChainId $ _block_chainId b) (_block_payload b)
-
-    f :: BlockPayload -> T2 Miner [Transaction]
-    f pl = T2 (miner pl) (txs b pl)
 
 transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction
