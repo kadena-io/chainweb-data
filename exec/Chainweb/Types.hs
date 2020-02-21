@@ -4,8 +4,9 @@
 
 module Chainweb.Types
   ( PowHeader(..)
-  , asHeader
+  , asBlock
   , asPow
+  , hash
   ) where
 
 import           BasePrelude
@@ -39,8 +40,8 @@ instance FromEvent PowHeader where
 asPow :: BlockHeader -> PowHeader
 asPow bh = PowHeader bh (hashB64U $ powHash bh)
 
-asHeader :: PowHeader -> Block
-asHeader (PowHeader bh ph) = Block
+asBlock :: PowHeader -> Block
+asBlock (PowHeader bh ph) = Block
   { _block_creationTime = floor $ _blockHeader_creationTime bh
   , _block_chainId      = unChainId $ _blockHeader_chainId bh
   , _block_height       = _blockHeader_height bh
@@ -53,6 +54,10 @@ asHeader (PowHeader bh ph) = Block
   , _block_nonce        = _blockHeader_nonce bh
   , _block_powHash      = DbHash ph
   , _block_miner        = nothing_ }
+
+-- | Convert to the "pretty" hash representation that URLs, etc., expect.
+hash :: Hash -> DbHash
+hash = DbHash . hashB64U
 
 --------------------------------------------------------------------------------
 -- Orphans

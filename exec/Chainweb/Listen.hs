@@ -1,5 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
-
 
 module Chainweb.Listen ( listen ) where
 
@@ -7,32 +8,39 @@ import           BasePrelude hiding (insert)
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
-import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Types
+import           Chainweb.Worker
 import qualified Data.ByteString.Char8 as B
-import           Database.Beam
-import           Database.Beam.Postgres (Connection, runBeamPostgres)
-import           Network.HTTP.Client hiding (withConnection)
+import qualified Data.Pool as P
+import           Data.Tuple.Strict (T2(..))
+import           Database.Beam.Postgres (Connection)
+import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
 
 ---
 
 listen :: Env -> IO ()
-listen (Env m c u _) = withConnection c $ \conn ->
-  withEvents (req u) m
-    $ SP.mapM_ (\bh -> f conn bh >> h bh)
+listen e@(Env mgr c u _) = withPool c $ \pool ->
+  withEvents (req u) mgr
+    $ SP.mapM_ (\bh -> f pool bh >> g bh)
     . dataOnly @PowHeader
   where
-    f :: Connection -> PowHeader -> IO ()
-    f conn bh = runBeamPostgres conn
-      . runInsert
-      . insert (blocks database)
-      $ insertValues [asHeader bh]
+    f :: P.Pool Connection -> PowHeader -> IO ()
+    f pool ph@(PowHeader h _) = do
+      let !pair = T2 (_blockHeader_chainId h) (hash $ _blockHeader_payloadHash h)
+      payload e pair >>= \case
+        Nothing -> printf "[FAIL] Couldn't fetch parent for: "
+          (hashB64U $ _blockHeader_hash h)
+        Just pl -> do
+          let !m = miner pl
+              !b = asBlock ph
+              !t = txs b pl
+          writes' pool b $ T2 m t
 
-    h :: PowHeader -> IO ()
-    h (PowHeader bh _) = printf "[OKAY] Chain %d: %d: %s\n"
+    g :: PowHeader -> IO ()
+    g (PowHeader bh _) = printf "[OKAY] Chain %d: %d: %s\n"
       (unChainId $ _blockHeader_chainId bh)
       (_blockHeader_height bh)
       (hashB64U $ _blockHeader_hash bh)

@@ -1,12 +1,22 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Chainweb.Worker ( worker ) where
+module Chainweb.Worker
+  ( -- * DB Updates
+    worker
+  , lookups
+  , writes
+  , writes'
+    -- * Payload Lookups
+  , payload
+  , miner
+  , txs
+  ) where
 
 import           BasePrelude hiding (delete, insert)
 import           Chainweb.Api.BlockPayload
+import           Chainweb.Api.ChainId
 import           Chainweb.Api.ChainwebMeta
 import           Chainweb.Api.Hash
 import           Chainweb.Api.MinerData
@@ -19,7 +29,6 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.Transaction
-import           Control.Monad.Trans.Maybe
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.Aeson (Value(..), decode')
 import qualified Data.Pool as P
@@ -54,8 +63,10 @@ writes' pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
   runInsert
     $ insert (miners database) (insertValues [m])
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-  -- Update the Block to include its new Miner foreign key --
-  runUpdate $ save (blocks database) (b { _block_miner = just_ $ pk m })
+  -- Write the Block if unique --
+  runInsert
+    $ insert (blocks database) (insertValues [b])
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the TXs if unique --
   runInsert
     $ insert (transactions database) (insertValues ts)
@@ -67,16 +78,12 @@ writes' pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
     (map (const '.') ts)
 
 lookups :: Env -> Block -> IO (Maybe (T2 Miner [Transaction]))
-lookups e b = runMaybeT $ do
-  pl <- MaybeT $ payload e b
-  let !mi = miner pl
-      !ts = map (transaction b) $ _blockPayload_transactions pl
-  pure $ T2 mi ts
-
-miner :: BlockPayload -> Miner
-miner pl = Miner acc prd
+lookups e b = fmap f <$> payload e pair
   where
-    MinerData acc prd _ = _blockPayload_minerData pl
+    pair = T2 (ChainId $ _block_chainId b) (_block_payload b)
+
+    f :: BlockPayload -> T2 Miner [Transaction]
+    f pl = T2 (miner pl) (txs b pl)
 
 transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction
@@ -110,13 +117,22 @@ transaction b tx = Transaction
 --------------------------------------------------------------------------------
 -- Endpoints
 
-payload :: Env -> Block -> IO (Maybe BlockPayload)
-payload (Env m _ (Url u) (ChainwebVersion v)) b = do
+payload :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayload)
+payload (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do
   req <- parseRequest url
   res <- httpLbs req m
   pure . decode' $ responseBody res
   where
     url = "https://" <> u <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh
-    cid = T.pack . show $ _block_chainId b
-    hsh = unDbHash $ _block_payload b
+    cid = T.pack $ show cid0
+    hsh = unDbHash hsh0
+
+-- | Derive useful database entries from a `Block` and its payload.
+txs :: Block -> BlockPayload -> [Transaction]
+txs b pl = map (transaction b) $ _blockPayload_transactions pl
+
+miner :: BlockPayload -> Miner
+miner pl = Miner acc prd
+  where
+    MinerData acc prd _ = _blockPayload_minerData pl
