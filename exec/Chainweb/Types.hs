@@ -3,10 +3,13 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Chainweb.Types
-  ( PowHeader(..)
+  ( -- * Types
+    PowHeader(..)
   , asBlock
   , asPow
   , hash
+    -- * Utils
+  , groupsOf
   ) where
 
 import           BasePrelude
@@ -59,6 +62,18 @@ asBlock (PowHeader bh ph) m = Block
 -- | Convert to the "pretty" hash representation that URLs, etc., expect.
 hash :: Hash -> DbHash
 hash = DbHash . hashB64U
+
+-- | Break a list into groups of @n@ elements. The last item in the result is
+-- not guaranteed to have the same length as the others.
+groupsOf :: Int -> [a] -> [[a]]
+groupsOf n as
+  | n <= 0 = []
+  | otherwise = go as
+  where
+    go [] = []
+    go bs = xs : go rest
+      where
+        (xs, rest) = splitAt n bs
 
 --------------------------------------------------------------------------------
 -- Orphans

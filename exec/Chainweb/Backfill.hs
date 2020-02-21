@@ -1,91 +1,116 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
+
 module Chainweb.Backfill ( backfill ) where
 
-import BasePrelude hiding (insert)
--- import           Chainweb.Api.BlockHeader
--- import           Chainweb.Api.ChainId (ChainId(..))
--- import           Chainweb.Database
-import Chainweb.Env
--- import           Chainweb.Types
--- import           Chainweb.Worker (worker)
--- import           ChainwebDb.Types.Block
--- import ChainwebDb.Types.DbHash
--- import           Control.Concurrent.Async hiding (replicateConcurrently_)
--- import           Control.Concurrent.STM.TBQueue
--- import           Control.Error.Util (hush)
--- import           Control.Scheduler hiding (traverse_)
--- import qualified Data.Pool as P
--- import           Data.Serialize (runGetLazy)
--- import qualified Data.Text as T
--- import qualified Data.Text.IO as T
--- import           Data.Tuple.Strict (T2(..))
--- import           Database.Beam
--- import           Database.Beam.Postgres (Connection, runBeamPostgres)
--- import           Network.HTTP.Client hiding (Proxy)
+import           BasePrelude hiding (insert, range)
+import           Chainweb.Api.BlockHeader
+import           Chainweb.Api.ChainId (ChainId(..))
+import           Chainweb.Api.Hash
+import           Chainweb.Database
+import           Chainweb.Env
+import           Chainweb.Types (asBlock, asPow, groupsOf, hash)
+import           Chainweb.Worker
+import           ChainwebDb.Types.Block
+import           Control.Scheduler hiding (traverse_)
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
+import qualified Data.Pool as P
+import qualified Data.Text as T
+import           Data.Tuple.Strict (T2(..))
+import           Data.Witherable.Class (wither)
+import           Database.Beam
+import           Database.Beam.Postgres (Connection, runBeamPostgres)
+import           Lens.Micro ((^..))
+import           Lens.Micro.Aeson (key, values, _JSON)
+import           Network.HTTP.Client hiding (Proxy)
 
 ---
 
--- newtype Parent = Parent DbHash
-
-{-
-
-1. Get a confirmed block from the database.
-2. Is its parent also in the database, or least in the work queue?
-3. If yes, move to the next confirmed block.
-4. If no, fetch the Header from the Node and write it to the queue.
-5. Recurse on (2) with the parent of the Header we just wrote.
-
--}
-
 backfill :: Env -> IO ()
-backfill (Env _ c _ _) = withPool c $ \_ -> pure ()
+backfill e@(Env _ c _ _) = withPool c $ \pool -> do
+  mins <- minHeights pool
+  print mins
+  traverseConcurrently_ Par' (f pool) $ lookupPlan mins
+  where
+    f :: P.Pool Connection -> (ChainId, Low, High) -> IO ()
+    f pool range = headersBetween e range >>= \case
+      [] -> printf "[FAIL] headersBetween: %s" $ show range
+      hs -> traverse_ (g pool) hs
 
--- backfill' :: Env -> P.Pool Connection -> IO ()
--- backfill' e pool = do
---   bs <- P.withResource pool $ \conn -> runBeamPostgres conn . runSelectReturningList
---     . select
---     . orderBy_ (asc_ . _block_height)
---     $ all_ (blocks database)
---   q <- newTBQueueIO 1000
---   caps <- getNumCapabilities
---   concurrently_ (traverse_ (filling pool q) bs)
---     $ replicateConcurrently_ Par' caps (work e pool q)
+    g :: P.Pool Connection -> BlockHeader -> IO ()
+    g pool bh = do
+      let !pair = T2 (_blockHeader_chainId bh) (hash $ _blockHeader_payloadHash bh)
+      payload e pair >>= \case
+        Nothing -> printf "[FAIL] Couldn't fetch parent for: "
+          (hashB64U $ _blockHeader_hash bh)
+        Just pl -> do
+          let !m = miner pl
+              !b = asBlock (asPow bh) m
+              !t = txs b pl
+          writes pool b $ T2 m t
 
--- work :: Env -> P.Pool Connection -> TBQueue (T2 ChainId Parent) -> IO ()
--- work e pool q = forever $ do
---   b <- atomically $ readTBQueue q
---   looking e pool b >>= traverse_ (atomically . writeTBQueue q)
+newtype Low = Low Int deriving newtype (Show)
+newtype High = High Int deriving newtype (Eq, Ord, Show)
 
--- filling :: P.Pool Connection -> TBQueue (T2 ChainId Parent) -> Block -> IO ()
--- filling pool q b = checking pool pair >>= traverse_ (atomically . writeTBQueue q)
---   where
---     pair = T2 (ChainId $ _block_chainId b) (Parent $ _block_parent b)
+-- | For all blocks written to the DB, find the shortest (in terms of block
+-- height) for each chain.
+minHeights :: P.Pool Connection -> IO (Map ChainId Int)
+minHeights pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) chains
+  where
+    chains :: [ChainId]
+    chains = map ChainId [0..9]  -- TODO Make configurable.
 
--- checking :: P.Pool Connection -> T2 ChainId Parent -> IO (Maybe (T2 ChainId Parent))
--- checking pool b@(T2 _ (Parent p)) = P.withResource pool $ \c -> do
---   m <- runBeamPostgres c $ do
---     blk <- runSelectReturningOne $ lookup_ (blocks database) (BlockId p)
---     hum <- runSelectReturningOne $ lookup_ (headers database) (HeaderId p)
---     pure (void blk <|> void hum)
---   pure $ maybe (Just b) (const Nothing) m
+    -- | Get the current minimum height of any block on some chain.
+    f :: ChainId -> IO (Maybe Int)
+    f (ChainId cid) = fmap (fmap _block_height)
+      $ P.withResource pool
+      $ \c -> runBeamPostgres c
+      $ runSelectReturningOne
+      $ select
+      $ limit_ 1
+      $ orderBy_ (asc_ . _block_height)
+      $ filter_ (\b -> _block_chainId b ==. val_ cid)
+      $ all_ (blocks database)
 
--- looking :: Env -> P.Pool Connection -> T2 ChainId Parent -> IO (Maybe (T2 ChainId Parent))
--- looking e pool (T2 cid p@(Parent h)) = parent e p cid >>= \case
---   Nothing -> T.putStrLn ("[FAIL] Couldn't fetch parent: " <> unDbHash h) $> Nothing
---   Just hd -> do
---     P.withResource pool $ \c -> do
---       r <- try @SomeException . runBeamPostgres c . runInsert
---         . insert (headers database) $ insertValues [hd]
---       case r of
---         Left err -> print err >> print hd >> error "DIE"
---         Right _ -> pure ()
---     printf "[OKAY] Chain %d: %d: %s\n"
---       (_header_chainId hd)
---       (_header_height hd)
---       (unDbHash $ _header_hash hd)
---     pure . Just $ T2 (ChainId $ _header_chainId hd) (Parent $ _header_parent hd)
+-- | Based on some initial minimum heights per chain, form a lazy list of block
+-- ranges that need to be looked up.
+lookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
+lookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
+  where
+    maxi :: Int
+    maxi = max 0 $ maximum (M.elems mins) - 1
+
+    asList :: [(ChainId, High)]
+    asList = map (second (\n -> High . max 0 $ n - 1)) $ M.toList mins
+
+    ranges :: [(Low, High)]
+    ranges = map (Low . last &&& High . head) $ groupsOf 100 [maxi .. 0]
+
+    g :: (Low, High) -> (ChainId, High) -> Maybe (ChainId, Low, High)
+    g (l@(Low l'), u) (cid, mx@(High mx'))
+      | u > mx && l' <= mx' = Just (cid, l, mx)
+      | u <= mx = Just (cid, l, u)
+      | otherwise = Nothing
 
 --------------------------------------------------------------------------------
 -- Endpoints
+
+headersBetween :: Env -> (ChainId, Low, High) -> IO [BlockHeader]
+headersBetween (Env m _ (Url u) (ChainwebVersion v)) (cid, Low low, High up) = do
+  req <- parseRequest url
+  res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding }) m
+  pure . (^.. key "items" . values . _JSON) $ responseBody res
+  where
+    url = "https://" <> u <> query
+    query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
+      (T.unpack v) (unChainId cid) low up
+    encoding = [("accept", "application/json;blockheader-encoding=object")]
+
+-- TODO Use the binary encodings instead?
 
 -- | Fetch a parent header.
 -- parent :: Env -> Parent -> ChainId -> IO (Maybe Header)
