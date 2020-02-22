@@ -32,25 +32,31 @@ import           Network.HTTP.Client hiding (Proxy)
 
 backfill :: Env -> IO ()
 backfill e@(Env _ c _ _) = withPool c $ \pool -> do
+  putStrLn "Backfilling..."
+  cont <- newIORef 0
   mins <- minHeights pool
-  traverseConcurrently_ Par' (f pool) $ lookupPlan mins
+  traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
   where
-    f :: P.Pool Connection -> (ChainId, Low, High) -> IO ()
-    f pool range = headersBetween e range >>= \case
-      [] -> printf "[FAIL] headersBetween: %s" $ show range
-      hs -> traverse_ (g pool) hs
+    f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
+    f pool count range = headersBetween e range >>= \case
+      [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+      hs -> traverse_ (g pool count) hs
 
-    g :: P.Pool Connection -> BlockHeader -> IO ()
-    g pool bh = do
+    g :: P.Pool Connection -> IORef Int -> BlockHeader -> IO ()
+    g pool count bh = do
       let !pair = T2 (_blockHeader_chainId bh) (hash $ _blockHeader_payloadHash bh)
       payload e pair >>= \case
-        Nothing -> printf "[FAIL] Couldn't fetch parent for: "
+        Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
           (hashB64U $ _blockHeader_hash bh)
         Just pl -> do
           let !m = miner pl
               !b = asBlock (asPow bh) m
               !t = txs b pl
+          curr <- atomicModifyIORef' count (\n -> (n+1, n+1))
           writes pool b $ T2 m t
+          when (curr `mod` 1000 == 0) $
+            printf "[INFO] Processed blocks: %d. Progress sample: Chain %d, Height %d\n"
+              curr (_block_chainId b) (_block_height b)
 
 newtype Low = Low Int deriving newtype (Show)
 newtype High = High Int deriving newtype (Eq, Ord, Show)

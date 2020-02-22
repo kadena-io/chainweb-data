@@ -54,11 +54,11 @@ writes pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
   runInsert
     $ insert (transactions database) (insertValues ts)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-  liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
-    (_block_chainId b)
-    (_block_height b)
-    (unDbHash $ _block_hash b)
-    (map (const '.') ts)
+  -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
+  --   (_block_chainId b)
+  --   (_block_height b)
+  --   (unDbHash $ _block_hash b)
+  --   (map (const '.') ts)
 
 transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction
