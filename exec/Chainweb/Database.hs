@@ -12,6 +12,8 @@ module Chainweb.Database
 import BasePrelude
 import ChainwebDb.Types.Block
 import ChainwebDb.Types.Miner
+import ChainwebDb.Types.MinerKey
+import ChainwebDb.Types.PubKey
 import ChainwebDb.Types.Transaction
 import Database.Beam
 import Database.Beam.Migrate
@@ -24,7 +26,9 @@ import Database.Beam.Postgres.Migrate (migrationBackend)
 data ChainwebDataDb f = ChainwebDataDb
   { blocks :: f (TableEntity BlockT)
   , transactions :: f (TableEntity TransactionT)
-  , miners :: f (TableEntity MinerT) }
+  , miners :: f (TableEntity MinerT)
+  , pubkeys :: f (TableEntity PubKeyT)
+  , minerkeys :: f (TableEntity MinerKeyT) }
   deriving stock (Generic)
   deriving anyclass (Database be)
 
@@ -65,6 +69,13 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _tx_step = "step"
     , _tx_data = "data"
     , _tx_proof = "proof"
+    }
+  , pubkeys = modifyCheckedTable id checkedTableModification
+    { _pubkey_key = "key" }
+  , minerkeys = modifyCheckedTable id checkedTableModification
+    { _minerKey_id = "id"
+    -- , _minerKey_miner = "miner"  -- TODO Foreign key, won't compile.
+    -- , _minerKey_key = "key"      -- TODO Foreign key, won't compile.
     }
   }
 
