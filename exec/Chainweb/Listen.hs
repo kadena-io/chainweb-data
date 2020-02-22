@@ -30,7 +30,7 @@ listen e@(Env mgr c u _) = withPool c $ \pool ->
     f pool ph@(PowHeader h _) = do
       let !pair = T2 (_blockHeader_chainId h) (hash $ _blockHeader_payloadHash h)
       payload e pair >>= \case
-        Nothing -> printf "[FAIL] Couldn't fetch parent for: "
+        Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
           (hashB64U $ _blockHeader_hash h)
         Just pl -> do
           let !m = miner pl
