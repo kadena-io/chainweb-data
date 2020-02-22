@@ -29,6 +29,7 @@ data BlockT f = Block
   , _block_weight :: C f DbHash
   , _block_epochStart :: C f Int
   , _block_nonce :: C f Word64
+  , _block_flags :: C f Word64
   , _block_miner :: PrimaryKey MinerT f }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -45,6 +46,7 @@ Block
   (LensFor block_weight)
   (LensFor block_epochStart)
   (LensFor block_nonce)
+  (LensFor block_flags)
   (MinerId (LensFor block_miner))
   = tableLenses
 

@@ -56,6 +56,7 @@ asBlock (PowHeader bh ph) m = Block
   , _block_weight       = DbHash . hexBytesLE $ _blockHeader_weight bh
   , _block_epochStart   = floor $ _blockHeader_epochStart bh
   , _block_nonce        = _blockHeader_nonce bh
+  , _block_flags        = _blockHeader_flags bh
   , _block_powHash      = DbHash ph
   , _block_miner        = pk m }
 
