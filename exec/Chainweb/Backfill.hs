@@ -52,8 +52,9 @@ backfill e@(Env _ c _ _) = withPool c $ \pool -> do
           let !m = miner pl
               !b = asBlock (asPow bh) m
               !t = txs b pl
+              !k = keys pl
           curr <- atomicModifyIORef' count (\n -> (n+1, n+1))
-          writes pool b $ T2 m t
+          writes pool b m k t
           when (curr `mod` 1000 == 0) $
             printf "[INFO] Processed blocks: %d. Progress sample: Chain %d, Height %d\n"
               curr (_block_chainId b) (_block_height b)

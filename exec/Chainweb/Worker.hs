@@ -9,6 +9,7 @@ module Chainweb.Worker
   , payload
   , miner
   , txs
+  , keys
   ) where
 
 import           BasePrelude hiding (delete, insert)
@@ -25,6 +26,7 @@ import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Miner
+import           ChainwebDb.Types.PubKey
 import           ChainwebDb.Types.Transaction
 import           Data.Aeson (Value(..), decode')
 import qualified Data.Pool as P
@@ -40,11 +42,15 @@ import           Network.HTTP.Client hiding (Proxy)
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: P.Pool Connection -> Block -> T2 Miner [Transaction] -> IO ()
-writes pool b (T2 m ts) = P.withResource pool $ \c -> runBeamPostgres c $ do
+writes :: P.Pool Connection -> Block -> Miner -> [PubKey] -> [Transaction] -> IO ()
+writes pool b m ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write the Miner if unique --
   runInsert
     $ insert (miners database) (insertValues [m])
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  -- Write Public Keys if unique --
+  runInsert
+    $ insert (pubkeys database) (insertValues ks)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the Block if unique --
   runInsert
@@ -111,3 +117,6 @@ miner :: BlockPayload -> Miner
 miner pl = Miner acc prd
   where
     MinerData acc prd _ = _blockPayload_minerData pl
+
+keys :: BlockPayload -> [PubKey]
+keys = map PubKey . _minerData_publicKeys . _blockPayload_minerData
