@@ -12,9 +12,9 @@ import Database.Beam
 
 ---
 
+-- https://tathougies.github.io/beam/user-guide/models/#what-about-tables-without-primary-keys
 data MinerKeyT f = MinerKey
-  { _minerKey_id :: C f Int
-  , _minerKey_miner :: PrimaryKey MinerT f
+  { _minerKey_miner :: PrimaryKey MinerT f
   , _minerKey_key :: PrimaryKey PubKeyT f }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -23,7 +23,7 @@ type MinerKey = MinerKeyT Identity
 type MinerKeyId = PrimaryKey MinerKeyT Identity
 
 instance Table MinerKeyT where
-  data PrimaryKey MinerKeyT f = MinerKeyId (C f Int)
+  data PrimaryKey MinerKeyT f = NoId
     deriving stock (Generic)
     deriving anyclass (Beamable)
-  primaryKey = MinerKeyId . _minerKey_id
+  primaryKey _ = NoId

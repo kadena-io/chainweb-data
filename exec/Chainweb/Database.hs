@@ -72,11 +72,6 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     }
   , pubkeys = modifyCheckedTable id checkedTableModification
     { _pubkey_key = "key" }
-  , minerkeys = modifyCheckedTable id checkedTableModification
-    { _minerKey_id = "id"
-    -- , _minerKey_miner = "miner"  -- TODO Foreign key, won't compile.
-    -- , _minerKey_key = "key"      -- TODO Foreign key, won't compile.
-    }
   }
 
 database :: DatabaseSettings Postgres ChainwebDataDb
