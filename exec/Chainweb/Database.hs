@@ -29,7 +29,44 @@ data ChainwebDataDb f = ChainwebDataDb
   deriving anyclass (Database be)
 
 migratableDb :: CheckedDatabaseSettings Postgres ChainwebDataDb
-migratableDb = defaultMigratableDbSettings
+migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
+  { blocks = modifyCheckedTable id checkedTableModification
+    { _block_creationTime = "creationtime"
+    , _block_chainId = "chainid"
+    , _block_height = "height"
+    , _block_hash = "hash"
+    , _block_parent = "parent"
+    , _block_powHash = "powhash"
+    , _block_payload = "payload"
+    , _block_target = "target"
+    , _block_weight = "weight"
+    , _block_epochStart = "epoch"
+    , _block_nonce = "nonce"
+    , _block_flags = "flags"
+    -- , _block_miner = "miner"  -- TODO Foreign key, won't compile.
+    }
+  , miners = modifyCheckedTable id checkedTableModification
+    { _miner_account = "account"
+    , _miner_pred = "pred"
+    }
+  , transactions = modifyCheckedTable id checkedTableModification
+    { _tx_chainId = "chainid"
+    -- , _tx_block = "block"  -- TODO Foreign key, won't compile.
+    , _tx_creationTime = "creationtime"
+    , _tx_ttl = "ttl"
+    , _tx_gasLimit = "gaslimit"
+    , _tx_gasPrice = "gasprice"
+    , _tx_sender = "sender"
+    , _tx_nonce = "nonce"
+    , _tx_requestKey = "requestkey"
+    , _tx_code = "code"
+    , _tx_pactId = "pactid"
+    , _tx_rollback = "rollback"
+    , _tx_step = "step"
+    , _tx_data = "data"
+    , _tx_proof = "proof"
+    }
+  }
 
 database :: DatabaseSettings Postgres ChainwebDataDb
 database = unCheckDatabase migratableDb
