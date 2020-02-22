@@ -10,6 +10,7 @@ import           Chainweb.Api.Hash
 import           Chainweb.Env
 import           Chainweb.Types
 import           Chainweb.Worker
+import           ChainwebDb.Types.Block
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Pool as P
 import           Data.Tuple.Strict (T2(..))
@@ -17,6 +18,7 @@ import           Database.Beam.Postgres (Connection)
 import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
+import           System.IO (hFlush, stdout)
 
 ---
 
@@ -35,6 +37,7 @@ listen e@(Env mgr c u _) = withPool c $ \pool ->
               !b = asBlock ph m
               !t = txs b pl
           writes pool b $ T2 m t
+          printf "%d" (_block_chainId b) >> hFlush stdout
 
 req :: Url -> Request
 req (Url u) = defaultRequest
