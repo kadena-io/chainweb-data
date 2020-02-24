@@ -47,7 +47,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _block_epochStart = "epoch"
     , _block_nonce = "nonce"
     , _block_flags = "flags"
-    -- , _block_miner = "miner"  -- TODO Foreign key, won't compile.
+    , _block_miner = MinerId "miner"
     }
   , miners = modifyCheckedTable id checkedTableModification
     { _miner_account = "account"
@@ -55,7 +55,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     }
   , transactions = modifyCheckedTable id checkedTableModification
     { _tx_chainId = "chainid"
-    -- , _tx_block = "block"  -- TODO Foreign key, won't compile.
+    , _tx_block = BlockId "block"
     , _tx_creationTime = "creationtime"
     , _tx_ttl = "ttl"
     , _tx_gasLimit = "gaslimit"
@@ -72,6 +72,10 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     }
   , pubkeys = modifyCheckedTable id checkedTableModification
     { _pubkey_key = "key" }
+  , minerkeys = modifyCheckedTable id checkedTableModification
+    { _minerKey_miner = MinerId "miner"
+    , _minerKey_key = PubKeyId "key"
+    }
   }
 
 database :: DatabaseSettings Postgres ChainwebDataDb
