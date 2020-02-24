@@ -26,6 +26,7 @@ import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Miner
+import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.PubKey
 import           ChainwebDb.Types.Transaction
 import           Data.Aeson (Value(..), decode')
@@ -51,6 +52,10 @@ writes pool b m ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write Public Keys if unique --
   runInsert
     $ insert (pubkeys database) (insertValues ks)
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  -- Write Pub Key many-to-many relationships if unique --
+  runInsert
+    $ insert (minerkeys database) (insertValues $ map (MinerKey (pk m) . pk) ks)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the Block if unique --
   runInsert
