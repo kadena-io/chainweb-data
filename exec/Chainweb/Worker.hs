@@ -25,7 +25,6 @@ import           Chainweb.Database
 import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
-import           ChainwebDb.Types.Miner
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.PubKey
 import           ChainwebDb.Types.Transaction
@@ -44,19 +43,15 @@ import           Network.HTTP.Client hiding (Proxy)
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: P.Pool Connection -> Block -> Miner -> [PubKey] -> [Transaction] -> IO ()
-writes pool b m ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
-  -- Write the Miner if unique --
-  runInsert
-    $ insert (miners database) (insertValues [m])
-    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+writes :: P.Pool Connection -> Block -> [PubKey] -> [Transaction] -> IO ()
+writes pool b ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write Public Keys if unique --
   runInsert
     $ insert (pubkeys database) (insertValues ks)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write Pub Key many-to-many relationships if unique --
   runInsert
-    $ insert (minerkeys database) (insertValues $ map (MinerKey (pk m) . pk) ks)
+    $ insert (minerkeys database) (insertValues $ map (MinerKey (pk b) . pk) ks)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the Block if unique --
   runInsert
@@ -119,10 +114,8 @@ payload (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do
 txs :: Block -> BlockPayload -> [Transaction]
 txs b pl = map (transaction b) $ _blockPayload_transactions pl
 
-miner :: BlockPayload -> Miner
-miner pl = Miner acc prd
-  where
-    MinerData acc prd _ = _blockPayload_minerData pl
+miner :: BlockPayload -> MinerData
+miner = _blockPayload_minerData
 
 keys :: BlockPayload -> [PubKey]
 keys = map PubKey . _minerData_publicKeys . _blockPayload_minerData

@@ -37,7 +37,7 @@ listen e@(Env mgr c u _) = withPool c $ \pool ->
               !b = asBlock ph m
               !t = txs b pl
               !k = keys pl
-          writes pool b m k t
+          writes pool b k t
           printf "%d" (_block_chainId b) >> hFlush stdout
 
 req :: Url -> Request

@@ -11,11 +11,11 @@
 module ChainwebDb.Types.Block where
 
 import BasePrelude
+import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
-import ChainwebDb.Types.Miner
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
@@ -31,7 +31,8 @@ data BlockT f = Block
   , _block_epochStart :: C f UTCTime
   , _block_nonce :: C f Word64
   , _block_flags :: C f Word64
-  , _block_miner :: PrimaryKey MinerT f }
+  , _block_miner_acc :: C f Text
+  , _block_miner_pred :: C f Text }
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
@@ -48,7 +49,8 @@ Block
   (LensFor block_epochStart)
   (LensFor block_nonce)
   (LensFor block_flags)
-  (MinerId (LensFor block_miner))
+  (LensFor block_miner_acc)
+  (LensFor block_miner_pred)
   = tableLenses
 
 type Block = BlockT Identity

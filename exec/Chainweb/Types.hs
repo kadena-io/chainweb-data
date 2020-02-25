@@ -17,14 +17,13 @@ import           Chainweb.Api.BlockHeader (BlockHeader(..), powHash)
 import           Chainweb.Api.BytesLE
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
+import           Chainweb.Api.MinerData
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash (DbHash(..))
-import           ChainwebDb.Types.Miner
 import           Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import           Database.Beam.Schema (pk)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
 import           Network.Wai.EventSource.Streaming
@@ -45,7 +44,7 @@ instance FromEvent PowHeader where
 asPow :: BlockHeader -> PowHeader
 asPow bh = PowHeader bh (hashB64U $ powHash bh)
 
-asBlock :: PowHeader -> Miner -> Block
+asBlock :: PowHeader -> MinerData -> Block
 asBlock (PowHeader bh ph) m = Block
   { _block_creationTime = posixSecondsToUTCTime $ _blockHeader_creationTime bh
   , _block_chainId      = unChainId $ _blockHeader_chainId bh
@@ -59,7 +58,8 @@ asBlock (PowHeader bh ph) m = Block
   , _block_nonce        = _blockHeader_nonce bh
   , _block_flags        = _blockHeader_flags bh
   , _block_powHash      = DbHash ph
-  , _block_miner        = pk m }
+  , _block_miner_acc    = _minerData_account m
+  , _block_miner_pred   = _minerData_predicate m }
 
 -- | Convert to the "pretty" hash representation that URLs, etc., expect.
 hash :: Hash -> DbHash

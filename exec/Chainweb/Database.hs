@@ -11,7 +11,6 @@ module Chainweb.Database
 
 import BasePrelude
 import ChainwebDb.Types.Block
-import ChainwebDb.Types.Miner
 import ChainwebDb.Types.MinerKey
 import ChainwebDb.Types.PubKey
 import ChainwebDb.Types.Transaction
@@ -26,7 +25,6 @@ import Database.Beam.Postgres.Migrate (migrationBackend)
 data ChainwebDataDb f = ChainwebDataDb
   { blocks :: f (TableEntity BlockT)
   , transactions :: f (TableEntity TransactionT)
-  , miners :: f (TableEntity MinerT)
   , pubkeys :: f (TableEntity PubKeyT)
   , minerkeys :: f (TableEntity MinerKeyT) }
   deriving stock (Generic)
@@ -47,11 +45,8 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _block_epochStart = "epoch"
     , _block_nonce = "nonce"
     , _block_flags = "flags"
-    , _block_miner = MinerId "miner"
-    }
-  , miners = modifyCheckedTable id checkedTableModification
-    { _miner_account = "account"
-    , _miner_pred = "pred"
+    , _block_miner_acc = "miner"
+    , _block_miner_pred = "predicate"
     }
   , transactions = modifyCheckedTable id checkedTableModification
     { _tx_chainId = "chainid"
@@ -73,7 +68,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
   , pubkeys = modifyCheckedTable id checkedTableModification
     { _pubkey_key = "key" }
   , minerkeys = modifyCheckedTable id checkedTableModification
-    { _minerKey_miner = MinerId "miner"
+    { _minerKey_block = BlockId "block"
     , _minerKey_key = PubKeyId "key"
     }
   }
