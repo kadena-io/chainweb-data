@@ -4,10 +4,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module ChainwebDb.Types.Transaction where
 
@@ -15,8 +17,11 @@ module ChainwebDb.Types.Transaction where
 import BasePrelude
 import Data.Aeson
 import Data.Text (Text)
+import Data.Time.Clock (UTCTime)
 import Database.Beam
-import Database.Beam.Postgres (PgJSONB)
+import Database.Beam.Backend.SQL.SQL92 (timestampType)
+import Database.Beam.Migrate.Generics (HasDefaultSqlDataType(..))
+import Database.Beam.Postgres (PgJSONB, Postgres)
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
 ------------------------------------------------------------------------------
@@ -26,7 +31,7 @@ import ChainwebDb.Types.Block
 data TransactionT f = Transaction
   { _tx_chainId :: C f Int
   , _tx_block :: PrimaryKey BlockT f
-  , _tx_creationTime :: C f Int
+  , _tx_creationTime :: C f UTCTime
   , _tx_ttl :: C f Int
   , _tx_gasLimit :: C f Int
   , _tx_gasPrice :: C f Double
@@ -78,3 +83,10 @@ instance Table TransactionT where
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = TransactionId . _tx_requestKey
+
+--------------------------------------------------------------------------------
+-- Orphan
+
+-- Until this is merged: https://github.com/tathougies/beam/pull/422
+instance HasDefaultSqlDataType Postgres UTCTime where
+  defaultSqlDataType _ _ _ = timestampType Nothing True

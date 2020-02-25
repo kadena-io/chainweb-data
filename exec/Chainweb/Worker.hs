@@ -32,6 +32,7 @@ import           ChainwebDb.Types.Transaction
 import           Data.Aeson (Value(..), decode')
 import qualified Data.Pool as P
 import qualified Data.Text as T
+import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
@@ -75,7 +76,7 @@ transaction :: Block -> CW.Transaction -> Transaction
 transaction b tx = Transaction
   { _tx_chainId = _block_chainId b
   , _tx_block = pk b
-  , _tx_creationTime = floor $ _chainwebMeta_creationTime mta
+  , _tx_creationTime = posixSecondsToUTCTime $ _chainwebMeta_creationTime mta
   , _tx_ttl = _chainwebMeta_ttl mta
   , _tx_gasLimit = _chainwebMeta_gasLimit mta
   , _tx_gasPrice = _chainwebMeta_gasPrice mta

@@ -23,6 +23,7 @@ import           ChainwebDb.Types.Miner
 import           Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
+import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Database.Beam.Schema (pk)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
@@ -46,7 +47,7 @@ asPow bh = PowHeader bh (hashB64U $ powHash bh)
 
 asBlock :: PowHeader -> Miner -> Block
 asBlock (PowHeader bh ph) m = Block
-  { _block_creationTime = floor $ _blockHeader_creationTime bh
+  { _block_creationTime = posixSecondsToUTCTime $ _blockHeader_creationTime bh
   , _block_chainId      = unChainId $ _blockHeader_chainId bh
   , _block_height       = _blockHeader_height bh
   , _block_parent       = DbHash . hashB64U $ _blockHeader_parent bh
@@ -54,7 +55,7 @@ asBlock (PowHeader bh ph) m = Block
   , _block_payload      = DbHash . hashB64U $ _blockHeader_payloadHash bh
   , _block_target       = DbHash . hexBytesLE $ _blockHeader_target bh
   , _block_weight       = DbHash . hexBytesLE $ _blockHeader_weight bh
-  , _block_epochStart   = floor $ _blockHeader_epochStart bh
+  , _block_epochStart   = posixSecondsToUTCTime $ _blockHeader_epochStart bh
   , _block_nonce        = _blockHeader_nonce bh
   , _block_flags        = _blockHeader_flags bh
   , _block_powHash      = DbHash ph

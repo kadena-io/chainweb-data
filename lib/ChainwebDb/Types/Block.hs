@@ -11,6 +11,7 @@
 module ChainwebDb.Types.Block where
 
 import BasePrelude
+import Data.Time.Clock (UTCTime)
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
@@ -18,7 +19,7 @@ import ChainwebDb.Types.Miner
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
-  { _block_creationTime :: C f Int
+  { _block_creationTime :: C f UTCTime
   , _block_chainId :: C f Int
   , _block_height :: C f Int
   , _block_hash :: C f DbHash
@@ -27,7 +28,7 @@ data BlockT f = Block
   , _block_payload :: C f DbHash
   , _block_target :: C f DbHash
   , _block_weight :: C f DbHash
-  , _block_epochStart :: C f Int
+  , _block_epochStart :: C f UTCTime
   , _block_nonce :: C f Word64
   , _block_flags :: C f Word64
   , _block_miner :: PrimaryKey MinerT f }
