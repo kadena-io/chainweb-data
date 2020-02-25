@@ -43,7 +43,6 @@ library
     ChainwebDb.Types.Block
     ChainwebDb.Types.DbHash
     ChainwebDb.Types.MinerKey
-    ChainwebDb.Types.PubKey
     ChainwebDb.Types.Transaction
 
 executable chainweb-data
