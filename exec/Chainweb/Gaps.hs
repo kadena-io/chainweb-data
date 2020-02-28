@@ -1,10 +1,8 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
 
 import           BasePrelude
-import           Chainweb.Api.ChainId
 import           Chainweb.Api.Common
 import           Chainweb.Database
 import           Chainweb.Env
@@ -21,7 +19,7 @@ gaps :: Env -> IO ()
 gaps (Env _ c _ _) = withPool c $ \pool -> do
   work pool >>= print
 
-work :: P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, ChainId)))
+work :: P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
 work pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Pull all (chain, height) pairs --
   pairs <- runSelectReturningList
@@ -31,19 +29,41 @@ work pool = P.withResource pool $ \c -> runBeamPostgres c $ do
       bs <- all_ $ blocks database
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
-  case NEL.nonEmpty pairs of
-    Nothing -> pure Nothing
-    Just ps -> do
-      let !chains = S.fromList [0..9]
-          !grouped = NEL.groupWith1 fst ps
-      pure . NEL.nonEmpty $ concatMap (f chains) grouped
+  pure $ NEL.nonEmpty pairs >>= filling . expanding . grouping
+
+grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
+grouping = NEL.map (fst . NEL.head &&& NEL.map snd) . NEL.groupWith1 fst
+
+-- | We know that the input is ordered by height. This function fills adds any
+-- rows that are missing.
+--
+-- Written in such a way as to maintain laziness.
+--
+expanding :: NonEmpty (BlockHeight, NonEmpty Int) -> NonEmpty (BlockHeight, [Int])
+expanding (h :| t) = g h :| f (map g t)
   where
-    f :: S.IntSet -> NonEmpty (BlockHeight, Int) -> [(BlockHeight, ChainId)]
-    f chains ps =
-      map (const h &&& ChainId) . S.toList . S.difference chains . S.fromList . map snd $ NEL.toList ps
+    f :: [(BlockHeight, [Int])] -> [(BlockHeight, [Int])]
+    f [] = []
+    f [a] = [a]
+    f (a:b:cs)
+      | fst a + 1 /= fst b = a : f (z : b : cs)
+      | otherwise = a : f (b : cs)
       where
-        h :: BlockHeight
-        h = fst $ NEL.head ps
+        z :: (BlockHeight, [Int])
+        z = (fst a + 1, [])
+
+    g :: (BlockHeight, NonEmpty Int) -> (BlockHeight, [Int])
+    g = second NEL.toList
+
+filling :: NonEmpty (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
+filling pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
+  where
+    chains :: S.IntSet
+    chains = S.fromList [0..9]
+
+    -- | Detect gaps in existing rows.
+    f :: (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
+    f (h, cs) = NEL.nonEmpty . map (h,) . S.toList . S.difference chains $ S.fromList cs
 
 -- moreWork :: P.Pool Connection -> NonEmpty (BlockHeight, ChainId) -> IO ()
 -- moreWork pool pairs = do
