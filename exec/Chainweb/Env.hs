@@ -52,7 +52,7 @@ newtype Url = Url String
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
-data Command = Listen | Backfill
+data Command = Listen | Backfill | Gaps
 
 envP :: Parser Args
 envP = Args
@@ -78,6 +78,10 @@ connectInfoP = ConnectInfo
 
 commands :: Parser Command
 commands = subparser
-  (  command "listen"   (info (pure Listen)   (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
-  <> command "backfill" (info (pure Backfill) (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
+  (  command "listen" (info (pure Listen)
+       (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
+  <> command "backfill" (info (pure Backfill)
+       (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
+  <> command "gaps" (info (pure Gaps)
+       (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   )

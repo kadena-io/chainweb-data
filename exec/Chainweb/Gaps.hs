@@ -7,6 +7,7 @@ import           BasePrelude
 import           Chainweb.Api.ChainId
 import           Chainweb.Api.Common
 import           Chainweb.Database
+import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import qualified Data.IntSet as S
 import qualified Data.List.NonEmpty as NEL
@@ -16,8 +17,12 @@ import           Database.Beam.Postgres
 
 ---
 
-gaps :: P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, ChainId)))
-gaps pool = P.withResource pool $ \c -> runBeamPostgres c $ do
+gaps :: Env -> IO ()
+gaps (Env _ c _ _) = withPool c $ \pool -> do
+  work pool >>= print
+
+work :: P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, ChainId)))
+work pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Pull all (chain, height) pairs --
   pairs <- runSelectReturningList
     $ select
@@ -35,10 +40,10 @@ gaps pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   where
     f :: S.IntSet -> NonEmpty (BlockHeight, Int) -> [(BlockHeight, ChainId)]
     f chains ps =
-      map (,cid) . S.toList . S.difference chains . S.fromList . map snd $ NEL.toList ps
+      map (const h &&& ChainId) . S.toList . S.difference chains . S.fromList . map snd $ NEL.toList ps
       where
-        cid :: ChainId
-        cid = ChainId . snd $ NEL.head ps
+        h :: BlockHeight
+        h = fst $ NEL.head ps
 
 -- moreWork :: P.Pool Connection -> NonEmpty (BlockHeight, ChainId) -> IO ()
 -- moreWork pool pairs = do
