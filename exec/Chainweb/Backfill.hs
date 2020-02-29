@@ -65,7 +65,9 @@ newtype High = High Int deriving newtype (Eq, Ord, Show)
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
 minHeights :: P.Pool Connection -> IO (Map ChainId Int)
-minHeights pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) chains
+minHeights pool = do
+    res <- M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) chains
+    return res
   where
     chains :: [ChainId]
     chains = map ChainId [0..9]  -- TODO Make configurable.

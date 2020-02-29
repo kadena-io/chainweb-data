@@ -3,8 +3,10 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -13,27 +15,31 @@
 module ChainwebDb.Types.Block where
 
 ------------------------------------------------------------------------------
-import           BasePrelude
-import           Data.DoubleWord
-import           Data.Text (Text)
-import qualified Data.Text as T
-import           Data.Time.Clock (UTCTime)
-import           Database.Beam
-import           Database.Beam.Migrate
-import           Database.Beam.Backend.SQL.SQL92
-import           Database.Beam.Postgres
+import BasePrelude
+import Data.Aeson
+import Data.Scientific
+import Data.Text (Text)
+import Data.Time.Clock (UTCTime)
+import Database.Beam
+import Database.Beam.Backend.SQL.Row (FromBackendRow)
+import Database.Beam.Backend.SQL.SQL92
+import Database.Beam.Migrate
+import Database.Beam.Postgres (Postgres)
+import Database.Beam.Postgres.Syntax (PgValueSyntax)
+import Database.Beam.Query (HasSqlEqualityCheck)
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 
-instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be Word256 where
+newtype HashAsNum = HashAsNum { unHashAsNum :: Scientific }
+  deriving stock (Eq, Ord, Show, Generic)
+  deriving anyclass (ToJSON, FromJSON)
+  deriving newtype (Num)
+  deriving newtype (HasSqlValueSyntax PgValueSyntax)
+  deriving newtype (FromBackendRow Postgres, HasSqlEqualityCheck Postgres)
+
+instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be HashAsNum where
   defaultSqlDataType _ _ _ = numericType (Just (80, Nothing))
-
-instance HasSqlValueSyntax be String => HasSqlValueSyntax be Word256 where
-  sqlValueSyntax = autoSqlValueSyntax
-
-instance FromBackendRow Postgres Word256 where
-  fromBackendRow = read . T.unpack <$> fromBackendRow
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
@@ -44,8 +50,8 @@ data BlockT f = Block
   , _block_parent :: C f DbHash
   , _block_powHash :: C f DbHash
   , _block_payload :: C f DbHash
-  , _block_target :: C f Word256
-  , _block_weight :: C f Word256
+  , _block_target :: C f HashAsNum
+  , _block_weight :: C f HashAsNum
   , _block_epochStart :: C f UTCTime
   , _block_nonce :: C f Word64
   , _block_flags :: C f Word64
