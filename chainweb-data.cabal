@@ -33,7 +33,7 @@ common commons
     , beam-postgres  ^>=0.4
     , chainweb-api   ^>=1.0
     , containers     ^>=0.6
-    , scientific     ^>=0.3
+    , data-dword     ^>=0.3
     , text           ^>=1.2
     , time           ^>=1.8
 

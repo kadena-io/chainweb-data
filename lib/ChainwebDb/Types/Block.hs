@@ -4,19 +4,36 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module ChainwebDb.Types.Block where
 
-import BasePrelude
-import Data.Scientific
-import Data.Text (Text)
-import Data.Time.Clock (UTCTime)
-import Database.Beam
+------------------------------------------------------------------------------
+import           BasePrelude
+import           Data.DoubleWord
+import           Data.Text (Text)
+import qualified Data.Text as T
+import           Data.Time.Clock (UTCTime)
+import           Database.Beam
+import           Database.Beam.Migrate
+import           Database.Beam.Backend.SQL.SQL92
+import           Database.Beam.Postgres
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
+------------------------------------------------------------------------------
+
+instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be Word256 where
+  defaultSqlDataType _ _ _ = numericType (Just (80, Nothing))
+
+instance HasSqlValueSyntax be String => HasSqlValueSyntax be Word256 where
+  sqlValueSyntax = autoSqlValueSyntax
+
+instance FromBackendRow Postgres Word256 where
+  fromBackendRow = read . T.unpack <$> fromBackendRow
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
@@ -27,8 +44,8 @@ data BlockT f = Block
   , _block_parent :: C f DbHash
   , _block_powHash :: C f DbHash
   , _block_payload :: C f DbHash
-  , _block_target :: C f Scientific
-  , _block_weight :: C f Scientific
+  , _block_target :: C f Word256
+  , _block_weight :: C f Word256
   , _block_epochStart :: C f UTCTime
   , _block_nonce :: C f Word64
   , _block_flags :: C f Word64
