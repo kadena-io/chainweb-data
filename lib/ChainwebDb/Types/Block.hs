@@ -11,6 +11,7 @@
 module ChainwebDb.Types.Block where
 
 import BasePrelude
+import Data.Scientific
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import Database.Beam
@@ -26,8 +27,8 @@ data BlockT f = Block
   , _block_parent :: C f DbHash
   , _block_powHash :: C f DbHash
   , _block_payload :: C f DbHash
-  , _block_target :: C f DbHash
-  , _block_weight :: C f DbHash
+  , _block_target :: C f Scientific
+  , _block_weight :: C f Scientific
   , _block_epochStart :: C f UTCTime
   , _block_nonce :: C f Word64
   , _block_flags :: C f Word64

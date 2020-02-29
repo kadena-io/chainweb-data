@@ -79,8 +79,8 @@ pkgs.haskell.packages.${compiler}.developPackage {
     chainweb-api = pkgs.fetchFromGitHub {
       owner = "kadena-io";
       repo = "chainweb-api";
-      rev = "0792df840e49821f60a8e6e5a1cdc6c5862137a1";
-      sha256 = "0r1b0fch6dcxnhlpdmdbqgdy7y6gi71ggvwk9l7fn9v77vd86q05";
+      rev = "5980773c07966449935440dad4c8877b659ea3d6";
+      sha256 = "0jc0748v9rc66281yjrw55bprvpca8vl3a8z4654sljkak022272";
     };
 
     streaming-events = pkgs.fetchFromGitHub {
