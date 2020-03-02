@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
@@ -16,8 +17,10 @@ import           Database.Beam.Postgres
 ---
 
 gaps :: Env -> IO ()
-gaps (Env _ c _ _) = withPool c $ \pool -> do
-  work pool >>= print
+gaps (Env _ c _ _) = withPool c $ \pool -> work pool >>= \case
+  Nothing -> printf "[INFO] No gaps detected."
+  Just bs -> undefined
+  -- work pool >>= print
 
 work :: P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
 work pool = P.withResource pool $ \c -> runBeamPostgres c $ do

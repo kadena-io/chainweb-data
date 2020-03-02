@@ -8,6 +8,7 @@ import           BasePrelude hiding (insert)
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.Hash
 import           Chainweb.Env
+import           Chainweb.Lookups
 import           Chainweb.Types
 import           Chainweb.Worker
 import           ChainwebDb.Types.Block

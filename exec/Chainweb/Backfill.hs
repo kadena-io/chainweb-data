@@ -12,6 +12,7 @@ import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
 import           Chainweb.Database
 import           Chainweb.Env
+import           Chainweb.Lookups
 import           Chainweb.Types (asBlock, asPow, groupsOf, hash)
 import           Chainweb.Worker
 import           ChainwebDb.Types.Block
@@ -19,14 +20,10 @@ import           Control.Scheduler hiding (traverse_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import qualified Data.Text as T
 import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
 import           Database.Beam
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
-import           Lens.Micro ((^..))
-import           Lens.Micro.Aeson (key, values, _JSON)
-import           Network.HTTP.Client hiding (Proxy)
 
 ---
 
@@ -58,9 +55,6 @@ backfill e@(Env _ c _ _) = withPool c $ \pool -> do
           when (curr `mod` 1000 == 0) $
             printf "[INFO] Processed blocks: %d. Progress sample: Chain %d, Height %d\n"
               curr (_block_chainId b) (_block_height b)
-
-newtype Low = Low Int deriving newtype (Show)
-newtype High = High Int deriving newtype (Eq, Ord, Show)
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
@@ -104,17 +98,6 @@ lookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
 
 --------------------------------------------------------------------------------
 -- Endpoints
-
-headersBetween :: Env -> (ChainId, Low, High) -> IO [BlockHeader]
-headersBetween (Env m _ (Url u) (ChainwebVersion v)) (cid, Low low, High up) = do
-  req <- parseRequest url
-  res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding }) m
-  pure . (^.. key "items" . values . _JSON) $ responseBody res
-  where
-    url = "https://" <> u <> query
-    query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
-      (T.unpack v) (unChainId cid) low up
-    encoding = [("accept", "application/json;blockheader-encoding=object")]
 
 -- TODO Use the binary encodings instead?
 
