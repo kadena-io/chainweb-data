@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -7,20 +6,17 @@
 module Chainweb.Backfill ( backfill ) where
 
 import           BasePrelude hiding (insert, range)
-import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
-import           Chainweb.Api.Hash
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
-import           Chainweb.Types (asBlock, asPow, groupsOf, hash)
+import           Chainweb.Types (groupsOf)
 import           Chainweb.Worker
 import           ChainwebDb.Types.Block
 import           Control.Scheduler hiding (traverse_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
 import           Database.Beam
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
@@ -37,24 +33,7 @@ backfill e@(Env _ c _ _) = withPool c $ \pool -> do
     f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
     f pool count range = headersBetween e range >>= \case
       [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-      hs -> traverse_ (g pool count) hs
-
-    g :: P.Pool Connection -> IORef Int -> BlockHeader -> IO ()
-    g pool count bh = do
-      let !pair = T2 (_blockHeader_chainId bh) (hash $ _blockHeader_payloadHash bh)
-      payload e pair >>= \case
-        Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
-          (hashB64U $ _blockHeader_hash bh)
-        Just pl -> do
-          let !m = miner pl
-              !b = asBlock (asPow bh) m
-              !t = txs b pl
-              !k = keys pl
-          curr <- atomicModifyIORef' count (\n -> (n+1, n+1))
-          writes pool b k t
-          when (curr `mod` 1000 == 0) $
-            printf "[INFO] Processed blocks: %d. Progress sample: Chain %d, Height %d\n"
-              curr (_block_chainId b) (_block_height b)
+      hs -> traverse_ (writeBlock e pool count) hs
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.

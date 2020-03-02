@@ -1,12 +1,24 @@
-module Chainweb.Worker ( writes ) where
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
+
+module Chainweb.Worker
+  ( writes
+  , writeBlock
+  ) where
 
 import           BasePrelude hiding (delete, insert)
+import           Chainweb.Api.BlockHeader
+import           Chainweb.Api.Hash
 import           Chainweb.Database
+import           Chainweb.Env
+import           Chainweb.Lookups
+import           Chainweb.Types (asBlock, asPow, hash)
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import qualified Data.Pool as P
 import qualified Data.Text as T
+import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
@@ -35,3 +47,22 @@ writes pool b ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
   --   (_block_height b)
   --   (unDbHash $ _block_hash b)
   --   (map (const '.') ts)
+
+-- | Given a single `BlockHeader`, look up its payload and write everything to
+-- the database.
+writeBlock :: Env -> P.Pool Connection -> IORef Int -> BlockHeader -> IO ()
+writeBlock e pool count bh = do
+  let !pair = T2 (_blockHeader_chainId bh) (hash $ _blockHeader_payloadHash bh)
+  payload e pair >>= \case
+    Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
+      (hashB64U $ _blockHeader_hash bh)
+    Just pl -> do
+      let !m = miner pl
+          !b = asBlock (asPow bh) m
+          !t = txs b pl
+          !k = keys pl
+      curr <- atomicModifyIORef' count (\n -> (n+1, n+1))
+      writes pool b k t
+      when (curr `mod` 1000 == 0) $
+        printf "[INFO] Processed blocks: %d. Progress sample: Chain %d, Height %d\n"
+          curr (_block_chainId b) (_block_height b)
