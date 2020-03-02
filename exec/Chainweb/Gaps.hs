@@ -4,12 +4,12 @@
 module Chainweb.Gaps ( gaps ) where
 
 import           BasePrelude
-import           Chainweb.Api.BlockHeader (BlockHeader)
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
+import           Chainweb.Worker (writeBlock)
 import           ChainwebDb.Types.Block
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import qualified Data.IntSet as S
@@ -23,13 +23,15 @@ import           Database.Beam.Postgres
 gaps :: Env -> IO ()
 gaps e@(Env _ c _ _) = withPool c $ \pool -> work pool >>= \case
   Nothing -> printf "[INFO] No gaps detected."
-  Just bs -> traverseConcurrently_ Par' f bs
+  Just bs -> do
+    count <- newIORef 0
+    traverseConcurrently_ Par' (f pool count) bs
+    final <- readIORef count
+    printf "[INFO] Filled in %d missing blocks.\n" final
   where
-    f :: (BlockHeight, Int) -> IO ()
-    f (h, cid) = headersBetween e (ChainId cid, Low h, High h) >>= traverse_ g
-
-    g :: BlockHeader -> IO ()
-    g bh = undefined
+    f :: P.Pool Connection -> IORef Int -> (BlockHeight, Int) -> IO ()
+    f pool count (h, cid) =
+      headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
 
 work :: P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
 work pool = P.withResource pool $ \c -> runBeamPostgres c $ do
