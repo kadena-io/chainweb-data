@@ -1,5 +1,4 @@
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -38,9 +37,7 @@ backfill e@(Env _ c _ _) = withPool c $ \pool -> do
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
 minHeights :: P.Pool Connection -> IO (Map ChainId Int)
-minHeights pool = do
-    res <- M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) chains
-    return res
+minHeights pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) chains
   where
     chains :: [ChainId]
     chains = map ChainId [0..9]  -- TODO Make configurable.
