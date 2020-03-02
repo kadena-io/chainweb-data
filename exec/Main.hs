@@ -7,7 +7,9 @@ import BasePrelude
 import Chainweb.Backfill (backfill)
 import Chainweb.Database (initializeTables)
 import Chainweb.Env
+import Chainweb.Gaps (gaps)
 import Chainweb.Listen (listen)
+import Chainweb.Single (single)
 import Network.HTTP.Client hiding (withConnection)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Options.Applicative
@@ -25,6 +27,8 @@ main = do
     case c of
       Listen -> listen env
       Backfill -> backfill env
+      Gaps -> gaps env
+      Single cid h -> single env cid h
   where
     opts = info (envP <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
