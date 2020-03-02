@@ -74,19 +74,3 @@ lookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
       | u > mx && l' <= mx' = Just (cid, l, mx)
       | u <= mx = Just (cid, l, u)
       | otherwise = Nothing
-
---------------------------------------------------------------------------------
--- Endpoints
-
--- TODO Use the binary encodings instead?
-
--- | Fetch a parent header.
--- parent :: Env -> Parent -> ChainId -> IO (Maybe Header)
--- parent (Env m _ (Url u) (ChainwebVersion v)) (Parent (DbHash hsh)) (ChainId cid) = do
---   req <- parseRequest url
---   res <- httpLbs (req { requestHeaders = requestHeaders req <> octet }) m
---   pure . hush . fmap (asHeader . asPow) . runGetLazy decodeBlockHeader $ responseBody res
---   where
---     url = "https://" <> u <> T.unpack query
---     query = "/chainweb/0.0/" <> v <> "/chain/" <> T.pack (show cid) <> "/header/" <> hsh
---     octet = [("accept", "application/octet-stream")]

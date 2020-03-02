@@ -78,9 +78,3 @@ filling pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
     -- | Detect gaps in existing rows.
     f :: (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
     f (h, cs) = NEL.nonEmpty . map (h,) . S.toList . S.difference chains $ S.fromList cs
-
--- moreWork :: P.Pool Connection -> NonEmpty (BlockHeight, ChainId) -> IO ()
--- moreWork pool pairs = do
-  -- Perform concurrent block lookups --
-  -- Write the new blocks --
-  -- undefined
