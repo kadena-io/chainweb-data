@@ -77,5 +77,6 @@ executable chainweb-data
     Chainweb.Gaps
     Chainweb.Listen
     Chainweb.Lookups
+    Chainweb.Single
     Chainweb.Types
     Chainweb.Worker

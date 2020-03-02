@@ -12,6 +12,8 @@ module Chainweb.Env
   ) where
 
 import BasePrelude hiding (option)
+import Chainweb.Api.ChainId (ChainId(..))
+import Chainweb.Api.Common (BlockHeight)
 import Data.ByteString (ByteString)
 import Data.Pool
 import Data.Text (Text)
@@ -52,7 +54,7 @@ newtype Url = Url String
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
-data Command = Listen | Backfill | Gaps
+data Command = Listen | Backfill | Gaps | Single ChainId BlockHeight
 
 envP :: Parser Args
 envP = Args
@@ -76,12 +78,19 @@ connectInfoP = ConnectInfo
   <*> strOption   (long "dbpass" <> value ""          <> help "Postgres DB password")
   <*> strOption   (long "dbname" <> value "postgres"  <> help "Postgres DB name")
 
+singleP :: Parser Command
+singleP = Single
+  <$> (ChainId <$> option auto (long "chain" <> metavar "INT"))
+  <*> option auto (long "height" <> metavar "INT")
+
 commands :: Parser Command
-commands = subparser
+commands = hsubparser
   (  command "listen" (info (pure Listen)
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
   <> command "backfill" (info (pure Backfill)
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
   <> command "gaps" (info (pure Gaps)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
+  <> command "single" (info singleP
+       (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   )
