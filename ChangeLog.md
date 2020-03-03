@@ -1,3 +1,5 @@
-# Changelog for chainweb-data
+# Changelog
 
-## Unreleased changes
+## 1.0.0 (2020-03-03)
+
+Initial release.

@@ -1,0 +1,133 @@
+#+TITLE: Chainweb Data
+#+AUTHOR: Colin
+
+[[https://github.com/fosskers/aura/workflows/Build/badge.svg]]
+
+* Table of Contents                                       :TOC_4_gh:noexport:
+- [[#overview][Overview]]
+- [[#requirements][Requirements]]
+- [[#usage][Usage]]
+  - [[#connecting-to-the-database][Connecting to the Database]]
+    - [[#via-flags][via Flags]]
+    - [[#via-a-postgres-connection-string][via a Postgres Connection String]]
+  - [[#connecting-to-a-node][Connecting to a Node]]
+  - [[#commands][Commands]]
+    - [[#listen][~listen~]]
+    - [[#backfill][~backfill~]]
+    - [[#gaps][~gaps~]]
+    - [[#single][~single~]]
+
+* Overview
+
+~chainweb-data~ stores and serves data from the Kadena Public Blockchain in a
+form optimized for lookups and analysis by humans. With this reindexed data we
+can easily determine mining statistics and confirm transaction contents.
+
+* Requirements
+
+~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]] to be installed.
+
+* Usage
+
+** Connecting to the Database
+
+By default, ~chainweb-data~ will attempt to connect to Postgres via the
+following values:
+
+| Field   | Value       |
+|---------+-------------|
+| Host    | ~localhost~ |
+| Port    | ~5432~      |
+| User    | ~postgres~  |
+| Pass    | Empty       |
+| DB Name | ~postgres~  |
+
+You can alter these defaults via command line flags, or via a [[https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING][Postgres
+Connection String]].
+
+*** via Flags
+
+Assuming you had set up Postgres, done a ~createdb chainweb-data~, and had
+configured user permissions for a user named ~joe~, the following would connect
+to a local Postgres database at port 5432:
+
+#+begin_example
+chainweb-data <command> --url=<node> --dbuser=joe --dbname=chainweb-data
+#+end_example
+
+*** via a Postgres Connection String
+
+#+begin_example
+chainweb-data <command> --url=<node> --dbstring="host=localhost port=5432..."
+#+end_example
+
+** Connecting to a Node
+
+~chainweb-data~ syncs its data from a running ~chainweb-node~. The node's
+address is specified with the ~--url~ command.
+
+#+begin_example
+chainweb-data <command> --url=foo.chainweb.com ...
+#+end_example
+
+** Commands
+
+*** ~listen~
+
+~listen~ fetches live data from a ~chainweb-node~ whose ~headerStream~
+configuration value is ~true~.
+
+#+begin_example
+  > chainweb-data listen --url=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  DB Tables Initialized
+  28911337084492566901513774
+#+end_example
+
+As a new block comes in, its chain number is printed as a single digit.
+~listen~ will continue until you stop it.
+
+*** ~backfill~
+
+~backfill~ rapidly fills the database downward from the lowest block height it
+can find for each chain.
+
+*Note:* If your database is empty, you must fetch at least one block for each
+chain first via ~listen~ before doing ~backfill~!
+
+#+begin_example
+  > chainweb-data backfill --url=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  DB Tables Initialized
+  Backfilling...
+  [INFO] Processed blocks: 1000. Progress sample: Chain 9, Height 361720
+  [INFO] Processed blocks: 2000. Progress sample: Chain 4, Height 361670
+#+end_example
+
+~backfill~ will stop when it reaches height 0.
+
+*** ~gaps~
+
+~gaps~ fills in missing blocks that may have been missed during ~listen~ or
+~backfill~. Such gaps will naturally occur if you turn ~listen~ off or use
+~single~.
+
+#+begin_example
+  > chainweb-data gaps --url=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  DB Tables Initialized
+  [INFO] Processed blocks: 1000. Progress sample: Chain 9, Height 361624
+  [INFO] Processed blocks: 2000. Progress sample: Chain 9, Height 362938
+  [INFO] Filled in 2113 missing blocks.
+#+end_example
+
+*** ~single~
+
+~single~ allows you to sync a block at any location in the blockchain.
+
+#+begin_example
+  > chainweb-data single --chain=0 --height=200000 --url=foo.chainweb.com --dbuser=colin --dbname=chainweb-data
+  DB Tables Initialized
+  [INFO] Filled in 1 blocks.
+#+end_example
+
+*Note:* Even though you specified a single chain/height pair, you might see it
+report that it filled in more than one block. This is expected, and will occur
+when orphans/forks are present at that height.
