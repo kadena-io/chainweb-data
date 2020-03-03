@@ -52,7 +52,8 @@ executable chainweb-data
   hs-source-dirs: exec
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-    , async                 ^>=2.2
+    , base16-bytestring     ^>=0.1
+    , base64-bytestring     ^>=1.0
     , bytestring            ^>=0.10
     , cereal                ^>=0.5
     , chainweb-data
@@ -64,11 +65,9 @@ executable chainweb-data
     , optparse-applicative  ^>=0.14
     , resource-pool         ^>=0.2
     , scheduler             ^>=1.4
-    , stm                   ^>=2.5
     , streaming             ^>=0.2
     , streaming-events      ^>=1.0.1
     , strict-tuple          ^>=0.1
-    , transformers          ^>=0.5
     , witherable-class      ^>=0
 
   other-modules:

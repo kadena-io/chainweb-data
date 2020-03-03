@@ -29,14 +29,18 @@ import           Chainweb.Types ()
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
+import           Control.Error.Util (hush)
 import           Data.Aeson (Value(..), decode')
+import qualified Data.ByteString.Base64.URL as B64
+import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import           Lens.Micro ((^..))
-import           Lens.Micro.Aeson (key, values, _JSON)
+import           Lens.Micro (to, (^..), _Just)
+import           Lens.Micro.Aeson
 import           Network.HTTP.Client hiding (Proxy)
 
 --------------------------------------------------------------------------------
@@ -53,12 +57,15 @@ headersBetween :: Env -> (ChainId, Low, High) -> IO [BlockHeader]
 headersBetween (Env m _ (Url u) (ChainwebVersion v)) (cid, Low low, High up) = do
   req <- parseRequest url
   res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding }) m
-  pure . (^.. key "items" . values . _JSON) $ responseBody res
+  pure . (^.. key "items" . values . _String . to f . _Just) $ responseBody res
   where
     url = "https://" <> u <> query
     query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
       (T.unpack v) (unChainId cid) low up
-    encoding = [("accept", "application/json;blockheader-encoding=object")]
+    encoding = [("accept", "application/json")]
+
+    f :: T.Text -> Maybe BlockHeader
+    f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
 
 payload :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayload)
 payload (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do

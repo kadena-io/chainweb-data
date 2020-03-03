@@ -7,7 +7,7 @@ extra-deps:
   - strict-tuple-0.1.3
   - witherable-class-0
   - github: kadena-io/chainweb-api
-    commit: 5980773c07966449935440dad4c8877b659ea3d6
+    commit: e90509233e7073e99871c94b19c88e98ed18cd78
   - github: tathougies/beam
     commit: 2fa99310557e49b37a59e349032ff7236085b6f8
     subdirs:

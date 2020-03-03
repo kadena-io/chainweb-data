@@ -21,8 +21,11 @@ import           Chainweb.Api.MinerData
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           Data.Aeson
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
@@ -42,7 +45,7 @@ instance FromEvent PowHeader where
       <*> (hu ^? key "powHash" . _JSON)
 
 asPow :: BlockHeader -> PowHeader
-asPow bh = PowHeader bh (hashB64U $ powHash bh)
+asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHash bh)
 
 asBlock :: PowHeader -> MinerData -> Block
 asBlock (PowHeader bh ph) m = Block
