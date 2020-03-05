@@ -53,7 +53,7 @@ writes pool b ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
 writeBlock :: Env -> P.Pool Connection -> IORef Int -> BlockHeader -> IO ()
 writeBlock e pool count bh = do
   let !pair = T2 (_blockHeader_chainId bh) (hash $ _blockHeader_payloadHash bh)
-  payload e pair >>= \case
+  payloadWithOutputs e pair >>= \case
     Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
       (hashB64U $ _blockHeader_hash bh)
     Just pl -> do

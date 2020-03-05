@@ -62,6 +62,14 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _tx_step = "step"
     , _tx_data = "data"
     , _tx_proof = "proof"
+
+    , _tx_gas = "gas"
+    , _tx_badResult = "badresult"
+    , _tx_goodResult = "goodresult"
+    , _tx_logs = "logs"
+    , _tx_metadata = "metadata"
+    , _tx_continuation = "continuation"
+    , _tx_txid = "txid"
     }
   , minerkeys = modifyCheckedTable id checkedTableModification
     { _minerKey_block = BlockId "block"

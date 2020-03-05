@@ -8,6 +8,7 @@ module Chainweb.Lookups
     -- * Endpoints
   , headersBetween
   , payload
+  , payloadWithOutputs
     -- * Transformations
   , txs
   , miner
@@ -17,6 +18,7 @@ module Chainweb.Lookups
 import           BasePrelude
 import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BlockPayload
+import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.ChainwebMeta
 import           Chainweb.Api.Hash
@@ -78,21 +80,32 @@ payload (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do
     cid = T.pack $ show cid0
     hsh = unDbHash hsh0
 
+payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
+payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do
+  req <- parseRequest url
+  res <- httpLbs req m
+  pure . decode' $ responseBody res
+  where
+    url = "https://" <> u <> T.unpack query
+    query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
+    cid = T.pack $ show cid0
+    hsh = unDbHash hsh0
+
 --------------------------------------------------------------------------------
 -- Transformations
 
 -- | Derive useful database entries from a `Block` and its payload.
-txs :: Block -> BlockPayload -> [Transaction]
-txs b pl = map (transaction b) $ _blockPayload_transactions pl
+txs :: Block -> BlockPayloadWithOutputs -> [Transaction]
+txs b pl = map (transaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
-miner :: BlockPayload -> MinerData
-miner = _blockPayload_minerData
+miner :: BlockPayloadWithOutputs -> MinerData
+miner = _blockPayloadWithOutputs_minerData
 
-keys :: BlockPayload -> [T.Text]
-keys = _minerData_publicKeys . _blockPayload_minerData
+keys :: BlockPayloadWithOutputs -> [T.Text]
+keys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
 
-transaction :: Block -> CW.Transaction -> Transaction
-transaction b tx = Transaction
+transaction :: Block -> (CW.Transaction, TransactionOutput) -> Transaction
+transaction b (tx,txo) = Transaction
   { _tx_chainId = _block_chainId b
   , _tx_block = pk b
   , _tx_creationTime = posixSecondsToUTCTime $ _chainwebMeta_creationTime mta
@@ -108,7 +121,16 @@ transaction b tx = Transaction
   , _tx_step = _cont_step <$> cnt
   , _tx_data = (PgJSONB . Object . _cont_data <$> cnt)
     <|> (PgJSONB . Object <$> (exc >>= _exec_data))
-  , _tx_proof = _cont_proof <$> cnt }
+  , _tx_proof = _cont_proof <$> cnt
+
+  , _tx_gas = _toutGas txo
+  , _tx_badResult = badres
+  , _tx_goodResult = goodres
+  , _tx_logs = hashB64U <$> _toutLogs txo
+  , _tx_metadata = PgJSONB <$> _toutMetaData txo
+  , _tx_continuation = PgJSONB <$> _toutContinuation txo
+  , _tx_txid = _toutTxId txo
+  }
   where
     cmd = CW._transaction_cmd tx
     mta = _pactCommand_meta cmd
@@ -119,3 +141,6 @@ transaction b tx = Transaction
     cnt = case pay of
       ExecPayload _ -> Nothing
       ContPayload c -> Just c
+    (badres, goodres) = case _toutResult txo of
+      PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
+      PactResult (Right v) -> (Nothing, Just $ PgJSONB v)

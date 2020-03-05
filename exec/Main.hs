@@ -15,6 +15,10 @@ import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Options.Applicative
 
 ---
+import Chainweb.Lookups
+import Data.Tuple.Strict
+import Chainweb.Api.ChainId
+import ChainwebDb.Types.DbHash
 
 main :: IO ()
 main = do
