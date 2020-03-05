@@ -24,7 +24,6 @@ import Database.Beam.Migrate.Generics (HasDefaultSqlDataType(..))
 import Database.Beam.Postgres (PgJSONB, Postgres)
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
-import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 
 
