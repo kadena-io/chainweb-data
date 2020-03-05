@@ -7,7 +7,6 @@ module Chainweb.Lookups
   , High(..)
     -- * Endpoints
   , headersBetween
-  , payload
   , payloadWithOutputs
     -- * Transformations
   , txs
@@ -17,7 +16,6 @@ module Chainweb.Lookups
 
 import           BasePrelude
 import           Chainweb.Api.BlockHeader
-import           Chainweb.Api.BlockPayload
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.ChainwebMeta
@@ -68,17 +66,6 @@ headersBetween (Env m _ (Url u) (ChainwebVersion v)) (cid, Low low, High up) = d
 
     f :: T.Text -> Maybe BlockHeader
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
-
-payload :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayload)
-payload (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do
-  req <- parseRequest url
-  res <- httpLbs req m
-  pure . decode' $ responseBody res
-  where
-    url = "https://" <> u <> T.unpack query
-    query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh
-    cid = T.pack $ show cid0
-    hsh = unDbHash hsh0
 
 payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
 payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do
