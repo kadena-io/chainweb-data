@@ -9,8 +9,8 @@ import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
-import           Chainweb.Types (groupsOf)
 import           Chainweb.Worker
+import           ChainwebData.Types (groupsOf)
 import           ChainwebDb.Types.Block
 import           Control.Scheduler hiding (traverse_)
 import           Data.Map.Strict (Map)

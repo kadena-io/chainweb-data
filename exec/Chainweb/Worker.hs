@@ -12,7 +12,7 @@ import           Chainweb.Api.Hash
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
-import           Chainweb.Types (asBlock, asPow, hash)
+import           ChainwebData.Types (asBlock, hash)
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
@@ -47,6 +47,9 @@ writes pool b ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
   --   (_block_height b)
   --   (unDbHash $ _block_hash b)
   --   (map (const '.') ts)
+
+asPow :: BlockHeader -> PowHeader
+asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHash bh)
 
 -- | Given a single `BlockHeader`, look up its payload and write everything to
 -- the database.

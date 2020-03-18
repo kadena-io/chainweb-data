@@ -9,8 +9,8 @@ import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.Hash
 import           Chainweb.Env
 import           Chainweb.Lookups
-import           Chainweb.Types
 import           Chainweb.Worker
+import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Pool as P

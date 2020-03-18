@@ -25,7 +25,7 @@ import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Env
-import           Chainweb.Types ()
+import           ChainwebData.Types ()
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction

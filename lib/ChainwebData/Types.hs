@@ -2,18 +2,17 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Chainweb.Types
+module ChainwebData.Types
   ( -- * Types
     PowHeader(..)
   , asBlock
-  , asPow
   , hash
     -- * Utils
   , groupsOf
   ) where
 
 import           BasePrelude
-import           Chainweb.Api.BlockHeader (BlockHeader(..), powHash)
+import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BytesLE
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
@@ -43,9 +42,6 @@ instance FromEvent PowHeader where
     PowHeader
       <$> (hu ^? key "header"  . _JSON)
       <*> (hu ^? key "powHash" . _JSON)
-
-asPow :: BlockHeader -> PowHeader
-asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHash bh)
 
 asBlock :: PowHeader -> MinerData -> Block
 asBlock (PowHeader bh ph) m = Block
