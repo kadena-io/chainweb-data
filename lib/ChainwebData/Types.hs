@@ -20,11 +20,8 @@ import           Chainweb.Api.MinerData
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           Data.Aeson
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Lens.Micro ((^?))
 import           Lens.Micro.Aeson (key, _JSON)
