@@ -12,12 +12,15 @@ import           Chainweb.Api.Hash
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
-import           ChainwebData.Types (asBlock, hash)
+import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Base16 as B16
 import qualified Data.Pool as P
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
