@@ -70,6 +70,7 @@ executable chainweb-data
     , microlens-aeson
     , optparse-applicative  ^>=0.14
     , resource-pool         ^>=0.2
+    , retry                 ^>=0.8
     , scheduler             ^>=1.4
     , streaming             ^>=0.2
     , streaming-events

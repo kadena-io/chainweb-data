@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 
 module Chainweb.Worker
   ( writes
@@ -16,6 +17,7 @@ import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
+import           Control.Retry
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.Pool as P
@@ -59,7 +61,7 @@ asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHas
 writeBlock :: Env -> P.Pool Connection -> IORef Int -> BlockHeader -> IO ()
 writeBlock e pool count bh = do
   let !pair = T2 (_blockHeader_chainId bh) (hash $ _blockHeader_payloadHash bh)
-  payloadWithOutputs e pair >>= \case
+  retrying policy check (const $ payloadWithOutputs e pair) >>= \case
     Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
       (hashB64U $ _blockHeader_hash bh)
     Just pl -> do
@@ -72,3 +74,9 @@ writeBlock e pool count bh = do
       when (curr `mod` 1000 == 0) $
         printf "[INFO] Processed blocks: %d. Progress sample: Chain %d, Height %d\n"
           curr (_block_chainId b) (_block_height b)
+  where
+    policy :: RetryPolicyM IO
+    policy = exponentialBackoff 250_000 <> limitRetries 3
+
+    check :: RetryStatus -> Maybe a -> IO Bool
+    check _ = pure . isNothing
