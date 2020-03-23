@@ -92,7 +92,8 @@ As a new block comes in, its chain number is printed as a single digit.
 can find for each chain.
 
 *Note:* If your database is empty, you must fetch at least one block for each
-chain first via ~listen~ before doing ~backfill~!
+chain first via ~listen~ before doing ~backfill~! If ~backfill~ detects any
+empty chains, it won't proceed.
 
 #+begin_example
   > chainweb-data backfill --url=foo.chainweb.com --dbuser=joe --dbname=chainweb-data

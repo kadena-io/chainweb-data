@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
@@ -27,7 +28,9 @@ backfill e@(Env _ c _ _) = withPool c $ \pool -> do
   putStrLn "Backfilling..."
   cont <- newIORef 0
   mins <- minHeights pool
-  traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
+  let !count = M.size mins
+  printf "Valid Chains: %d\n" count
+  when (count == 10) $ traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
   where
     f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
     f pool count range = headersBetween e range >>= \case
