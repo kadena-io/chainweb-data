@@ -7,6 +7,7 @@ module Chainweb.Env
   , Connect(..), withConnection, withPool
   , Url(..)
   , ChainwebVersion(..)
+  , chainsByVersion
   , Command(..)
   , envP
   ) where
@@ -53,6 +54,9 @@ newtype Url = Url String
 
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
+
+chainsByVersion :: ChainwebVersion -> [ChainId]
+chainsByVersion _ = map ChainId [0..9]
 
 data Command = Listen | Backfill | Gaps | Single ChainId BlockHeight
 

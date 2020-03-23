@@ -24,13 +24,14 @@ import           Database.Beam.Postgres (Connection, runBeamPostgres)
 ---
 
 backfill :: Env -> IO ()
-backfill e@(Env _ c _ _) = withPool c $ \pool -> do
+backfill e@(Env _ c _ v) = withPool c $ \pool -> do
   putStrLn "Backfilling..."
   cont <- newIORef 0
-  mins <- minHeights pool
+  mins <- minHeights v pool
   let !count = M.size mins
   printf "Valid Chains: %d\n" count
-  when (count == 10) $ traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
+  when (count == length (chainsByVersion v))
+    $ traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
   where
     f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
     f pool count range = headersBetween e range >>= \case
@@ -39,12 +40,9 @@ backfill e@(Env _ c _ _) = withPool c $ \pool -> do
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
-minHeights :: P.Pool Connection -> IO (Map ChainId Int)
-minHeights pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) chains
+minHeights :: ChainwebVersion -> P.Pool Connection -> IO (Map ChainId Int)
+minHeights v pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) (chainsByVersion v)
   where
-    chains :: [ChainId]
-    chains = map ChainId [0..9]  -- TODO Make configurable.
-
     -- | Get the current minimum height of any block on some chain.
     f :: ChainId -> IO (Maybe Int)
     f (ChainId cid) = fmap (fmap _block_height)
