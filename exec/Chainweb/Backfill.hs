@@ -26,13 +26,17 @@ import           Database.Beam.Postgres (Connection, runBeamPostgres)
 
 backfill :: Env -> IO ()
 backfill e@(Env _ c _ _ cids) = withPool c $ \pool -> do
-  putStrLn "Backfilling..."
   cont <- newIORef 0
   mins <- minHeights cids pool
   let !count = M.size mins
-  printf "Valid Chains: %d\n" count
-  when (count == length cids)
-    $ traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
+  if count /= length cids
+    then do
+      printf "[FAIL] %d chains have block data, but we expected %d.\n" count (length cids)
+      printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
+      exitFailure
+    else do
+      printf "[INFO] Beginning backfill on %d chains.\n" count
+      traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
   where
     f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
     f pool count range = headersBetween e range >>= \case
