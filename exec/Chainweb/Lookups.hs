@@ -86,7 +86,9 @@ allChains :: Manager -> Url -> IO (Maybe (NonEmpty ChainId))
 allChains m (Url u) = do
   req <- parseRequest $ "https://" <> u <> "/info"
   res <- httpLbs req m
-  pure . NEL.nonEmpty $ res ^.. to responseBody . key "nodeChains" . values . _JSON . to ChainId
+  pure . NEL.nonEmpty $ responseBody res ^.. lns
+  where
+    lns = key "nodeChains" . values . _JSON . to readMaybe . _Just . to ChainId
 
 --------------------------------------------------------------------------------
 -- Transformations
