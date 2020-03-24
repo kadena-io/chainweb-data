@@ -33,6 +33,7 @@ backfill e@(Env _ c _ _ cids) = withPool c $ \pool -> do
     then do
       printf "[FAIL] %d chains have block data, but we expected %d.\n" count (length cids)
       printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
+      printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
       exitFailure
     else do
       printf "[INFO] Beginning backfill on %d chains.\n" count
