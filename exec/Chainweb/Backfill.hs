@@ -14,6 +14,7 @@ import           Chainweb.Worker
 import           ChainwebData.Types (groupsOf)
 import           ChainwebDb.Types.Block
 import           Control.Scheduler hiding (traverse_)
+import qualified Data.List.NonEmpty as NEL
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
@@ -24,13 +25,13 @@ import           Database.Beam.Postgres (Connection, runBeamPostgres)
 ---
 
 backfill :: Env -> IO ()
-backfill e@(Env _ c _ v _) = withPool c $ \pool -> do
+backfill e@(Env _ c _ _ cids) = withPool c $ \pool -> do
   putStrLn "Backfilling..."
   cont <- newIORef 0
-  mins <- minHeights v pool
+  mins <- minHeights cids pool
   let !count = M.size mins
   printf "Valid Chains: %d\n" count
-  when (count == length (chainsByVersion v))
+  when (count == length cids)
     $ traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
   where
     f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
@@ -40,8 +41,8 @@ backfill e@(Env _ c _ v _) = withPool c $ \pool -> do
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
-minHeights :: ChainwebVersion -> P.Pool Connection -> IO (Map ChainId Int)
-minHeights v pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) (chainsByVersion v)
+minHeights :: NonEmpty ChainId -> P.Pool Connection -> IO (Map ChainId Int)
+minHeights cids pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) (NEL.toList cids)
   where
     -- | Get the current minimum height of any block on some chain.
     f :: ChainId -> IO (Maybe Int)
