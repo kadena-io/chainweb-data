@@ -21,7 +21,7 @@ import           Database.Beam.Postgres
 ---
 
 gaps :: Env -> IO ()
-gaps e@(Env _ c _ _) = withPool c $ \pool -> work pool >>= \case
+gaps e@(Env _ c _ _ cids) = withPool c $ \pool -> work cids pool >>= \case
   Nothing -> printf "[INFO] No gaps detected."
   Just bs -> do
     count <- newIORef 0
@@ -33,8 +33,8 @@ gaps e@(Env _ c _ _) = withPool c $ \pool -> work pool >>= \case
     f pool count (h, cid) =
       headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
 
-work :: P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
-work pool = P.withResource pool $ \c -> runBeamPostgres c $ do
+work :: NonEmpty ChainId -> P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
+work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Pull all (chain, height) pairs --
   pairs <- runSelectReturningList
     $ select
@@ -43,7 +43,7 @@ work pool = P.withResource pool $ \c -> runBeamPostgres c $ do
       bs <- all_ $ blocks database
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
-  pure $ NEL.nonEmpty pairs >>= filling . expanding . grouping
+  pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping
 
 grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
 grouping = NEL.map (fst . NEL.head &&& NEL.map snd) . NEL.groupWith1 fst
@@ -69,11 +69,11 @@ expanding (h :| t) = g h :| f (map g t)
     g :: (BlockHeight, NonEmpty Int) -> (BlockHeight, [Int])
     g = second NEL.toList
 
-filling :: NonEmpty (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
-filling pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
+filling :: NonEmpty ChainId -> NonEmpty (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
+filling cids pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
   where
     chains :: S.IntSet
-    chains = S.fromList [0..9]
+    chains = S.fromList . map unChainId $ NEL.toList cids
 
     -- | Detect gaps in existing rows.
     f :: (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))

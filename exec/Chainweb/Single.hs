@@ -12,7 +12,7 @@ import Chainweb.Worker (writeBlock)
 -- | Look up a single chain/height pair, and write all blocks that were found
 -- there.
 single :: Env -> ChainId -> BlockHeight -> IO ()
-single e@(Env _ c _ _) cid h = withPool c $ \pool -> do
+single e@(Env _ c _ _ _) cid h = withPool c $ \pool -> do
   count <- newIORef 0
   headersBetween e (cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
   final <- readIORef count
