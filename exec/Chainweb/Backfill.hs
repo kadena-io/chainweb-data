@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Backfill ( backfill ) where
@@ -13,14 +14,18 @@ import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Types (groupsOf)
 import           ChainwebDb.Types.Block
+import           Control.Concurrent (threadDelay)
+import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 import qualified Data.List.NonEmpty as NEL
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Witherable.Class (wither)
 import           Database.Beam
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
+import           System.IO
 
 ---
 
@@ -37,12 +42,32 @@ backfill e@(Env _ c _ _ cids) = withPool c $ \pool -> do
       exitFailure
     else do
       printf "[INFO] Beginning backfill on %d chains.\n" count
-      traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
+      race_ (progress cont mins)
+        $ traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
   where
     f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
     f pool count range = headersBetween e range >>= \case
       [] -> printf "[FAIL] headersBetween: %s\n" $ show range
       hs -> traverse_ (writeBlock e pool count) hs
+
+progress :: IORef Int -> Map ChainId Int -> IO a
+progress count mins = do
+  start <- getPOSIXTime
+  forever $ do
+    threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
+    total <- readIORef count
+    now <- getPOSIXTime
+    let !perc = (100 * fromIntegral total / fromIntegral remaining) :: Double
+        !tilNow = (now - start) / 60
+        !tilDone0 = floor (tilNow * fromIntegral remaining / fromIntegral total) :: Int
+        (!period, !tilDone) | tilDone0 < 60 = ("minutes" :: String, tilDone0)
+                            | otherwise = ("hours", tilDone0 `div` 60)
+    printf "[INFO] Progress: %d/%d blocks (%.2f%%). ~%d %s remaining.\n"
+      total remaining perc tilDone period
+    hFlush stdout
+  where
+    remaining :: Int
+    remaining = foldl' (+) 0 mins
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.

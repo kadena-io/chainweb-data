@@ -69,11 +69,8 @@ writeBlock e pool count bh = do
           !b = asBlock (asPow bh) m
           !t = txs b pl
           !k = keys pl
-      curr <- atomicModifyIORef' count (\n -> (n+1, n+1))
+      atomicModifyIORef' count (\n -> (n+1, ()))
       writes pool b k t
-      when (curr `mod` 1000 == 0) $
-        printf "[INFO] Processed blocks: %d. Progress sample: Chain %d, Height %d\n"
-          curr (_block_chainId b) (_block_height b)
   where
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
