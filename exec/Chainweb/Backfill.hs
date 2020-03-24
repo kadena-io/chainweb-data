@@ -24,7 +24,7 @@ import           Database.Beam.Postgres (Connection, runBeamPostgres)
 ---
 
 backfill :: Env -> IO ()
-backfill e@(Env _ c _ v) = withPool c $ \pool -> do
+backfill e@(Env _ c _ v _) = withPool c $ \pool -> do
   putStrLn "Backfilling..."
   cont <- newIORef 0
   mins <- minHeights v pool
