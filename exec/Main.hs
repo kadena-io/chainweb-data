@@ -26,7 +26,7 @@ main = do
     putStrLn "DB Tables Initialized"
     m <- newManager tlsManagerSettings
     allChains m u >>= \case
-      Nothing -> printf "[FAIL] Unable to contact %s for Chain counts\n" u >> exitFailure
+      Nothing -> printf "[FAIL] Unable to connect to %s\n" u >> exitFailure
       Just cids -> do
         let !env = Env m pgc u v cids
         case c of
