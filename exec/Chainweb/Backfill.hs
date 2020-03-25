@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -33,7 +32,7 @@ backfill :: Env -> IO ()
 backfill e@(Env _ c _ _ cids) = withPool c $ \pool -> do
   cont <- newIORef 0
   mins <- minHeights cids pool
-  let !count = M.size mins
+  let count = M.size mins
   if count /= length cids
     then do
       printf "[FAIL] %d chains have block data, but we expected %d.\n" count (length cids)
@@ -55,19 +54,20 @@ progress count mins = do
   start <- getPOSIXTime
   forever $ do
     threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
-    total <- readIORef count
+    completed <- readIORef count
     now <- getPOSIXTime
-    let !perc = (100 * fromIntegral total / fromIntegral remaining) :: Double
-        !tilNow = (now - start) / 60
-        !tilDone0 = floor (tilNow * fromIntegral remaining / fromIntegral total) :: Int
-        (!period, !tilDone) | tilDone0 < 60 = ("minutes" :: String, tilDone0)
-                            | otherwise = ("hours", tilDone0 `div` 60)
-    printf "[INFO] Progress: %d/%d blocks (%.2f%%). ~%d %s remaining.\n"
-      total remaining perc tilDone period
+    let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
+        elapsedMinutes = (now - start) / 60
+        blocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
+        estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
+        (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
+                              | otherwise = ("hours", estMinutesLeft `div` 60)
+    printf "[INFO] Progress: %d/%d blocks (%.2f%%), ~%d %s remaining at %.0f blocks per minute.\n"
+      completed total perc timeLeft timeUnits blocksPerMinute
     hFlush stdout
   where
-    remaining :: Int
-    remaining = foldl' (+) 0 mins
+    total :: Int
+    total = foldl' (+) 0 mins
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
