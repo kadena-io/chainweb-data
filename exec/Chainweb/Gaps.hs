@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
@@ -40,7 +41,7 @@ work pool = P.withResource pool $ \c -> runBeamPostgres c $ do
     $ select
     $ orderBy_ (asc_ . fst)
     $ do
-      bs <- all_ $ blocks database
+      bs <- all_ $ _cddb_blocks database
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
   pure $ NEL.nonEmpty pairs >>= filling . expanding . grouping

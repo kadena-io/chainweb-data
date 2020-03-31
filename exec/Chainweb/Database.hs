@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Chainweb.Database
   ( ChainwebDataDb(..)
@@ -22,15 +23,15 @@ import Database.Beam.Postgres.Migrate (migrationBackend)
 ---
 
 data ChainwebDataDb f = ChainwebDataDb
-  { blocks :: f (TableEntity BlockT)
-  , transactions :: f (TableEntity TransactionT)
-  , minerkeys :: f (TableEntity MinerKeyT) }
+  { _cddb_blocks :: f (TableEntity BlockT)
+  , _cddb_transactions :: f (TableEntity TransactionT)
+  , _cddb_minerkeys :: f (TableEntity MinerKeyT) }
   deriving stock (Generic)
   deriving anyclass (Database be)
 
 migratableDb :: CheckedDatabaseSettings Postgres ChainwebDataDb
 migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
-  { blocks = modifyCheckedTable id checkedTableModification
+  { _cddb_blocks = modifyCheckedTable id checkedTableModification
     { _block_creationTime = "creationtime"
     , _block_chainId = "chainid"
     , _block_height = "height"
@@ -46,7 +47,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _block_miner_acc = "miner"
     , _block_miner_pred = "predicate"
     }
-  , transactions = modifyCheckedTable id checkedTableModification
+  , _cddb_transactions = modifyCheckedTable id checkedTableModification
     { _tx_chainId = "chainid"
     , _tx_block = BlockId "block"
     , _tx_creationTime = "creationtime"
@@ -71,7 +72,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _tx_continuation = "continuation"
     , _tx_txid = "txid"
     }
-  , minerkeys = modifyCheckedTable id checkedTableModification
+  , _cddb_minerkeys = modifyCheckedTable id checkedTableModification
     { _minerKey_block = BlockId "block"
     , _minerKey_key = "key"
     }

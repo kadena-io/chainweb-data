@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Backfill ( backfill ) where
@@ -52,7 +53,7 @@ minHeights pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) chains
       $ limit_ 1
       $ orderBy_ (asc_ . _block_height)
       $ filter_ (\b -> _block_chainId b ==. val_ cid)
-      $ all_ (blocks database)
+      $ all_ (_cddb_blocks database)
 
 -- | Based on some initial minimum heights per chain, form a lazy list of block
 -- ranges that need to be looked up.

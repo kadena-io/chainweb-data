@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Chainweb.Worker
   ( writes
@@ -35,15 +36,15 @@ writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> IO ()
 writes pool b ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write Pub Key many-to-many relationships if unique --
   runInsert
-    $ insert (minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
+    $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the Block if unique --
   runInsert
-    $ insert (blocks database) (insertValues [b])
+    $ insert (_cddb_blocks database) (insertValues [b])
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the TXs if unique --
   runInsert
-    $ insert (transactions database) (insertValues ts)
+    $ insert (_cddb_transactions database) (insertValues ts)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
   --   (_block_chainId b)

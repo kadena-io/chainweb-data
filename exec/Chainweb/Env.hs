@@ -25,7 +25,12 @@ import Options.Applicative
 
 data Args = Args Command Connect Url ChainwebVersion
 
-data Env = Env Manager Connect Url ChainwebVersion
+data Env = Env
+  { _env_httpManager :: Manager
+  , _env_dbConnectInfo :: Connect
+  , _env_nodeUrl :: Url
+  , _env_chainwebVersion :: ChainwebVersion
+  }
 
 data Connect = PGInfo ConnectInfo | PGString ByteString
 
@@ -54,7 +59,7 @@ newtype Url = Url String
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
-data Command = Listen | Backfill | Gaps | Single ChainId BlockHeight
+data Command = Server | Listen | Backfill | Gaps | Single ChainId BlockHeight
 
 envP :: Parser Args
 envP = Args
@@ -93,4 +98,6 @@ commands = hsubparser
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
+  <> command "server" (info (pure Server)
+       (progDesc "Serve the chainweb-data REST API"))
   )

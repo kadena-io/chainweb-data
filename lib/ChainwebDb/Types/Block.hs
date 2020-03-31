@@ -6,6 +6,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -114,3 +115,5 @@ instance Table BlockT where
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = BlockId . _block_hash
+
+unBlockId (BlockId a) = a

@@ -5,3 +5,4 @@ dist*
 .stylish-haskell.yaml
 *.db
 result
+.nd

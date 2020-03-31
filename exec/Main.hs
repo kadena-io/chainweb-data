@@ -9,6 +9,7 @@ import Chainweb.Database (initializeTables)
 import Chainweb.Env
 import Chainweb.Gaps (gaps)
 import Chainweb.Listen (listen)
+import Chainweb.Server (apiServer)
 import Chainweb.Single (single)
 import Network.HTTP.Client hiding (withConnection)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
@@ -25,6 +26,7 @@ main = do
     m <- newManager tlsManagerSettings
     let !env = Env m pgc u v
     case c of
+      Server -> apiServer env
       Listen -> listen env
       Backfill -> backfill env
       Gaps -> gaps env
