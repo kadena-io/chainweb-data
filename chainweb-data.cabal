@@ -63,6 +63,7 @@ executable chainweb-data
   hs-source-dirs: exec
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
   build-depends:
+    , async                 ^>=2.2
     , base16-bytestring
     , base64-bytestring     ^>=1.0
     , bytestring
@@ -76,6 +77,7 @@ executable chainweb-data
     , mtl
     , optparse-applicative  ^>=0.14
     , resource-pool         ^>=0.2
+    , retry                 ^>=0.8
     , scheduler             ^>=1.4
     , streaming             ^>=0.2
     , streaming-events

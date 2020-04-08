@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 
 module Main where
@@ -10,6 +11,7 @@ import Chainweb.Env
 import Chainweb.Gaps (gaps)
 import Chainweb.Listen (listen)
 import Chainweb.Server (apiServer)
+import Chainweb.Lookups (allChains)
 import Chainweb.Single (single)
 import Network.HTTP.Client hiding (withConnection)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
@@ -24,13 +26,16 @@ main = do
     initializeTables conn
     putStrLn "DB Tables Initialized"
     m <- newManager tlsManagerSettings
-    let !env = Env m pgc u v
-    case c of
-      Server -> apiServer env
-      Listen -> listen env
-      Backfill -> backfill env
-      Gaps -> gaps env
-      Single cid h -> single env cid h
+    allChains m u >>= \case
+      Nothing -> printf "[FAIL] Unable to connect to %s\n" u >> exitFailure
+      Just cids -> do
+        let !env = Env m pgc u v cids
+        case c of
+          Listen -> listen env
+          Backfill -> backfill env
+          Gaps -> gaps env
+          Single cid h -> single env cid h
+          Server -> apiServer env
   where
     opts = info (envP <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")

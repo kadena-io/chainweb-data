@@ -1,6 +1,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Backfill ( backfill ) where
@@ -13,36 +14,67 @@ import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Types (groupsOf)
 import           ChainwebDb.Types.Block
+import           Control.Concurrent (threadDelay)
+import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
+import qualified Data.List.NonEmpty as NEL
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Witherable.Class (wither)
 import           Database.Beam
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
+import           System.IO
 
 ---
 
 backfill :: Env -> IO ()
-backfill e@(Env _ c _ _) = withPool c $ \pool -> do
-  putStrLn "Backfilling..."
+backfill e@(Env _ c _ _ cids) = withPool c $ \pool -> do
   cont <- newIORef 0
-  mins <- minHeights pool
-  traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
+  mins <- minHeights cids pool
+  let count = M.size mins
+  if count /= length cids
+    then do
+      printf "[FAIL] %d chains have block data, but we expected %d.\n" count (length cids)
+      printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
+      printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
+      exitFailure
+    else do
+      printf "[INFO] Beginning backfill on %d chains.\n" count
+      race_ (progress cont mins)
+        $ traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
   where
     f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
     f pool count range = headersBetween e range >>= \case
       [] -> printf "[FAIL] headersBetween: %s\n" $ show range
       hs -> traverse_ (writeBlock e pool count) hs
 
+progress :: IORef Int -> Map ChainId Int -> IO a
+progress count mins = do
+  start <- getPOSIXTime
+  forever $ do
+    threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
+    completed <- readIORef count
+    now <- getPOSIXTime
+    let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
+        elapsedMinutes = (now - start) / 60
+        blocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
+        estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
+        (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
+                              | otherwise = ("hours", estMinutesLeft `div` 60)
+    printf "[INFO] Progress: %d/%d blocks (%.2f%%), ~%d %s remaining at %.0f blocks per minute.\n"
+      completed total perc timeLeft timeUnits blocksPerMinute
+    hFlush stdout
+  where
+    total :: Int
+    total = foldl' (+) 0 mins
+
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
-minHeights :: P.Pool Connection -> IO (Map ChainId Int)
-minHeights pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) chains
+minHeights :: NonEmpty ChainId -> P.Pool Connection -> IO (Map ChainId Int)
+minHeights cids pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) (NEL.toList cids)
   where
-    chains :: [ChainId]
-    chains = map ChainId [0..9]  -- TODO Make configurable.
-
     -- | Get the current minimum height of any block on some chain.
     f :: ChainId -> IO (Maybe Int)
     f (ChainId cid) = fmap (fmap _block_height)

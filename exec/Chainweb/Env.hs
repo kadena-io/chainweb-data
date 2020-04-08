@@ -20,6 +20,7 @@ import Data.Text (Text)
 import Database.Beam.Postgres
 import Network.HTTP.Client (Manager)
 import Options.Applicative
+import Text.Printf
 
 ---
 
@@ -30,6 +31,7 @@ data Env = Env
   , _env_dbConnectInfo :: Connect
   , _env_nodeUrl :: Url
   , _env_chainwebVersion :: ChainwebVersion
+  , _env_chains :: NonEmpty ChainId
   }
 
 data Connect = PGInfo ConnectInfo | PGString ByteString
@@ -54,7 +56,7 @@ withPool :: Connect -> (Pool Connection -> IO a) -> IO a
 withPool c = bracket (getPool c) destroyAllResources
 
 newtype Url = Url String
-  deriving newtype (IsString)
+  deriving newtype (IsString, PrintfArg)
 
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)

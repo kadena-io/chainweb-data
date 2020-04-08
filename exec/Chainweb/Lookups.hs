@@ -9,6 +9,7 @@ module Chainweb.Lookups
     -- * Endpoints
   , headersBetween
   , payloadWithOutputs
+  , allChains
     -- * Transformations
   , txs
   , miner
@@ -33,6 +34,7 @@ import           ChainwebDb.Types.Transaction
 import           Control.Error.Util (hush)
 import           Data.Aeson (Value(..), decode')
 import qualified Data.ByteString.Base64.URL as B64
+import qualified Data.List.NonEmpty as NEL
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -55,7 +57,7 @@ newtype High = High Int deriving newtype (Eq, Ord, Show)
 -- Endpoints
 
 headersBetween :: Env -> (ChainId, Low, High) -> IO [BlockHeader]
-headersBetween (Env m _ (Url u) (ChainwebVersion v)) (cid, Low low, High up) = do
+headersBetween (Env m _ (Url u) (ChainwebVersion v) _) (cid, Low low, High up) = do
   req <- parseRequest url
   res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding }) m
   pure . (^.. key "items" . values . _String . to f . _Just) $ responseBody res
@@ -69,7 +71,7 @@ headersBetween (Env m _ (Url u) (ChainwebVersion v)) (cid, Low low, High up) = d
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
 
 payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
-payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do
+payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v) _) (T2 cid0 hsh0) = do
   req <- parseRequest url
   res <- httpLbs req m
   pure . decode' $ responseBody res
@@ -78,6 +80,16 @@ payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v)) (T2 cid0 hsh0) = do
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
     cid = T.pack $ show cid0
     hsh = unDbHash hsh0
+
+-- | Query a node for the `ChainId` values its current `ChainwebVersion` has
+-- available.
+allChains :: Manager -> Url -> IO (Maybe (NonEmpty ChainId))
+allChains m (Url u) = do
+  req <- parseRequest $ "https://" <> u <> "/info"
+  res <- httpLbs req m
+  pure . NEL.nonEmpty $ responseBody res ^.. lns
+  where
+    lns = key "nodeChains" . values . _JSON . to readMaybe . _Just . to ChainId
 
 --------------------------------------------------------------------------------
 -- Transformations

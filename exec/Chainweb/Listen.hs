@@ -25,7 +25,7 @@ import           System.IO (hFlush, stdout)
 ---
 
 listen :: Env -> IO ()
-listen e@(Env mgr c u _) = withPool c $ \pool ->
+listen e@(Env mgr c u _ _) = withPool c $ \pool ->
   withEvents (req u) mgr $ SP.mapM_ (f pool) . dataOnly @PowHeader
   where
     f :: P.Pool Connection -> PowHeader -> IO ()
