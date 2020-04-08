@@ -9,35 +9,12 @@
 module Chainweb.Server where
 
 ------------------------------------------------------------------------------
-import           Chainweb.Api.BlockHeader
-import           Chainweb.Api.BlockPayloadWithOutputs
-import           Chainweb.Api.ChainId (ChainId(..))
-import           Chainweb.Api.ChainwebMeta
-import           Chainweb.Api.Hash
-import           Chainweb.Api.MinerData
-import           Chainweb.Api.PactCommand
-import           Chainweb.Api.Payload
-import qualified Chainweb.Api.Transaction as CW
-import           Control.Error.Util (hush)
-import           Control.Monad.Error
-import           Data.Aeson (Value(..), decode')
-import qualified Data.ByteString.Base64.URL as B64
-import           Data.Maybe
+import           Control.Monad.Except
 import qualified Data.Pool as P
-import           Data.Serialize.Get (runGet)
 import           Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import           Data.Tuple.Strict (T2(..))
-import           Data.Word
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
-import           Lens.Micro
-import           Lens.Micro.Extras
-import           Lens.Micro.Aeson
-import           Network.HTTP.Client hiding (Proxy)
 import           Network.Wai.Handler.Warp
 import           Servant.API
 import           Servant.Server
@@ -49,7 +26,6 @@ import           ChainwebData.Api
 import           ChainwebData.Pagination
 import           ChainwebData.TxSummary
 import           ChainwebDb.Types.Block
-import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
 ------------------------------------------------------------------------------
 
@@ -68,7 +44,7 @@ instance BeamSqlBackendIsString Postgres (Maybe Text)
 instance BeamSqlBackendIsString Postgres (Maybe String)
 
 searchTxs :: Connect -> Maybe Limit -> Maybe Offset -> Maybe Text -> Handler [TxSummary]
-searchTxs dbConnInfo limit offset Nothing = do
+searchTxs _ _ _ Nothing = do
     throwError $ err404 { errBody = "You must specify a search string" }
 searchTxs dbConnInfo limit offset (Just search) = do
     liftIO $ withPool dbConnInfo $ \pool -> P.withResource pool $ \c -> do
