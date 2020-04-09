@@ -73,7 +73,7 @@ searchTxs dbConnInfo limit offset (Just search) = do
              )
       return $ mkSummary <$> res
   where
-    lim = maybe 10 (max 100 . unLimit) limit
+    lim = maybe 10 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
     getHeight (_,a,_,_,_,_,_,_) = a
     mkSummary (a,b,c,d,e,f,g,h) = TxSummary a b c d e f g (maybe TxFailed (const TxSucceeded) h)
