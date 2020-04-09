@@ -12,6 +12,7 @@ module Chainweb.Server where
 import           Control.Monad.Except
 import qualified Data.Pool as P
 import           Data.Text (Text)
+import qualified Data.Text as T
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
@@ -53,10 +54,11 @@ searchTxs :: Connect -> Maybe Limit -> Maybe Offset -> Maybe Text -> Handler [Tx
 searchTxs _ _ _ Nothing = do
     throwError $ err404 { errBody = "You must specify a search string" }
 searchTxs dbConnInfo limit offset (Just search) = do
+    liftIO $ putStrLn $ "Transaction search: " <> T.unpack search
     liftIO $ withPool dbConnInfo $ \pool -> P.withResource pool $ \c -> do
-      res <- runBeamPostgres c $
+      res <- runBeamPostgresDebug putStrLn c $
         runSelectReturningList $ select $ do
-        orderBy_ (desc_ . getHeight) $ limit_ lim $ offset_ off $ do
+        limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
           blk <- all_ (_cddb_blocks database)
           guard_ (_tx_block tx `references_` blk)
@@ -88,10 +90,11 @@ type instance QExprToField (a :. b) = (QExprToField a) :. (QExprToField b)
 
 recentTxs :: Connect -> Handler [TxSummary]
 recentTxs dbConnInfo = do
+    liftIO $ putStrLn "Getting recent transactions"
     liftIO $ withPool dbConnInfo $ \pool -> P.withResource pool $ \c -> do
-      res <- runBeamPostgres c $
+      res <- runBeamPostgresDebug putStrLn c $
         runSelectReturningList $ select $ do
-        orderBy_ (desc_ . getHeight) $ limit_ 20 $ do
+        limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
           blk <- all_ (_cddb_blocks database)
           guard_ (_tx_block tx `references_` blk)

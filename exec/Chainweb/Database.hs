@@ -10,15 +10,17 @@ module Chainweb.Database
   , initializeTables
   ) where
 
-import BasePrelude
-import ChainwebDb.Types.Block
-import ChainwebDb.Types.MinerKey
-import ChainwebDb.Types.Transaction
-import Database.Beam
-import Database.Beam.Migrate
-import Database.Beam.Migrate.Simple
-import Database.Beam.Postgres (Connection, Postgres, runBeamPostgres)
-import Database.Beam.Postgres.Migrate (migrationBackend)
+import           BasePrelude
+import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.MinerKey
+import           ChainwebDb.Types.Transaction
+import           Data.Text (Text)
+import qualified Data.Text as T
+import           Database.Beam
+import           Database.Beam.Migrate
+import           Database.Beam.Migrate.Simple
+import           Database.Beam.Postgres (Connection, Postgres, runBeamPostgres)
+import           Database.Beam.Postgres.Migrate (migrationBackend)
 
 ---
 
@@ -29,9 +31,12 @@ data ChainwebDataDb f = ChainwebDataDb
   deriving stock (Generic)
   deriving anyclass (Database be)
 
+modTableName :: Text -> Text
+modTableName = T.takeWhileEnd (/= '_')
+
 migratableDb :: CheckedDatabaseSettings Postgres ChainwebDataDb
 migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
-  { _cddb_blocks = modifyCheckedTable id checkedTableModification
+  { _cddb_blocks = modifyCheckedTable modTableName checkedTableModification
     { _block_creationTime = "creationtime"
     , _block_chainId = "chainid"
     , _block_height = "height"
@@ -47,7 +52,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _block_miner_acc = "miner"
     , _block_miner_pred = "predicate"
     }
-  , _cddb_transactions = modifyCheckedTable id checkedTableModification
+  , _cddb_transactions = modifyCheckedTable modTableName checkedTableModification
     { _tx_chainId = "chainid"
     , _tx_block = BlockId "block"
     , _tx_creationTime = "creationtime"
@@ -72,7 +77,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _tx_continuation = "continuation"
     , _tx_txid = "txid"
     }
-  , _cddb_minerkeys = modifyCheckedTable id checkedTableModification
+  , _cddb_minerkeys = modifyCheckedTable modTableName checkedTableModification
     { _minerKey_block = BlockId "block"
     , _minerKey_key = "key"
     }
