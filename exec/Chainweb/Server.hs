@@ -15,7 +15,9 @@ import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
+import           Network.Wai
 import           Network.Wai.Handler.Warp
+import           Network.Wai.Middleware.Cors
 import           Servant.API
 import           Servant.Server
 ------------------------------------------------------------------------------
@@ -29,10 +31,14 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.Transaction
 ------------------------------------------------------------------------------
 
+setCors :: Middleware
+setCors = cors . const . Just $ simpleCorsResourcePolicy
+    { corsRequestHeaders = simpleHeaders
+    }
 
 apiServer :: Env -> IO ()
 apiServer env = do
-  Network.Wai.Handler.Warp.run 8080 $ serve chainwebDataApi $ server env
+  Network.Wai.Handler.Warp.run 8080 $ setCors $ serve chainwebDataApi $ server env
 
 server :: Env -> Server ChainwebDataApi
 server env = recentTxs conn
