@@ -22,6 +22,7 @@ import qualified Data.Pool as P
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as S
 import           Data.Text (Text)
+import qualified Data.Text as T
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
@@ -87,10 +88,11 @@ searchTxs :: P.Pool Connection -> Maybe Limit -> Maybe Offset -> Maybe Text -> H
 searchTxs _ _ _ Nothing = do
     throwError $ err404 { errBody = "You must specify a search string" }
 searchTxs pool limit offset (Just search) = do
+    liftIO $ putStrLn $ "Transaction search: " <> T.unpack search
     liftIO $ P.withResource pool $ \c -> do
-      res <- runBeamPostgres c $
+      res <- runBeamPostgresDebug putStrLn c $
         runSelectReturningList $ select $ do
-        orderBy_ (desc_ . getHeight) $ limit_ lim $ offset_ off $ do
+        limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
           blk <- all_ (_cddb_blocks database)
           guard_ (_tx_block tx `references_` blk)
@@ -122,10 +124,11 @@ type instance QExprToField (a :. b) = (QExprToField a) :. (QExprToField b)
 
 queryRecentTxs :: P.Pool Connection -> IO [TxSummary]
 queryRecentTxs pool = do
+    liftIO $ putStrLn "Getting recent transactions"
     P.withResource pool $ \c -> do
-      res <- runBeamPostgres c $
+      res <- runBeamPostgresDebug putStrLn c $
         runSelectReturningList $ select $ do
-        orderBy_ (desc_ . getHeight) $ limit_ 20 $ do
+        limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
           blk <- all_ (_cddb_blocks database)
           guard_ (_tx_block tx `references_` blk)
