@@ -6,7 +6,11 @@ let pkgs = kpkgs.pkgs;
 in haskellPackages.developPackage {
   name = builtins.baseNameOf ./.;
   root = kpkgs.gitignoreSource ./.;
-  overrides = self: super: with pkgs.haskell.lib; {
+  overrides = self: super: with pkgs.haskell.lib;
+  let gargoylePkgs = import ./deps/gargoyle self;
+  in
+  {
+    inherit (gargoylePkgs) gargoyle gargoyle-postgresql gargoyle-postgresql-nix gargoyle-postgresql-connect;
     chainweb-api = self.callCabal2nix "chainweb-api" (pkgs.hackGet ./deps/chainweb-api) {};
   };
 #  source-overrides = {

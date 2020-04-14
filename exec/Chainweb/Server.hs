@@ -54,7 +54,8 @@ setCors = cors . const . Just $ simpleCorsResourcePolicy
     }
 
 apiServer :: Env -> IO ()
-apiServer env = withPool (_env_dbConnectInfo env) $ \pool -> do
+apiServer env = do
+  let pool = _env_dbConnPool env
   recentTxs <- newIORef . RecentTxs . S.fromList =<< queryRecentTxs pool
   listenTid <- forkIO $ listenWithHandler env (serverHeaderHandler env pool recentTxs)
   Network.Wai.Handler.Warp.run 8080 $ setCors $ serve chainwebDataApi $

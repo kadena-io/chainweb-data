@@ -22,7 +22,7 @@ import           Database.Beam.Postgres
 ---
 
 gaps :: Env -> IO ()
-gaps e@(Env _ c _ _ cids) = withPool c $ \pool -> work cids pool >>= \case
+gaps e@(Env _ pool _ _ cids) = work cids pool >>= \case
   Nothing -> printf "[INFO] No gaps detected."
   Just bs -> do
     count <- newIORef 0

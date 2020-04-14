@@ -30,21 +30,21 @@ import           System.IO (hFlush, stdout)
 
 ---
 
-listen :: Env -> P.Pool Connection -> IO ()
-listen e pool = listenWithHandler e (getOutputsAndInsert e pool)
+listen :: Env -> IO ()
+listen e = listenWithHandler e (getOutputsAndInsert e)
 
 listenWithHandler :: Env -> (PowHeader -> IO a) -> IO ()
 listenWithHandler (Env mgr _ u _ _) handler =
   withEvents (req u) mgr $ SP.mapM_ handler . dataOnly @PowHeader
 
-getOutputsAndInsert :: Env -> P.Pool Connection -> PowHeader -> IO ()
-getOutputsAndInsert e pool ph@(PowHeader h _) = do
+getOutputsAndInsert :: Env -> PowHeader -> IO ()
+getOutputsAndInsert e ph@(PowHeader h _) = do
   let !pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
   payloadWithOutputs e pair >>= \case
     Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
       (hashB64U $ _blockHeader_hash h)
     Just pl -> do
-      insertNewHeader pool ph pl
+      insertNewHeader (_env_dbConnPool e) ph pl
       printf "%d" (unChainId $ _blockHeader_chainId h) >> hFlush stdout
 
 insertNewHeader :: P.Pool Connection -> PowHeader -> BlockPayloadWithOutputs -> IO ()

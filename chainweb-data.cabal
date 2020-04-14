@@ -67,12 +67,15 @@ executable chainweb-data
     , cereal                ^>=0.5
     , chainweb-data
     , errors                ^>=2.3
+    , gargoyle
+    , gargoyle-postgresql
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , microlens
     , microlens-aeson
     , mtl
     , optparse-applicative  ^>=0.14
+    , postgresql-simple
     , resource-pool         ^>=0.2
     , retry                 ^>=0.8
     , scheduler             ^>=1.4

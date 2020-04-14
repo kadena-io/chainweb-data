@@ -30,7 +30,7 @@ import           System.IO
 ---
 
 backfill :: Env -> IO ()
-backfill e@(Env _ c _ _ cids) = withPool c $ \pool -> do
+backfill e@(Env _ pool _ _ cids) = do
   cont <- newIORef 0
   mins <- minHeights cids pool
   let count = M.size mins
