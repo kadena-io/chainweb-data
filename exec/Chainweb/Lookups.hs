@@ -11,9 +11,8 @@ module Chainweb.Lookups
   , payloadWithOutputs
   , allChains
     -- * Transformations
-  , txs
-  , miner
-  , keys
+  , mkBlockTransactions
+  , bpwoMinerKeys
   ) where
 
 import           BasePrelude
@@ -95,17 +94,14 @@ allChains m (Url u) = do
 -- Transformations
 
 -- | Derive useful database entries from a `Block` and its payload.
-txs :: Block -> BlockPayloadWithOutputs -> [Transaction]
-txs b pl = map (transaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
+mkBlockTransactions :: Block -> BlockPayloadWithOutputs -> [Transaction]
+mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
-miner :: BlockPayloadWithOutputs -> MinerData
-miner = _blockPayloadWithOutputs_minerData
+bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
+bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
 
-keys :: BlockPayloadWithOutputs -> [T.Text]
-keys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
-
-transaction :: Block -> (CW.Transaction, TransactionOutput) -> Transaction
-transaction b (tx,txo) = Transaction
+mkTransaction :: Block -> (CW.Transaction, TransactionOutput) -> Transaction
+mkTransaction b (tx,txo) = Transaction
   { _tx_chainId = _block_chainId b
   , _tx_block = pk b
   , _tx_creationTime = posixSecondsToUTCTime $ _chainwebMeta_creationTime mta

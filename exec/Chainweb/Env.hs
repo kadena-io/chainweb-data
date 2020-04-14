@@ -101,5 +101,5 @@ commands = hsubparser
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   <> command "server" (info (pure Server)
-       (progDesc "Serve the chainweb-data REST API"))
+       (progDesc "Serve the chainweb-data REST API (also does listen)"))
   )

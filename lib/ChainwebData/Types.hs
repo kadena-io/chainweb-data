@@ -7,7 +7,7 @@ module ChainwebData.Types
   ( -- * Types
     PowHeader(..)
   , asBlock
-  , hash
+  , hashToDbHash
     -- * Utils
   , groupsOf
   ) where
@@ -59,8 +59,8 @@ asBlock (PowHeader bh ph) m = Block
   , _block_miner_pred   = _minerData_predicate m }
 
 -- | Convert to the "pretty" hash representation that URLs, etc., expect.
-hash :: Hash -> DbHash
-hash = DbHash . hashB64U
+hashToDbHash :: Hash -> DbHash
+hashToDbHash = DbHash . hashB64U
 
 -- | Break a list into groups of @n@ elements. The last item in the result is
 -- not guaranteed to have the same length as the others.

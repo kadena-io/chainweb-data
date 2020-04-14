@@ -31,7 +31,7 @@ main = do
       Just cids -> do
         let !env = Env m pgc u v cids
         case c of
-          Listen -> listen env
+          Listen -> withPool (_env_dbConnectInfo env) (listen env)
           Backfill -> backfill env
           Gaps -> gaps env
           Single cid h -> single env cid h
