@@ -23,6 +23,7 @@ import           Options.Applicative
 main :: IO ()
 main = do
   Args c pgc u v <- execParser opts
+  putStrLn $ "Using database: " <> show pgc
   withPool pgc $ \pool -> do
     P.withResource pool initializeTables
     putStrLn "DB Tables Initialized"

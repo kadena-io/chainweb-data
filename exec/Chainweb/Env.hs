@@ -38,6 +38,7 @@ data Env = Env
   }
 
 data Connect = PGInfo ConnectInfo | PGString ByteString | PGGargoyle String
+  deriving (Eq,Show)
 
 -- | Equivalent to withPool but uses a Postgres DB started by Gargoyle
 withGargoyleDb :: FilePath -> (Pool Connection -> IO a) -> IO a
@@ -69,7 +70,7 @@ data Command = Server | Listen | Backfill | Gaps | Single ChainId BlockHeight
 envP :: Parser Args
 envP = Args
   <$> commands
-  <*> (fromMaybe (PGGargoyle ".cwdb-pgdata") <$> optional connectP)
+  <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
   <*> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node")
   <*> strOption (long "version" <> metavar "VERSION" <> value "mainnet01" <> help "Network Version")
 
@@ -89,7 +90,7 @@ connectInfoP = ConnectInfo
   <*> option auto (long "dbport" <> value 5432        <> help "Postgres DB port")
   <*> strOption   (long "dbuser" <> value "postgres"  <> help "Postgres DB user")
   <*> strOption   (long "dbpass" <> value ""          <> help "Postgres DB password")
-  <*> strOption   (long "dbname" <> value "postgres"  <> help "Postgres DB name")
+  <*> strOption   (long "dbname" <> help "Postgres DB name")
 
 singleP :: Parser Command
 singleP = Single
