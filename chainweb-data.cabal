@@ -70,12 +70,14 @@ executable chainweb-data
     , errors                ^>=2.3
     , gargoyle
     , gargoyle-postgresql
+    , gargoyle-postgresql-nix
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , microlens
     , microlens-aeson
     , mtl
     , optparse-applicative  ^>=0.14
+    , pact
     , postgresql-simple
     , resource-pool         ^>=0.2
     , retry                 ^>=0.8

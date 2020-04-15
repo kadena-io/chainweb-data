@@ -26,6 +26,7 @@ import Data.Text (Text)
 import Database.Beam.Postgres
 import Gargoyle
 import Gargoyle.PostgreSQL
+--import Gargoyle.PostgreSQL.Nix
 import Network.HTTP.Client (Manager)
 import Options.Applicative
 
@@ -46,10 +47,13 @@ data Connect = PGInfo ConnectInfo | PGString ByteString | PGGargoyle String
 
 -- | Equivalent to withPool but uses a Postgres DB started by Gargoyle
 withGargoyleDb :: FilePath -> (Pool Connection -> IO a) -> IO a
-withGargoyleDb dbPath func = withGargoyle defaultPostgres dbPath $ \dbUri -> do
-  caps <- getNumCapabilities
-  pool <- createPool (connectPostgreSQL dbUri) close 1 5 caps
-  func pool
+withGargoyleDb dbPath func = do
+  --pg <- postgresNix
+  let pg = defaultPostgres
+  withGargoyle pg dbPath $ \dbUri -> do
+    caps <- getNumCapabilities
+    pool <- createPool (connectPostgreSQL dbUri) close 1 5 caps
+    func pool
 
 -- | Create a `Pool` based on `Connect` settings designated on the command line.
 getPool :: IO Connection -> IO (Pool Connection)

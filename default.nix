@@ -12,6 +12,7 @@ in haskellPackages.developPackage {
   {
     inherit (gargoylePkgs) gargoyle gargoyle-postgresql gargoyle-postgresql-nix gargoyle-postgresql-connect;
     chainweb-api = self.callCabal2nix "chainweb-api" (pkgs.hackGet ./deps/chainweb-api) {};
+    pact = dontCheck (self.callCabal2nix "pact" (pkgs.hackGet ./deps/pact) {});
   };
 #  source-overrides = {
 #    chainweb-api = pkgs.fetchFromGitHub {
