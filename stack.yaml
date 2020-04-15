@@ -18,4 +18,4 @@ extra-deps:
     commit: 48ddcca4e977c69ace9b7a67cb2054600c30f8ca
     subdirs:
       - gargoyle
-      - gargoyle-postgres
+      - gargoyle-postgresql
