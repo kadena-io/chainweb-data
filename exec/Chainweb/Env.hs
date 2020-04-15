@@ -81,7 +81,10 @@ newtype ChainwebVersion = ChainwebVersion Text
 
 data Command = Server ServerEnv | Listen | Backfill | Gaps | Single ChainId BlockHeight
 
-newtype ServerEnv = ServerEnv { _serverEnv_port :: Int }
+data ServerEnv = ServerEnv
+  { _serverEnv_port :: Int
+  , _serverEnv_verbose :: Bool
+  } deriving (Eq,Ord,Show)
 
 envP :: Parser Args
 envP = Args
@@ -113,9 +116,10 @@ singleP = Single
   <$> (ChainId <$> option auto (long "chain" <> metavar "INT"))
   <*> option auto (long "height" <> metavar "INT")
 
-serverP :: Parser Command
-serverP = Server . ServerEnv
+serverP :: Parser ServerEnv
+serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
+  <*> switch (short 'v' <> help "Verbose mode that shows when headers come in")
 
 commands :: Parser Command
 commands = hsubparser
@@ -127,6 +131,6 @@ commands = hsubparser
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
-  <> command "server" (info serverP
+  <> command "server" (info (Server <$> serverP)
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   )

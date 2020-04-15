@@ -58,7 +58,8 @@ apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
   let pool = _env_dbConnPool env
   recentTxs <- newIORef . RecentTxs . S.fromList =<< queryRecentTxs pool
-  listenTid <- forkIO $ listenWithHandler env (serverHeaderHandler env pool recentTxs)
+  listenTid <- forkIO $ listenWithHandler env $
+    serverHeaderHandler env (_serverEnv_verbose senv) pool recentTxs
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve chainwebDataApi $
     recentTxsHandler recentTxs :<|>
     searchTxs pool
@@ -66,11 +67,12 @@ apiServer env senv = do
 recentTxsHandler :: IORef RecentTxs -> Handler [TxSummary]
 recentTxsHandler recentTxs = liftIO $ fmap (toList . _recentTxs_txs) $ readIORef recentTxs
 
-serverHeaderHandler :: Env -> P.Pool Connection -> IORef RecentTxs -> PowHeader -> IO ()
-serverHeaderHandler env pool recentTxs ph@(PowHeader h _) = do
+serverHeaderHandler :: Env -> Bool -> P.Pool Connection -> IORef RecentTxs -> PowHeader -> IO ()
+serverHeaderHandler env verbose pool recentTxs ph@(PowHeader h _) = do
   let chain = _blockHeader_chainId h
   let height = _blockHeader_height h
-  printf "Got new header on chain %d height %d\n" (unChainId chain) height
+  when verbose $
+    printf "Got new header on chain %d height %d\n" (unChainId chain) height
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
   payloadWithOutputs env pair >>= \case
     Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
