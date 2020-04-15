@@ -56,10 +56,10 @@ insertNewHeader pool ph pl = do
   writes pool b k t
 
 req :: Url -> Request
-req (Url u) = defaultRequest
-  { host = B.pack u
+req (Url h p) = defaultRequest
+  { host = B.pack h
   , path = "chainweb/0.0/mainnet01/header/updates"  -- TODO Parameterize as needed.
-  , port = 443
+  , port = p
   , secure = True
   , method = "GET"
   , requestBody = mempty

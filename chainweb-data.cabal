@@ -66,6 +66,7 @@ executable chainweb-data
     , bytestring
     , cereal                ^>=0.5
     , chainweb-data
+    , connection
     , errors                ^>=2.3
     , gargoyle
     , gargoyle-postgresql

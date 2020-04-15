@@ -26,12 +26,12 @@ gaps e@(Env _ pool _ _ cids) = work cids pool >>= \case
   Nothing -> printf "[INFO] No gaps detected."
   Just bs -> do
     count <- newIORef 0
-    traverseConcurrently_ Par' (f pool count) bs
+    traverseConcurrently_ Par' (f count) bs
     final <- readIORef count
     printf "[INFO] Filled in %d missing blocks.\n" final
   where
-    f :: P.Pool Connection -> IORef Int -> (BlockHeight, Int) -> IO ()
-    f pool count (h, cid) =
+    f :: IORef Int -> (BlockHeight, Int) -> IO ()
+    f count (h, cid) =
       headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
 
 work :: NonEmpty ChainId -> P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))

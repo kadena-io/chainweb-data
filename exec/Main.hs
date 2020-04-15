@@ -14,8 +14,9 @@ import           Chainweb.Server (apiServer)
 import           Chainweb.Lookups (allChains)
 import           Chainweb.Single (single)
 import qualified Data.Pool as P
+import           Network.Connection
 import           Network.HTTP.Client hiding (withConnection)
-import           Network.HTTP.Client.TLS (tlsManagerSettings)
+import           Network.HTTP.Client.TLS
 import           Options.Applicative
 
 ---
@@ -27,9 +28,10 @@ main = do
   withPool pgc $ \pool -> do
     P.withResource pool initializeTables
     putStrLn "DB Tables Initialized"
-    m <- newManager tlsManagerSettings
+    let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
+    m <- newManager mgrSettings
     allChains m u >>= \case
-      Nothing -> printf "[FAIL] Unable to connect to %s\n" u >> exitFailure
+      Nothing -> printf "[FAIL] Unable to connect to %s\n" (urlToString u) >> exitFailure
       Just cids -> do
         let !env = Env m pool u v cids
         case c of

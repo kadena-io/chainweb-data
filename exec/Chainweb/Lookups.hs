@@ -56,12 +56,12 @@ newtype High = High Int deriving newtype (Eq, Ord, Show)
 -- Endpoints
 
 headersBetween :: Env -> (ChainId, Low, High) -> IO [BlockHeader]
-headersBetween (Env m _ (Url u) (ChainwebVersion v) _) (cid, Low low, High up) = do
+headersBetween (Env m _ u (ChainwebVersion v) _) (cid, Low low, High up) = do
   req <- parseRequest url
   res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding }) m
   pure . (^.. key "items" . values . _String . to f . _Just) $ responseBody res
   where
-    url = "https://" <> u <> query
+    url = "https://" <> urlToString u <> query
     query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
       (T.unpack v) (unChainId cid) low up
     encoding = [("accept", "application/json")]
@@ -70,12 +70,12 @@ headersBetween (Env m _ (Url u) (ChainwebVersion v) _) (cid, Low low, High up) =
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
 
 payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
-payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v) _) (T2 cid0 hsh0) = do
+payloadWithOutputs (Env m _ u (ChainwebVersion v) _) (T2 cid0 hsh0) = do
   req <- parseRequest url
   res <- httpLbs req m
   pure . decode' $ responseBody res
   where
-    url = "https://" <> u <> T.unpack query
+    url = "https://" <> urlToString u <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
     cid = T.pack $ show cid0
     hsh = unDbHash hsh0
@@ -83,8 +83,8 @@ payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v) _) (T2 cid0 hsh0) = do
 -- | Query a node for the `ChainId` values its current `ChainwebVersion` has
 -- available.
 allChains :: Manager -> Url -> IO (Maybe (NonEmpty ChainId))
-allChains m (Url u) = do
-  req <- parseRequest $ "https://" <> u <> "/info"
+allChains m u = do
+  req <- parseRequest $ "https://" <> urlToString u <> "/info"
   res <- httpLbs req m
   pure . NEL.nonEmpty $ responseBody res ^.. lns
   where

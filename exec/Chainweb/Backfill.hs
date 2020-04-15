@@ -43,10 +43,10 @@ backfill e@(Env _ pool _ _ cids) = do
     else do
       printf "[INFO] Beginning backfill on %d chains.\n" count
       race_ (progress cont mins)
-        $ traverseConcurrently_ Par' (f pool cont) $ lookupPlan mins
+        $ traverseConcurrently_ Par' (f cont) $ lookupPlan mins
   where
-    f :: P.Pool Connection -> IORef Int -> (ChainId, Low, High) -> IO ()
-    f pool count range = headersBetween e range >>= \case
+    f :: IORef Int -> (ChainId, Low, High) -> IO ()
+    f count range = headersBetween e range >>= \case
       [] -> printf "[FAIL] headersBetween: %s\n" $ show range
       hs -> traverse_ (writeBlock e pool count) hs
 

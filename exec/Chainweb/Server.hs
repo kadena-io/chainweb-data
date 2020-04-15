@@ -13,6 +13,7 @@ module Chainweb.Server where
 
 ------------------------------------------------------------------------------
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
+import           Chainweb.Api.ChainId
 import           Chainweb.Api.Hash
 import           Control.Concurrent
 import           Control.Monad.Except
@@ -67,14 +68,15 @@ recentTxsHandler recentTxs = liftIO $ fmap (toList . _recentTxs_txs) $ readIORef
 
 serverHeaderHandler :: Env -> P.Pool Connection -> IORef RecentTxs -> PowHeader -> IO ()
 serverHeaderHandler env pool recentTxs ph@(PowHeader h _) = do
+  let chain = _blockHeader_chainId h
+  let height = _blockHeader_height h
+  printf "Got new header on chain %d height %d\n" (unChainId chain) height
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
   payloadWithOutputs env pair >>= \case
     Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
       (hashB64U $ _blockHeader_hash h)
     Just pl -> do
-      let chain = _blockHeader_chainId h
-          height = _blockHeader_height h
-          hash = _blockHeader_hash h
+      let hash = _blockHeader_hash h
           ts = map (mkTxSummary chain height hash . fst) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
           f rtx = (addNewTransactions (S.fromList ts) rtx, ())
 

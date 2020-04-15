@@ -6,6 +6,7 @@ module Chainweb.Env
   , Env(..)
   , Connect(..), withPool
   , Url(..)
+  , urlToString
   , ChainwebVersion(..)
   , Command(..)
   , envP
@@ -18,12 +19,10 @@ import Data.ByteString (ByteString)
 import Data.Pool
 import Data.Text (Text)
 import Database.Beam.Postgres
-import Database.PostgreSQL.Simple
 import Gargoyle
 import Gargoyle.PostgreSQL
 import Network.HTTP.Client (Manager)
 import Options.Applicative
-import Text.Printf
 
 ---
 
@@ -59,8 +58,18 @@ withPool (PGGargoyle dbPath) = withGargoyleDb dbPath
 withPool (PGInfo ci) = bracket (getPool (connect ci)) destroyAllResources
 withPool (PGString s) = bracket (getPool (connectPostgreSQL s)) destroyAllResources
 
-newtype Url = Url String
-  deriving newtype (IsString, PrintfArg)
+data Url = Url
+  { urlHost :: String
+  , urlPort :: Int
+  } deriving (Eq,Ord,Show)
+
+urlToString :: Url -> String
+urlToString (Url h p) = h <> ":" <> show p
+
+parseUrl :: String -> Url
+parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's run on startup
+  where
+    (h,pstr) = break (==':') s
 
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
@@ -71,7 +80,7 @@ envP :: Parser Args
 envP = Args
   <$> commands
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
-  <*> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node")
+  <*> (parseUrl <$> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node"))
   <*> strOption (long "version" <> metavar "VERSION" <> value "mainnet01" <> help "Network Version")
 
 connectP :: Parser Connect
