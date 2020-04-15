@@ -4,6 +4,7 @@
 module Chainweb.Env
   ( Args(..)
   , Env(..)
+  , ServerEnv(..)
   , Connect(..), withPool
   , Url(..)
   , urlToString
@@ -12,10 +13,14 @@ module Chainweb.Env
   , envP
   ) where
 
-import BasePrelude hiding (option)
 import Chainweb.Api.ChainId (ChainId(..))
 import Chainweb.Api.Common (BlockHeight)
+import Control.Concurrent
+import Control.Exception
 import Data.ByteString (ByteString)
+import Data.List.NonEmpty (NonEmpty)
+import Data.Maybe
+import Data.String
 import Data.Pool
 import Data.Text (Text)
 import Database.Beam.Postgres
@@ -74,7 +79,9 @@ parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's ru
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
-data Command = Server | Listen | Backfill | Gaps | Single ChainId BlockHeight
+data Command = Server ServerEnv | Listen | Backfill | Gaps | Single ChainId BlockHeight
+
+newtype ServerEnv = ServerEnv { _serverEnv_port :: Int }
 
 envP :: Parser Args
 envP = Args
@@ -106,6 +113,10 @@ singleP = Single
   <$> (ChainId <$> option auto (long "chain" <> metavar "INT"))
   <*> option auto (long "height" <> metavar "INT")
 
+serverP :: Parser Command
+serverP = Server . ServerEnv
+  <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
+
 commands :: Parser Command
 commands = hsubparser
   (  command "listen" (info (pure Listen)
@@ -116,6 +127,6 @@ commands = hsubparser
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
-  <> command "server" (info (pure Server)
+  <> command "server" (info serverP
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   )

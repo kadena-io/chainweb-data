@@ -39,7 +39,7 @@ main = do
           Backfill -> backfill env
           Gaps -> gaps env
           Single cid h -> single env cid h
-          Server -> apiServer env
+          Server serverEnv -> apiServer env serverEnv
   where
     opts = info (envP <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
