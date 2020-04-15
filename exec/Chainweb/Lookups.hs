@@ -41,8 +41,8 @@ import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import           Lens.Micro (to, (^..), _Just)
-import           Lens.Micro.Aeson
+import           Control.Lens
+import           Data.Aeson.Lens
 import           Network.HTTP.Client hiding (Proxy)
 
 --------------------------------------------------------------------------------

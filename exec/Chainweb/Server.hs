@@ -16,7 +16,9 @@ module Chainweb.Server where
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.ChainId
 import           Chainweb.Api.Hash
+import           Control.Applicative
 import           Control.Concurrent
+import           Control.Error
 import           Control.Monad.Except
 import           Data.Foldable
 import           Data.IORef
@@ -26,11 +28,10 @@ import qualified Data.Sequence as S
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Tuple.Strict (T2(..))
-import           Data.Word
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
-import           Lens.Micro
+import           Control.Lens
 import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
@@ -39,6 +40,7 @@ import           Servant.Server
 import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.BlockPayloadWithOutputs
+import           Chainweb.Coins
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Listen
@@ -79,12 +81,23 @@ ssTransactionCount = lens _ssTransactionCount setter
   where
     setter sc v = sc { _ssTransactionCount = v }
 
+ssCirculatingCoins
+    :: Functor f
+    => (Maybe Double -> f (Maybe Double))
+    -> ServerState -> f ServerState
+ssCirculatingCoins = lens _ssCirculatingCoins setter
+  where
+    setter sc v = sc { _ssCirculatingCoins = v }
+
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
+  circulatingCoins <- queryCirculatingCoins env
+  putStrLn $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
   recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs pool
   numTxs <- getTransactionCount pool
-  ssRef <- newIORef $ ServerState recentTxs numTxs (Just 17000000)
+  ssRef <- newIORef $ ServerState recentTxs numTxs (hush circulatingCoins)
+  circulationTid <- forkIO $ refreshCirculatingCoins env ssRef
   listenTid <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve chainwebDataApi $
@@ -92,8 +105,19 @@ apiServer env senv = do
     searchTxs pool) :<|>
     statsHandler ssRef
 
+refreshCirculatingCoins :: Env -> IORef ServerState -> IO ()
+refreshCirculatingCoins env ssRef = forever $ do
+    threadDelay (60 * 60 * 24 * micros)
+    putStrLn "Recalculating coins in circulation:"
+    circulatingCoins <- queryCirculatingCoins env
+    print circulatingCoins
+    let f ss = (ss & ssCirculatingCoins %~ (hush circulatingCoins <|>), ())
+    atomicModifyIORef' ssRef f
+  where
+    micros = 1000000
+
 statsHandler :: IORef ServerState -> Handler ChainwebDataStats
-statsHandler ss = liftIO $ fmap mkStats $ readIORef ss
+statsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
   where
     mkStats ss = ChainwebDataStats (_ssTransactionCount ss)
                                    (_ssCirculatingCoins ss)
@@ -102,7 +126,7 @@ recentTxsHandler :: IORef ServerState -> Handler [TxSummary]
 recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ readIORef ss
 
 serverHeaderHandler :: Env -> Bool -> P.Pool Connection -> IORef ServerState -> PowHeader -> IO ()
-serverHeaderHandler env verbose pool ss ph@(PowHeader h _) = do
+serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
   let chain = _blockHeader_chainId h
   let height = _blockHeader_height h
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
@@ -112,8 +136,8 @@ serverHeaderHandler env verbose pool ss ph@(PowHeader h _) = do
     Just pl -> do
       let hash = _blockHeader_hash h
           ts = S.fromList $ map (mkTxSummary chain height hash . fst) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
-          f rtx = (rtx & ssRecentTxs %~ addNewTransactions ts
-                       & (ssTransactionCount . _Just) +~ (S.length ts), ())
+          f ss = (ss & ssRecentTxs %~ addNewTransactions ts
+                     & (ssTransactionCount . _Just) +~ (S.length ts), ())
 
       let msg = printf "Got new header on chain %d height %d" (unChainId chain) height
           addendum = if S.length ts == 0
@@ -121,7 +145,7 @@ serverHeaderHandler env verbose pool ss ph@(PowHeader h _) = do
                        else printf " with %d transactions" (S.length ts)
       when verbose $ putStrLn (msg <> addendum)
 
-      atomicModifyIORef' ss f
+      atomicModifyIORef' ssRef f
       insertNewHeader pool ph pl
 
 
