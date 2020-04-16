@@ -94,25 +94,36 @@ apiServer env senv = do
   circulatingCoins <- queryCirculatingCoins env
   putStrLn $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs pool
-  numTxs <- getTransactionCount pool
+  recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv) pool
+  numTxs <- getTransactionCount (logFunc senv) pool
   ssRef <- newIORef $ ServerState recentTxs numTxs (hush circulatingCoins)
-  circulationTid <- forkIO $ refreshCirculatingCoins env ssRef
+  circulationTid <- forkIO $ scheduledUpdates env senv pool ssRef
   listenTid <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve chainwebDataApi $
     (recentTxsHandler ssRef :<|>
-    searchTxs pool) :<|>
+    searchTxs (logFunc senv) pool) :<|>
     statsHandler ssRef
 
-refreshCirculatingCoins :: Env -> IORef ServerState -> IO ()
-refreshCirculatingCoins env ssRef = forever $ do
+scheduledUpdates
+  :: Env
+  -> ServerEnv
+  -> P.Pool Connection
+  -> IORef ServerState
+  -> IO ()
+scheduledUpdates env senv pool ssRef = forever $ do
     threadDelay (60 * 60 * 24 * micros)
+
     putStrLn "Recalculating coins in circulation:"
     circulatingCoins <- queryCirculatingCoins env
     print circulatingCoins
     let f ss = (ss & ssCirculatingCoins %~ (hush circulatingCoins <|>), ())
     atomicModifyIORef' ssRef f
+
+    numTxs <- getTransactionCount (logFunc senv) pool
+    putStrLn $ "Updated number of transactions: " <> show numTxs
+    let g ss = (ss & ssTransactionCount %~ (numTxs <|>), ())
+    atomicModifyIORef' ssRef g
   where
     micros = 1000000
 
@@ -152,13 +163,19 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
 instance BeamSqlBackendIsString Postgres (Maybe Text)
 instance BeamSqlBackendIsString Postgres (Maybe String)
 
-searchTxs :: P.Pool Connection -> Maybe Limit -> Maybe Offset -> Maybe Text -> Handler [TxSummary]
-searchTxs _ _ _ Nothing = do
+searchTxs
+  :: (String -> IO ())
+  -> P.Pool Connection
+  -> Maybe Limit
+  -> Maybe Offset
+  -> Maybe Text
+  -> Handler [TxSummary]
+searchTxs _ _ _ _ Nothing = do
     throwError $ err404 { errBody = "You must specify a search string" }
-searchTxs pool limit offset (Just search) = do
+searchTxs printLog pool limit offset (Just search) = do
     liftIO $ putStrLn $ "Transaction search: " <> T.unpack search
     liftIO $ P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug putStrLn c $
+      res <- runBeamPostgresDebug printLog c $
         runSelectReturningList $ select $ do
         limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
@@ -190,11 +207,11 @@ type instance QExprToIdentity (a :. b) = (QExprToIdentity a) :. (QExprToIdentity
 type instance QExprToField (a :. b) = (QExprToField a) :. (QExprToField b)
 
 
-queryRecentTxs :: P.Pool Connection -> IO [TxSummary]
-queryRecentTxs pool = do
+queryRecentTxs :: (String -> IO ()) -> P.Pool Connection -> IO [TxSummary]
+queryRecentTxs printLog pool = do
     liftIO $ putStrLn "Getting recent transactions"
     P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug putStrLn c $
+      res <- runBeamPostgresDebug printLog c $
         runSelectReturningList $ select $ do
         limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
@@ -215,10 +232,10 @@ queryRecentTxs pool = do
     getHeight (_,a,_,_,_,_,_,_) = a
     mkSummary (a,b,c,d,e,f,g,h) = TxSummary a b (unDbHash c) d e f g (maybe TxFailed (const TxSucceeded) h)
 
-getTransactionCount :: P.Pool Connection -> IO (Maybe Int)
-getTransactionCount pool = do
+getTransactionCount :: (String -> IO ()) -> P.Pool Connection -> IO (Maybe Int)
+getTransactionCount printLog pool = do
     P.withResource pool $ \c -> do
-      runBeamPostgresDebug putStrLn c $ runSelectReturningOne $ select $
+      runBeamPostgresDebug printLog c $ runSelectReturningOne $ select $
         aggregate_ (\_ -> as_ @Int countAll_) (all_ (_cddb_transactions database))
 
 data RecentTxs = RecentTxs
@@ -233,3 +250,6 @@ addNewTransactions txs (RecentTxs s1) = RecentTxs s2
   where
     maxTransactions = 10
     s2 = S.take maxTransactions $ txs <> s1
+
+logFunc :: ServerEnv -> String -> IO ()
+logFunc e s = if _serverEnv_verbose e then putStrLn s else return ()
