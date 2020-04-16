@@ -25,8 +25,12 @@ import Data.Pool
 import Data.Text (Text)
 import Database.Beam.Postgres
 import Gargoyle
---import Gargoyle.PostgreSQL
-import Gargoyle.PostgreSQL.Nix
+import Gargoyle.PostgreSQL
+-- To get gargoyle to give you postgres automatically without having to install
+-- it externally, uncomment the below line and comment the above line. Then do
+-- the same thing down in withGargoyleDb and uncomment the gargoyle-postgres-nix
+-- package in the cabal file.
+--import Gargoyle.PostgreSQL.Nix
 import Network.HTTP.Client (Manager)
 import Options.Applicative
 
@@ -48,8 +52,8 @@ data Connect = PGInfo ConnectInfo | PGString ByteString | PGGargoyle String
 -- | Equivalent to withPool but uses a Postgres DB started by Gargoyle
 withGargoyleDb :: FilePath -> (Pool Connection -> IO a) -> IO a
 withGargoyleDb dbPath func = do
-  pg <- postgresNix
-  --let pg = defaultPostgres
+  --pg <- postgresNix
+  let pg = defaultPostgres
   withGargoyle pg dbPath $ \dbUri -> do
     caps <- getNumCapabilities
     pool <- createPool (connectPostgreSQL dbUri) close 1 5 caps

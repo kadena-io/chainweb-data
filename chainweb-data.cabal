@@ -71,7 +71,7 @@ executable chainweb-data
     , errors                ^>=2.3
     , gargoyle
     , gargoyle-postgresql
-    , gargoyle-postgresql-nix
+    -- , gargoyle-postgresql-nix
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , mtl
