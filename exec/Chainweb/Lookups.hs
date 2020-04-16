@@ -115,8 +115,8 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
   , _tx_step = _cont_step <$> cnt
-  , _tx_data = (PgJSONB . Object . _cont_data <$> cnt)
-    <|> (PgJSONB . Object <$> (exc >>= _exec_data))
+  , _tx_data = (PgJSONB . _cont_data <$> cnt)
+    <|> (PgJSONB <$> (exc >>= _exec_data))
   , _tx_proof = _cont_proof <$> cnt
 
   , _tx_gas = _toutGas txo
