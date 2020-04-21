@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
@@ -21,16 +22,16 @@ import           Database.Beam.Postgres
 ---
 
 gaps :: Env -> IO ()
-gaps e@(Env _ c _ _ cids) = withPool c $ \pool -> work cids pool >>= \case
+gaps e@(Env _ pool _ _ cids) = work cids pool >>= \case
   Nothing -> printf "[INFO] No gaps detected."
   Just bs -> do
     count <- newIORef 0
-    traverseConcurrently_ Par' (f pool count) bs
+    traverseConcurrently_ Par' (f count) bs
     final <- readIORef count
     printf "[INFO] Filled in %d missing blocks.\n" final
   where
-    f :: P.Pool Connection -> IORef Int -> (BlockHeight, Int) -> IO ()
-    f pool count (h, cid) =
+    f :: IORef Int -> (BlockHeight, Int) -> IO ()
+    f count (h, cid) =
       headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
 
 work :: NonEmpty ChainId -> P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
@@ -40,7 +41,7 @@ work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
     $ select
     $ orderBy_ (asc_ . fst)
     $ do
-      bs <- all_ $ blocks database
+      bs <- all_ $ _cddb_blocks database
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
   pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping

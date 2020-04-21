@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
 
 module Chainweb.Worker
@@ -9,6 +10,7 @@ module Chainweb.Worker
 
 import           BasePrelude hiding (delete, insert)
 import           Chainweb.Api.BlockHeader
+import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.Hash
 import           Chainweb.Database
 import           Chainweb.Env
@@ -37,15 +39,15 @@ writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> IO ()
 writes pool b ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write Pub Key many-to-many relationships if unique --
   runInsert
-    $ insert (minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
+    $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the Block if unique --
   runInsert
-    $ insert (blocks database) (insertValues [b])
+    $ insert (_cddb_blocks database) (insertValues [b])
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- Write the TXs if unique --
   runInsert
-    $ insert (transactions database) (insertValues ts)
+    $ insert (_cddb_transactions database) (insertValues ts)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
   --   (_block_chainId b)
@@ -60,15 +62,15 @@ asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHas
 -- the database.
 writeBlock :: Env -> P.Pool Connection -> IORef Int -> BlockHeader -> IO ()
 writeBlock e pool count bh = do
-  let !pair = T2 (_blockHeader_chainId bh) (hash $ _blockHeader_payloadHash bh)
+  let !pair = T2 (_blockHeader_chainId bh) (hashToDbHash $ _blockHeader_payloadHash bh)
   retrying policy check (const $ payloadWithOutputs e pair) >>= \case
     Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
       (hashB64U $ _blockHeader_hash bh)
     Just pl -> do
-      let !m = miner pl
+      let !m = _blockPayloadWithOutputs_minerData pl
           !b = asBlock (asPow bh) m
-          !t = txs b pl
-          !k = keys pl
+          !t = mkBlockTransactions b pl
+          !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
       writes pool b k t
   where

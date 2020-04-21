@@ -1,3 +1,4 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -6,7 +7,7 @@ module ChainwebData.Types
   ( -- * Types
     PowHeader(..)
   , asBlock
-  , hash
+  , hashToDbHash
     -- * Utils
   , groupsOf
   ) where
@@ -23,8 +24,8 @@ import           Data.Aeson
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import           Lens.Micro ((^?))
-import           Lens.Micro.Aeson (key, _JSON)
+import           Control.Lens
+import           Data.Aeson.Lens
 import           Network.Wai.EventSource.Streaming
 
 ---
@@ -58,8 +59,8 @@ asBlock (PowHeader bh ph) m = Block
   , _block_miner_pred   = _minerData_predicate m }
 
 -- | Convert to the "pretty" hash representation that URLs, etc., expect.
-hash :: Hash -> DbHash
-hash = DbHash . hashB64U
+hashToDbHash :: Hash -> DbHash
+hashToDbHash = DbHash . hashB64U
 
 -- | Break a list into groups of @n@ elements. The last item in the result is
 -- not guaranteed to have the same length as the others.

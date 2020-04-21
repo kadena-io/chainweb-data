@@ -1,17 +1,24 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Chainweb.Listen ( listen ) where
+module Chainweb.Listen
+  ( listen
+  , listenWithHandler
+  , getOutputsAndInsert
+  , insertNewHeader
+  ) where
 
 import           BasePrelude hiding (insert)
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
+import           Chainweb.Api.BlockPayloadWithOutputs
+import           Chainweb.Api.ChainId (unChainId)
 import           Chainweb.Api.Hash
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Types
-import           ChainwebDb.Types.Block
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Pool as P
 import           Data.Tuple.Strict (T2(..))
@@ -24,28 +31,35 @@ import           System.IO (hFlush, stdout)
 ---
 
 listen :: Env -> IO ()
-listen e@(Env mgr c u _ _) = withPool c $ \pool ->
-  withEvents (req u) mgr $ SP.mapM_ (f pool) . dataOnly @PowHeader
-  where
-    f :: P.Pool Connection -> PowHeader -> IO ()
-    f pool ph@(PowHeader h _) = do
-      let !pair = T2 (_blockHeader_chainId h) (hash $ _blockHeader_payloadHash h)
-      payloadWithOutputs e pair >>= \case
-        Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
-          (hashB64U $ _blockHeader_hash h)
-        Just pl -> do
-          let !m = miner pl
-              !b = asBlock ph m
-              !t = txs b pl
-              !k = keys pl
-          writes pool b k t
-          printf "%d" (_block_chainId b) >> hFlush stdout
+listen e = listenWithHandler e (getOutputsAndInsert e)
+
+listenWithHandler :: Env -> (PowHeader -> IO a) -> IO ()
+listenWithHandler (Env mgr _ u _ _) handler =
+  withEvents (req u) mgr $ SP.mapM_ handler . dataOnly @PowHeader
+
+getOutputsAndInsert :: Env -> PowHeader -> IO ()
+getOutputsAndInsert e ph@(PowHeader h _) = do
+  let !pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
+  payloadWithOutputs e pair >>= \case
+    Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
+      (hashB64U $ _blockHeader_hash h)
+    Just pl -> do
+      insertNewHeader (_env_dbConnPool e) ph pl
+      printf "%d" (unChainId $ _blockHeader_chainId h) >> hFlush stdout
+
+insertNewHeader :: P.Pool Connection -> PowHeader -> BlockPayloadWithOutputs -> IO ()
+insertNewHeader pool ph pl = do
+  let !m = _blockPayloadWithOutputs_minerData pl
+      !b = asBlock ph m
+      !t = mkBlockTransactions b pl
+      !k = bpwoMinerKeys pl
+  writes pool b k t
 
 req :: Url -> Request
-req (Url u) = defaultRequest
-  { host = B.pack u
+req (Url h p) = defaultRequest
+  { host = B.pack h
   , path = "chainweb/0.0/mainnet01/header/updates"  -- TODO Parameterize as needed.
-  , port = 443
+  , port = p
   , secure = True
   , method = "GET"
   , requestBody = mempty

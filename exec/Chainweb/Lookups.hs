@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Chainweb.Lookups
   ( -- * Types
@@ -10,9 +11,8 @@ module Chainweb.Lookups
   , payloadWithOutputs
   , allChains
     -- * Transformations
-  , txs
-  , miner
-  , keys
+  , mkBlockTransactions
+  , bpwoMinerKeys
   ) where
 
 import           BasePrelude
@@ -41,8 +41,8 @@ import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import           Lens.Micro (to, (^..), _Just)
-import           Lens.Micro.Aeson
+import           Control.Lens
+import           Data.Aeson.Lens
 import           Network.HTTP.Client hiding (Proxy)
 
 --------------------------------------------------------------------------------
@@ -56,12 +56,12 @@ newtype High = High Int deriving newtype (Eq, Ord, Show)
 -- Endpoints
 
 headersBetween :: Env -> (ChainId, Low, High) -> IO [BlockHeader]
-headersBetween (Env m _ (Url u) (ChainwebVersion v) _) (cid, Low low, High up) = do
+headersBetween (Env m _ u (ChainwebVersion v) _) (cid, Low low, High up) = do
   req <- parseRequest url
   res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding }) m
   pure . (^.. key "items" . values . _String . to f . _Just) $ responseBody res
   where
-    url = "https://" <> u <> query
+    url = "https://" <> urlToString u <> query
     query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
       (T.unpack v) (unChainId cid) low up
     encoding = [("accept", "application/json")]
@@ -70,12 +70,12 @@ headersBetween (Env m _ (Url u) (ChainwebVersion v) _) (cid, Low low, High up) =
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
 
 payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
-payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v) _) (T2 cid0 hsh0) = do
+payloadWithOutputs (Env m _ u (ChainwebVersion v) _) (T2 cid0 hsh0) = do
   req <- parseRequest url
   res <- httpLbs req m
   pure . decode' $ responseBody res
   where
-    url = "https://" <> u <> T.unpack query
+    url = "https://" <> urlToString u <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
     cid = T.pack $ show cid0
     hsh = unDbHash hsh0
@@ -83,8 +83,8 @@ payloadWithOutputs (Env m _ (Url u) (ChainwebVersion v) _) (T2 cid0 hsh0) = do
 -- | Query a node for the `ChainId` values its current `ChainwebVersion` has
 -- available.
 allChains :: Manager -> Url -> IO (Maybe (NonEmpty ChainId))
-allChains m (Url u) = do
-  req <- parseRequest $ "https://" <> u <> "/info"
+allChains m u = do
+  req <- parseRequest $ "https://" <> urlToString u <> "/info"
   res <- httpLbs req m
   pure . NEL.nonEmpty $ responseBody res ^.. lns
   where
@@ -94,17 +94,14 @@ allChains m (Url u) = do
 -- Transformations
 
 -- | Derive useful database entries from a `Block` and its payload.
-txs :: Block -> BlockPayloadWithOutputs -> [Transaction]
-txs b pl = map (transaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
+mkBlockTransactions :: Block -> BlockPayloadWithOutputs -> [Transaction]
+mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
-miner :: BlockPayloadWithOutputs -> MinerData
-miner = _blockPayloadWithOutputs_minerData
+bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
+bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
 
-keys :: BlockPayloadWithOutputs -> [T.Text]
-keys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
-
-transaction :: Block -> (CW.Transaction, TransactionOutput) -> Transaction
-transaction b (tx,txo) = Transaction
+mkTransaction :: Block -> (CW.Transaction, TransactionOutput) -> Transaction
+mkTransaction b (tx,txo) = Transaction
   { _tx_chainId = _block_chainId b
   , _tx_block = pk b
   , _tx_creationTime = posixSecondsToUTCTime $ _chainwebMeta_creationTime mta
@@ -118,8 +115,8 @@ transaction b (tx,txo) = Transaction
   , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
   , _tx_step = _cont_step <$> cnt
-  , _tx_data = (PgJSONB . Object . _cont_data <$> cnt)
-    <|> (PgJSONB . Object <$> (exc >>= _exec_data))
+  , _tx_data = (PgJSONB . _cont_data <$> cnt)
+    <|> (PgJSONB <$> (exc >>= _exec_data))
   , _tx_proof = _cont_proof <$> cnt
 
   , _tx_gas = _toutGas txo

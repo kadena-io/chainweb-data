@@ -6,13 +6,14 @@ let pkgs = kpkgs.pkgs;
 in haskellPackages.developPackage {
   name = builtins.baseNameOf ./.;
   root = kpkgs.gitignoreSource ./.;
-#  overrides = self: super: with pkgs.haskell.lib; {
-#    witherable-class = self.callHackageDirect {
-#      pkg = "witherable-class";
-#      ver = "0";
-#      sha256 = "1v9rkk040j87bnipljmvccxwz8phpkgnq6vbwdq0l7pf7w3im5wc";
-#    } {};
-#  };
+  overrides = self: super: with pkgs.haskell.lib;
+  let gargoylePkgs = import ./deps/gargoyle self;
+  in
+  {
+    inherit (gargoylePkgs) gargoyle gargoyle-postgresql gargoyle-postgresql-nix gargoyle-postgresql-connect;
+    chainweb-api = self.callCabal2nix "chainweb-api" (pkgs.hackGet ./deps/chainweb-api) {};
+    pact = dontCheck (self.callCabal2nix "pact" (pkgs.hackGet ./deps/pact) {});
+  };
 #  source-overrides = {
 #    chainweb-api = pkgs.fetchFromGitHub {
 #      owner = "kadena-io";
