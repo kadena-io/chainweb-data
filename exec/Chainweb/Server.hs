@@ -240,7 +240,7 @@ getTransactionCount printLog pool = do
 
 data RecentTxs = RecentTxs
   { _recentTxs_txs :: Seq TxSummary
-  } deriving (Eq,Ord,Show)
+  } deriving (Eq,Show)
 
 getSummaries :: RecentTxs -> [TxSummary]
 getSummaries (RecentTxs s) = toList s
