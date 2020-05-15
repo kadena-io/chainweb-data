@@ -63,7 +63,7 @@ data ServerState = ServerState
     { _ssRecentTxs :: RecentTxs
     , _ssTransactionCount :: Maybe Int
     , _ssCirculatingCoins :: Maybe Double
-    } deriving (Eq,Ord,Show)
+    } deriving (Eq,Show)
 
 ssRecentTxs
     :: Functor f
@@ -189,15 +189,16 @@ searchTxs printLog pool limit offset (Just search) = do
              , (_tx_creationTime tx)
              , (_tx_requestKey tx)
              , (_tx_sender tx)
-             , (_tx_code tx)
+             , ((_tx_code tx)
+             , (_tx_continuation tx)
              , (_tx_goodResult tx)
-             )
+             ))
       return $ mkSummary <$> res
   where
     lim = maybe 10 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
-    getHeight (_,a,_,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,g,h) = TxSummary a b (unDbHash c) d e f g (maybe TxFailed (const TxSucceeded) h)
+    getHeight (_,a,_,_,_,_,_) = a
+    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary a b (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
     searchString = "%" <> search <> "%"
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
@@ -224,13 +225,14 @@ queryRecentTxs printLog pool = do
              , (_tx_creationTime tx)
              , (_tx_requestKey tx)
              , (_tx_sender tx)
-             , (_tx_code tx)
+             , ((_tx_code tx)
+             , (_tx_continuation tx)
              , (_tx_goodResult tx)
-             )
+             ))
       return $ mkSummary <$> res
   where
-    getHeight (_,a,_,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,g,h) = TxSummary a b (unDbHash c) d e f g (maybe TxFailed (const TxSucceeded) h)
+    getHeight (_,a,_,_,_,_,_) = a
+    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary a b (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
 
 getTransactionCount :: (String -> IO ()) -> P.Pool Connection -> IO (Maybe Int)
 getTransactionCount printLog pool = do
@@ -253,3 +255,7 @@ addNewTransactions txs (RecentTxs s1) = RecentTxs s2
 
 logFunc :: ServerEnv -> String -> IO ()
 logFunc e s = if _serverEnv_verbose e then putStrLn s else return ()
+
+unPgJsonb :: PgJSONB a -> a
+unPgJsonb (PgJSONB v) = v
+
