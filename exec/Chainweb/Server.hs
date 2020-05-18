@@ -20,6 +20,7 @@ import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
+import           Data.Aeson
 import           Data.Foldable
 import           Data.IORef
 import qualified Data.Pool as P
@@ -146,7 +147,8 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
       (hashB64U $ _blockHeader_hash h)
     Just pl -> do
       let hash = _blockHeader_hash h
-          ts = S.fromList $ map (mkTxSummary chain height hash . fst) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
+          tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
+          ts = S.fromList $ map (\(t,to) -> mkTxSummary chain height hash t to) tos
           f ss = (ss & ssRecentTxs %~ addNewTransactions ts
                      & (ssTransactionCount . _Just) +~ (S.length ts), ())
 
@@ -154,7 +156,9 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
           addendum = if S.length ts == 0
                        then ""
                        else printf " with %d transactions" (S.length ts)
-      when verbose $ putStrLn (msg <> addendum)
+      when verbose $ do
+        putStrLn (msg <> addendum)
+        mapM_ print tos
 
       atomicModifyIORef' ssRef f
       insertNewHeader pool ph pl
@@ -234,6 +238,25 @@ queryRecentTxs printLog pool = do
     getHeight (_,a,_,_,_,_,_) = a
     mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary a b (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
 
+recentCont :: (String -> IO ()) -> P.Pool Connection -> IO [(Int,Int,Maybe (PgJSONB Value))]
+recentCont printLog pool = do
+    liftIO $ putStrLn "Getting recent transactions"
+    P.withResource pool $ \c -> do
+      res <- runBeamPostgresDebug printLog c $
+        runSelectReturningList $ select $ do
+        limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
+          tx <- all_ (_cddb_transactions database)
+          blk <- all_ (_cddb_blocks database)
+          guard_ (_tx_block tx `references_` blk)
+          return
+             ( (_tx_chainId tx)
+             , (_block_height blk)
+             , (_tx_continuation tx)
+             )
+      return res
+  where
+    getHeight (_,a,_) = a
+
 getTransactionCount :: (String -> IO ()) -> P.Pool Connection -> IO (Maybe Int)
 getTransactionCount printLog pool = do
     P.withResource pool $ \c -> do
@@ -250,7 +273,7 @@ getSummaries (RecentTxs s) = toList s
 addNewTransactions :: Seq TxSummary -> RecentTxs -> RecentTxs
 addNewTransactions txs (RecentTxs s1) = RecentTxs s2
   where
-    maxTransactions = 10
+    maxTransactions = 20
     s2 = S.take maxTransactions $ txs <> s1
 
 logFunc :: ServerEnv -> String -> IO ()
