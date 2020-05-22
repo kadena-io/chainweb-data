@@ -20,7 +20,6 @@ import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
-import           Data.Aeson
 import           Data.Foldable
 import           Data.IORef
 import qualified Data.Pool as P
@@ -98,8 +97,8 @@ apiServer env senv = do
   recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv) pool
   numTxs <- getTransactionCount (logFunc senv) pool
   ssRef <- newIORef $ ServerState recentTxs numTxs (hush circulatingCoins)
-  circulationTid <- forkIO $ scheduledUpdates env senv pool ssRef
-  listenTid <- forkIO $ listenWithHandler env $
+  _ <- forkIO $ scheduledUpdates env senv pool ssRef
+  _ <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve chainwebDataApi $
     (recentTxsHandler ssRef :<|>
@@ -148,7 +147,7 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
     Just pl -> do
       let hash = _blockHeader_hash h
           tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
-          ts = S.fromList $ map (\(t,to) -> mkTxSummary chain height hash t to) tos
+          ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
           f ss = (ss & ssRecentTxs %~ addNewTransactions ts
                      & (ssTransactionCount . _Just) +~ (S.length ts), ())
 
@@ -238,25 +237,6 @@ queryRecentTxs printLog pool = do
     getHeight (_,a,_,_,_,_,_) = a
     mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary a b (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
 
-recentCont :: (String -> IO ()) -> P.Pool Connection -> IO [(Int,Int,Maybe (PgJSONB Value))]
-recentCont printLog pool = do
-    liftIO $ putStrLn "Getting recent transactions"
-    P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug printLog c $
-        runSelectReturningList $ select $ do
-        limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
-          tx <- all_ (_cddb_transactions database)
-          blk <- all_ (_cddb_blocks database)
-          guard_ (_tx_block tx `references_` blk)
-          return
-             ( (_tx_chainId tx)
-             , (_block_height blk)
-             , (_tx_continuation tx)
-             )
-      return res
-  where
-    getHeight (_,a,_) = a
-
 getTransactionCount :: (String -> IO ()) -> P.Pool Connection -> IO (Maybe Int)
 getTransactionCount printLog pool = do
     P.withResource pool $ \c -> do
@@ -273,7 +253,7 @@ getSummaries (RecentTxs s) = toList s
 addNewTransactions :: Seq TxSummary -> RecentTxs -> RecentTxs
 addNewTransactions txs (RecentTxs s1) = RecentTxs s2
   where
-    maxTransactions = 20
+    maxTransactions = 10
     s2 = S.take maxTransactions $ txs <> s1
 
 logFunc :: ServerEnv -> String -> IO ()

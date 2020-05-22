@@ -31,7 +31,7 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
 import           Control.Error.Util (hush)
-import           Data.Aeson (Value(..), decode')
+import           Data.Aeson (decode')
 import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.List.NonEmpty as NEL
 import           Data.Serialize.Get (runGet)
