@@ -63,7 +63,7 @@ data ServerState = ServerState
     { _ssRecentTxs :: RecentTxs
     , _ssTransactionCount :: Maybe Int
     , _ssCirculatingCoins :: Maybe Double
-    } deriving (Eq,Ord,Show)
+    } deriving (Eq,Show)
 
 ssRecentTxs
     :: Functor f
@@ -97,8 +97,8 @@ apiServer env senv = do
   recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv) pool
   numTxs <- getTransactionCount (logFunc senv) pool
   ssRef <- newIORef $ ServerState recentTxs numTxs (hush circulatingCoins)
-  circulationTid <- forkIO $ scheduledUpdates env senv pool ssRef
-  listenTid <- forkIO $ listenWithHandler env $
+  _ <- forkIO $ scheduledUpdates env senv pool ssRef
+  _ <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve chainwebDataApi $
     (recentTxsHandler ssRef :<|>
@@ -146,7 +146,8 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
       (hashB64U $ _blockHeader_hash h)
     Just pl -> do
       let hash = _blockHeader_hash h
-          ts = S.fromList $ map (mkTxSummary chain height hash . fst) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
+          tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
+          ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
           f ss = (ss & ssRecentTxs %~ addNewTransactions ts
                      & (ssTransactionCount . _Just) +~ (S.length ts), ())
 
@@ -154,7 +155,9 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
           addendum = if S.length ts == 0
                        then ""
                        else printf " with %d transactions" (S.length ts)
-      when verbose $ putStrLn (msg <> addendum)
+      when verbose $ do
+        putStrLn (msg <> addendum)
+        mapM_ print tos
 
       atomicModifyIORef' ssRef f
       insertNewHeader pool ph pl
@@ -189,15 +192,16 @@ searchTxs printLog pool limit offset (Just search) = do
              , (_tx_creationTime tx)
              , (_tx_requestKey tx)
              , (_tx_sender tx)
-             , (_tx_code tx)
+             , ((_tx_code tx)
+             , (_tx_continuation tx)
              , (_tx_goodResult tx)
-             )
+             ))
       return $ mkSummary <$> res
   where
     lim = maybe 10 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
-    getHeight (_,a,_,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,g,h) = TxSummary a b (unDbHash c) d e f g (maybe TxFailed (const TxSucceeded) h)
+    getHeight (_,a,_,_,_,_,_) = a
+    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary a b (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
     searchString = "%" <> search <> "%"
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
@@ -224,13 +228,14 @@ queryRecentTxs printLog pool = do
              , (_tx_creationTime tx)
              , (_tx_requestKey tx)
              , (_tx_sender tx)
-             , (_tx_code tx)
+             , ((_tx_code tx)
+             , (_tx_continuation tx)
              , (_tx_goodResult tx)
-             )
+             ))
       return $ mkSummary <$> res
   where
-    getHeight (_,a,_,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,g,h) = TxSummary a b (unDbHash c) d e f g (maybe TxFailed (const TxSucceeded) h)
+    getHeight (_,a,_,_,_,_,_) = a
+    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary a b (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
 
 getTransactionCount :: (String -> IO ()) -> P.Pool Connection -> IO (Maybe Int)
 getTransactionCount printLog pool = do
@@ -240,7 +245,7 @@ getTransactionCount printLog pool = do
 
 data RecentTxs = RecentTxs
   { _recentTxs_txs :: Seq TxSummary
-  } deriving (Eq,Ord,Show)
+  } deriving (Eq,Show)
 
 getSummaries :: RecentTxs -> [TxSummary]
 getSummaries (RecentTxs s) = toList s
@@ -253,3 +258,7 @@ addNewTransactions txs (RecentTxs s1) = RecentTxs s2
 
 logFunc :: ServerEnv -> String -> IO ()
 logFunc e s = if _serverEnv_verbose e then putStrLn s else return ()
+
+unPgJsonb :: PgJSONB a -> a
+unPgJsonb (PgJSONB v) = v
+
