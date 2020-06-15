@@ -27,6 +27,7 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as S
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Data.Time
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
@@ -103,7 +104,8 @@ apiServer env senv = do
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve chainwebDataApi $
     (recentTxsHandler ssRef :<|>
     searchTxs (logFunc senv) pool) :<|>
-    statsHandler ssRef
+    statsHandler ssRef :<|>
+    coinsHandler ssRef
 
 scheduledUpdates
   :: Env
@@ -114,6 +116,8 @@ scheduledUpdates
 scheduledUpdates env senv pool ssRef = forever $ do
     threadDelay (60 * 60 * 24 * micros)
 
+    now <- getCurrentTime
+    print now
     putStrLn "Recalculating coins in circulation:"
     circulatingCoins <- queryCirculatingCoins env
     print circulatingCoins
@@ -126,6 +130,11 @@ scheduledUpdates env senv pool ssRef = forever $ do
     atomicModifyIORef' ssRef g
   where
     micros = 1000000
+
+coinsHandler :: IORef ServerState -> Handler Text
+coinsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
+  where
+    mkStats ss = maybe "" (T.pack . show) $ _ssCirculatingCoins ss
 
 statsHandler :: IORef ServerState -> Handler ChainwebDataStats
 statsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
