@@ -99,6 +99,7 @@ executable chainweb-data
 
 
   other-modules:
+    Chainweb.Allocations
     Chainweb.Backfill
     Chainweb.Coins
     Chainweb.Database
