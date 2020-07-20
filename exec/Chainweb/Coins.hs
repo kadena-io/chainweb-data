@@ -26,7 +26,7 @@ import           Chainweb.Api.ChainId (unChainId)
 import           Chainweb.Env hiding (Command)
 ------------------------------------------------------------------------------
 
-coinQuery :: String
+coinQuery :: Text
 coinQuery =
   "(fold (+) 0 (map (at 'balance) (map (read coin.coin-table) (keys coin.coin-table))))"
 
@@ -57,7 +57,7 @@ mkPublicMeta :: ChainId -> TxCreationTime -> PublicMeta
 mkPublicMeta chain ct =
   PublicMeta chain "nosender" 10000000 0.000000000001 600 (ct - 60)
 
-mkPactCommand :: NetworkId -> ChainId -> String -> IO (Command Text)
+mkPactCommand :: NetworkId -> ChainId -> Text -> IO (Command Text)
 mkPactCommand network chain code = do
     ct <- getCurrentCreationTime
     let pm = mkPublicMeta chain ct
