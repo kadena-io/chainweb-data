@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "kpkgs",
-  "branch": "doug/try-removing-kadena-packages",
+  "branch": "bump-2020-07-20",
   "private": false,
-  "rev": "faced141feeff8d30c401801bfd83795502a7d84",
-  "sha256": "0hnqf12blajc49s17gnsfp39vxhii7vpx65b6fwvg4921h6y2kz2"
+  "rev": "3e37c1a23185a7778c95b18d87fee3f7ead213c0",
+  "sha256": "1njvw9f31zs67phvnjhmyikwr4ldi0ycch3laz2syxbz11nch159"
 }
