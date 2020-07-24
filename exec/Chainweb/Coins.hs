@@ -23,6 +23,8 @@ import           Servant.Client
 import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.ChainId (unChainId)
+import           Chainweb.Api.Common (BlockHeight)
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Env hiding (Command)
 ------------------------------------------------------------------------------
 
@@ -30,9 +32,9 @@ coinQuery :: Text
 coinQuery =
   "(fold (+) 0 (map (at 'balance) (map (read coin.coin-table) (keys coin.coin-table))))"
 
-queryCirculatingCoins :: Env -> IO (Either String Double)
-queryCirculatingCoins env = do
-  echains <- mapM (sendCoinQuery env . unChainId) (_env_chains env)
+queryCirculatingCoins :: Env -> BlockHeight -> IO (Either String Double)
+queryCirculatingCoins env curHeight = do
+  echains <- mapM (sendCoinQuery env . unChainId) (atBlockHeight curHeight $ _env_chains env)
   return $ do
     chains <- sequence echains
     return $ realToFrac $ sum chains

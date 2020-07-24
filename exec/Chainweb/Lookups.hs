@@ -10,6 +10,8 @@ module Chainweb.Lookups
   , headersBetween
   , payloadWithOutputs
   , allChains
+  , queryCut
+  , cutMaxHeight
     -- * Transformations
   , mkBlockTransactions
   , bpwoMinerKeys
@@ -20,8 +22,10 @@ import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.ChainwebMeta
+import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.Hash
 import           Chainweb.Api.MinerData
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
 import qualified Chainweb.Api.Transaction as CW
@@ -31,11 +35,13 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
 import           Control.Error.Util (hush)
-import           Data.Aeson (decode')
+import           Data.Aeson
+import           Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Base64.URL as B64
-import qualified Data.List.NonEmpty as NEL
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
@@ -73,7 +79,15 @@ payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutp
 payloadWithOutputs (Env m _ u (ChainwebVersion v) _) (T2 cid0 hsh0) = do
   req <- parseRequest url
   res <- httpLbs req m
-  pure . decode' $ responseBody res
+  let body = responseBody res
+  case eitherDecode' body of
+    Left e -> do
+      putStrLn "Decoding error in payloadWithOutputs:"
+      putStrLn e
+      putStrLn "Received response:"
+      T.putStrLn $ T.decodeUtf8 $ B.toStrict body
+      pure Nothing
+    Right a -> pure $ Just a
   where
     url = "https://" <> urlToString u <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
@@ -82,13 +96,27 @@ payloadWithOutputs (Env m _ u (ChainwebVersion v) _) (T2 cid0 hsh0) = do
 
 -- | Query a node for the `ChainId` values its current `ChainwebVersion` has
 -- available.
-allChains :: Manager -> Url -> IO (Maybe (NonEmpty ChainId))
+allChains :: Manager -> Url -> IO (Maybe [(BlockHeight, [ChainId])])
 allChains m u = do
   req <- parseRequest $ "https://" <> urlToString u <> "/info"
   res <- httpLbs req m
-  pure . NEL.nonEmpty $ responseBody res ^.. lns
-  where
-    lns = key "nodeChains" . values . _JSON . to readMaybe . _Just . to ChainId
+  pure $ map (second (map (ChainId . fst))) <$> (_nodeInfo_graphs =<< decode' (responseBody res))
+--  where
+--    lns = key "nodeChains" . values . _JSON . to readMaybe . _Just . to ChainId
+
+queryCut :: Env -> IO ByteString
+queryCut e = do
+  let ChainwebVersion v = _env_chainwebVersion e
+      m = _env_httpManager e
+      u = _env_nodeUrl e
+      url = printf "https://%s/chainweb/0.0/%s/cut" (urlToString u) (T.unpack v)
+  req <- parseRequest url
+  res <- httpLbs req m
+  pure $ responseBody res
+
+cutMaxHeight :: ByteString -> Integer
+cutMaxHeight bs = maximum $ (0:) $ bs ^.. key "hashes" . members . key "height" . _Integer
+
 
 --------------------------------------------------------------------------------
 -- Transformations

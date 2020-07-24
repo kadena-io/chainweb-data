@@ -7,6 +7,7 @@ module Chainweb.Gaps ( gaps ) where
 import           BasePrelude
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Common (BlockHeight)
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
@@ -22,19 +23,39 @@ import           Database.Beam.Postgres
 ---
 
 gaps :: Env -> IO ()
-gaps e@(Env _ pool _ _ cids) = work cids pool >>= \case
-  Nothing -> printf "[INFO] No gaps detected."
-  Just bs -> do
-    count <- newIORef 0
-    traverseConcurrently_ Par' (f count) bs
-    final <- readIORef count
-    printf "[INFO] Filled in %d missing blocks.\n" final
+gaps e = do
+  cutBS <- queryCut e
+  let curHeight = fromIntegral $ cutMaxHeight cutBS
+      cids = atBlockHeight curHeight $ _env_chains e
+  work cids pool >>= \case
+    Nothing -> printf "[INFO] No gaps detected."
+    Just bs -> do
+      count <- newIORef 0
+      traverseConcurrently_ Par' (f count) bs
+      final <- readIORef count
+      printf "[INFO] Filled in %d missing blocks.\n" final
   where
+    pool = _env_dbConnPool e
     f :: IORef Int -> (BlockHeight, Int) -> IO ()
     f count (h, cid) =
       headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
 
-work :: NonEmpty ChainId -> P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
+--queryGaps :: Env -> IO (BlockHeight, Int, Int)
+--queryGaps e = P.withResource pool $ \c -> runBeamPostgres c $ do
+--  gaps <- runSelectReturningList
+--    $ select
+--    $ do
+--      (chain, height, nextHeight) <-
+--        orderBy_ (asc_ . snd) $
+--        aggregate_ (\(c,h) -> (group_ (c,h), lead1_ h)) $ do
+--          blk <- all_ $ _cddb_blocks database
+--          pure (_block_chainId blk, _block_height blk)
+--      guard_ (nextHeight - height >. val_ 1)
+--  pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping
+
+-- with gaps as (select chainid, height, LEAD (height,1) OVER (PARTITION BY chainid ORDER BY height ASC) AS next_height from blocks group by chainid, height) select * from gaps where next_height - height > 1;
+
+work :: [ChainId] -> P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
 work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Pull all (chain, height) pairs --
   pairs <- runSelectReturningList
@@ -70,11 +91,11 @@ expanding (h :| t) = g h :| f (map g t)
     g :: (BlockHeight, NonEmpty Int) -> (BlockHeight, [Int])
     g = second NEL.toList
 
-filling :: NonEmpty ChainId -> NonEmpty (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
+filling :: [ChainId] -> NonEmpty (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
 filling cids pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
   where
     chains :: S.IntSet
-    chains = S.fromList . map unChainId $ NEL.toList cids
+    chains = S.fromList $ map unChainId cids
 
     -- | Detect gaps in existing rows.
     f :: (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))

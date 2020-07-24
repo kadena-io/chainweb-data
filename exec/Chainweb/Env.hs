@@ -18,7 +18,6 @@ import Chainweb.Api.Common (BlockHeight)
 import Control.Concurrent
 import Control.Exception
 import Data.ByteString (ByteString)
-import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe
 import Data.String
 import Data.Pool
@@ -43,7 +42,7 @@ data Env = Env
   , _env_dbConnPool :: Pool Connection
   , _env_nodeUrl :: Url
   , _env_chainwebVersion :: ChainwebVersion
-  , _env_chains :: NonEmpty ChainId
+  , _env_chains :: [(BlockHeight, [ChainId])]
   }
 
 data Connect = PGInfo ConnectInfo | PGString ByteString | PGGargoyle String

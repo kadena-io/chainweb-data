@@ -8,6 +8,7 @@ module Chainweb.Backfill ( backfill ) where
 
 import           BasePrelude hiding (insert, range)
 import           Chainweb.Api.ChainId (ChainId(..))
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
@@ -17,7 +18,6 @@ import           ChainwebDb.Types.Block
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
-import qualified Data.List.NonEmpty as NEL
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
@@ -30,7 +30,10 @@ import           System.IO
 ---
 
 backfill :: Env -> IO ()
-backfill e@(Env _ pool _ _ cids) = do
+backfill e@(Env _ pool _ _ allCids) = do
+  cutBS <- queryCut e
+  let curHeight = fromIntegral $ cutMaxHeight cutBS
+      cids = atBlockHeight curHeight allCids
   cont <- newIORef 0
   mins <- minHeights cids pool
   let count = M.size mins
@@ -72,8 +75,8 @@ progress count mins = do
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
-minHeights :: NonEmpty ChainId -> P.Pool Connection -> IO (Map ChainId Int)
-minHeights cids pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) (NEL.toList cids)
+minHeights :: [ChainId] -> P.Pool Connection -> IO (Map ChainId Int)
+minHeights cids pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) cids
   where
     -- | Get the current minimum height of any block on some chain.
     f :: ChainId -> IO (Maybe Int)
