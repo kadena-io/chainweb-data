@@ -10,7 +10,6 @@ module Chainweb.Lookups
   , headersBetween
   , payloadWithOutputs
   , getNodeInfo
-  , allChains
   , queryCut
   , cutMaxHeight
     -- * Transformations
@@ -23,7 +22,6 @@ import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.ChainwebMeta
-import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.Hash
 import           Chainweb.Api.MinerData
 import           Chainweb.Api.NodeInfo
@@ -105,16 +103,6 @@ getNodeInfo m u = do
   req <- parseRequest $ "https://" <> urlToString u <> "/info"
   res <- httpLbs req m
   pure $ eitherDecode' (responseBody res)
-
--- | Query a node for the `ChainId` values its current `ChainwebVersion` has
--- available.
-allChains :: Manager -> Url -> IO (Maybe [(BlockHeight, [ChainId])])
-allChains m u = do
-  req <- parseRequest $ "https://" <> urlToString u <> "/info"
-  res <- httpLbs req m
-  pure $ map (second (map (ChainId . fst))) <$> (_nodeInfo_graphs =<< decode' (responseBody res))
---  where
---    lns = key "nodeChains" . values . _JSON . to readMaybe . _Just . to ChainId
 
 queryCut :: Env -> IO ByteString
 queryCut e = do
