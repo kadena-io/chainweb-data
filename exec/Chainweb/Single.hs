@@ -12,8 +12,9 @@ import Chainweb.Worker (writeBlock)
 -- | Look up a single chain/height pair, and write all blocks that were found
 -- there.
 single :: Env -> ChainId -> BlockHeight -> IO ()
-single e@(Env _ pool _ _ _) cid h = do
+single e cid h = do
   count <- newIORef 0
+  let pool = _env_dbConnPool e
   headersBetween e (cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
   final <- readIORef count
   printf "[INFO] Filled in %d blocks.\n" final

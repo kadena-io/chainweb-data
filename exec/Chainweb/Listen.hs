@@ -15,6 +15,7 @@ import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (unChainId)
 import           Chainweb.Api.Hash
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
@@ -35,8 +36,12 @@ listen :: Env -> IO ()
 listen e = listenWithHandler e (getOutputsAndInsert e)
 
 listenWithHandler :: Env -> (PowHeader -> IO a) -> IO ()
-listenWithHandler (Env mgr _ u cv _) handler =
+listenWithHandler env handler =
   withEvents (req u cv) mgr $ SP.mapM_ handler . dataOnly @PowHeader
+  where
+    mgr = _env_httpManager env
+    u = _env_nodeUrl env
+    cv = ChainwebVersion $ _nodeInfo_chainwebVer $ _env_nodeInfo env
 
 getOutputsAndInsert :: Env -> PowHeader -> IO ()
 getOutputsAndInsert e ph@(PowHeader h _) = do

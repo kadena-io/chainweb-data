@@ -4,6 +4,7 @@
 module Chainweb.Env
   ( Args(..)
   , Env(..)
+  , chainStartHeights
   , ServerEnv(..)
   , Connect(..), withPool
   , Url(..)
@@ -13,37 +14,46 @@ module Chainweb.Env
   , envP
   ) where
 
-import Chainweb.Api.ChainId (ChainId(..))
-import Chainweb.Api.Common (BlockHeight)
-import Control.Concurrent
-import Control.Exception
-import Data.ByteString (ByteString)
-import Data.Maybe
-import Data.String
-import Data.Pool
-import Data.Text (Text)
-import Database.Beam.Postgres
-import Gargoyle
-import Gargoyle.PostgreSQL
+import           Chainweb.Api.ChainId (ChainId(..))
+import           Chainweb.Api.Common (BlockHeight)
+import           Chainweb.Api.NodeInfo
+import           Control.Concurrent
+import           Control.Exception
+import           Data.ByteString (ByteString)
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
+import           Data.Maybe
+import           Data.String
+import           Data.Pool
+import           Data.Text (Text)
+import           Database.Beam.Postgres
+import           Gargoyle
+import           Gargoyle.PostgreSQL
 -- To get gargoyle to give you postgres automatically without having to install
 -- it externally, uncomment the below line and comment the above line. Then do
 -- the same thing down in withGargoyleDb and uncomment the gargoyle-postgres-nix
 -- package in the cabal file.
 --import Gargoyle.PostgreSQL.Nix
-import Network.HTTP.Client (Manager)
-import Options.Applicative
+import           Network.HTTP.Client (Manager)
+import           Options.Applicative
 
 ---
 
-data Args = Args Command Connect Url ChainwebVersion
+data Args = Args Command Connect Url
 
 data Env = Env
   { _env_httpManager :: Manager
   , _env_dbConnPool :: Pool Connection
   , _env_nodeUrl :: Url
-  , _env_chainwebVersion :: ChainwebVersion
-  , _env_chains :: [(BlockHeight, [ChainId])]
+  , _env_nodeInfo :: NodeInfo
+  , _env_chainsAtHeight :: [(BlockHeight, [ChainId])]
   }
+
+chainStartHeights :: [(BlockHeight, [ChainId])] -> Map ChainId BlockHeight
+chainStartHeights chainsAtHeight = go mempty chainsAtHeight
+  where
+    go m [] = m
+    go m ((h,cs):rest) = go (foldr (\c -> M.insert c h) m cs) rest
 
 data Connect = PGInfo ConnectInfo | PGString ByteString | PGGargoyle String
   deriving (Eq,Show)
@@ -98,7 +108,6 @@ envP = Args
   <$> commands
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
   <*> (parseUrl <$> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node"))
-  <*> strOption (long "version" <> metavar "VERSION" <> value "mainnet01" <> help "Network Version")
 
 connectP :: Parser Connect
 connectP = (PGString <$> pgstringP) <|> (PGInfo <$> connectInfoP) <|> (PGGargoyle <$> dbdirP)

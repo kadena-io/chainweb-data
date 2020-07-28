@@ -26,7 +26,7 @@ gaps :: Env -> IO ()
 gaps e = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
-      cids = atBlockHeight curHeight $ _env_chains e
+      cids = atBlockHeight curHeight $ _env_chainsAtHeight e
   work cids pool >>= \case
     Nothing -> printf "[INFO] No gaps detected."
     Just bs -> do

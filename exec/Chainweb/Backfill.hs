@@ -30,7 +30,7 @@ import           System.IO
 ---
 
 backfill :: Env -> IO ()
-backfill e@(Env _ pool _ _ allCids) = do
+backfill e = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
@@ -48,6 +48,8 @@ backfill e@(Env _ pool _ _ allCids) = do
       race_ (progress cont mins)
         $ traverseConcurrently_ Par' (f cont) $ lookupPlan mins
   where
+    pool = _env_dbConnPool e
+    allCids = _env_chainsAtHeight e
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = headersBetween e range >>= \case
       [] -> printf "[FAIL] headersBetween: %s\n" $ show range
