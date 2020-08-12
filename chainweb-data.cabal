@@ -44,6 +44,11 @@ common commons
 
     , servant
 
+flag ghc-flags
+    description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
+    default: False
+    manual: True
+
 library
   import:          commons
   hs-source-dirs:  lib
@@ -53,6 +58,11 @@ library
     ChainwebDb.Types.DbHash
     ChainwebDb.Types.MinerKey
     ChainwebDb.Types.Transaction
+
+  if flag(ghc-flags)
+      build-tool-depends: hsinspect:hsinspect
+      ghc-options: -fplugin GhcFlags.Plugin
+      build-depends: ghcflags
 
 executable chainweb-data
   import:         commons
