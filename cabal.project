@@ -1,0 +1,41 @@
+packages: chainweb-data.cabal
+
+package aeson
+    flags: +cffi
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/pact.git
+    tag: 94cfeb57e2f90c299fc27cc3e72f6b6aa9109c06
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/chainweb-api.git
+    tag: f3b4ff4832af0e57ed9a729f2e10a73193886b7f
+
+source-repository-package
+    type: git
+    location: https://github.com/tathougies/beam.git
+    tag: 2fa99310557e49b37a59e349032ff7236085b6f8
+    subdir:
+      beam-core
+      beam-migrate
+      beam-postgres
+
+source-repository-package
+    type: git
+    location: https://github.com/obsidiansystems/gargoyle
+    tag: 48ddcca4e977c69ace9b7a67cb2054600c30f8ca
+    subdir:
+      gargoyle
+      gargoyle-postgresql
+
+source-repository-package
+    type: git
+    location: https://github.com/kadena-io/thyme.git
+    tag: 6ee9fcb026ebdb49b810802a981d166680d867c9
+
+package vault
+    documentation: false
+
+write-ghc-environment-files: never

@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
@@ -55,6 +56,8 @@ gaps e = do
 
 -- with gaps as (select chainid, height, LEAD (height,1) OVER (PARTITION BY chainid ORDER BY height ASC) AS next_height from blocks group by chainid, height) select * from gaps where next_height - height > 1;
 
+-- | TODO: Parametrize chain id with genesis block info so we can mark min height to grep.
+--
 work :: [ChainId] -> P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
 work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Pull all (chain, height) pairs --
@@ -66,6 +69,12 @@ work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
   pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping
+
+genesisHeight :: ChainId -> Int
+genesisHeight (ChainId c)
+  | c `elem` [0..9] = 0
+  | c `elem` [10..19] = 852_054
+  | otherwise = error "chaingraphs larger than 20 are unimplemented"
 
 grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
 grouping = NEL.map (fst . NEL.head &&& NEL.map snd) . NEL.groupWith1 fst

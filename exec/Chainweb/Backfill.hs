@@ -34,7 +34,7 @@ backfill e = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
-  cont <- newIORef 0
+  counter <- newIORef 0
   mins <- minHeights cids pool
   let count = M.size mins
   if count /= length cids
@@ -45,8 +45,8 @@ backfill e = do
       exitFailure
     else do
       printf "[INFO] Beginning backfill on %d chains.\n" count
-      race_ (progress cont mins)
-        $ traverseConcurrently_ Par' (f cont) $ lookupPlan mins
+      race_ (progress counter mins)
+        $ traverseConcurrently_ Par' (f counter) $ lookupPlan mins
   where
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
@@ -78,11 +78,11 @@ progress count mins = do
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
 minHeights :: [ChainId] -> P.Pool Connection -> IO (Map ChainId Int)
-minHeights cids pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) cids
+minHeights cids pool = M.fromList <$> wither selectMinHeight cids
   where
     -- | Get the current minimum height of any block on some chain.
-    f :: ChainId -> IO (Maybe Int)
-    f (ChainId cid) = fmap (fmap _block_height)
+    selectMinHeight :: ChainId -> IO (Maybe (ChainId, Int))
+    selectMinHeight cid_@(ChainId cid) = fmap (fmap (\bh -> (cid_, _block_height bh)))
       $ P.withResource pool
       $ \c -> runBeamPostgres c
       $ runSelectReturningOne
@@ -94,6 +94,9 @@ minHeights cids pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) cid
 
 -- | Based on some initial minimum heights per chain, form a lazy list of block
 -- ranges that need to be looked up.
+--
+-- TODO: Parametrize by chaingraph history, genesis for each chain id
+--
 lookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
 lookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
   where
@@ -111,3 +114,40 @@ lookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
       | u > mx && l' <= mx' = Just (cid, l, mx)
       | u <= mx = Just (cid, l, u)
       | otherwise = Nothing
+
+lookupPlan' :: Map ChainId Int -> [(ChainId, Low, High)]
+lookupPlan' = M.foldrWithKey go []
+  where
+    go cid cmin acc =
+      let
+          -- calculate genesis height for chain id
+          --
+          genesis = genesisHeight cid
+
+          -- calculate 100-entry batches using min blockheight @cmin@
+          -- and genesis height
+          --
+          ranges = map (Low . last &&& High . head) $
+            groupsOf 100 [cmin, cmin - 1 .. genesis]
+
+          -- calculate high water entry against minimum block height for cid
+          --
+          chigh@(High high) = High $ max genesis (cmin - 1)
+
+          -- given a lo-hi window (calculated in 'ranges'), choose best window
+          -- against the 'chigh' water mark and calcaulated ranges
+          --
+          window (clow@(Low low), maxN) l
+            | maxN > chigh, low <= high = (cid, clow, chigh):l
+            | maxN <= chigh = (cid, clow, maxN):l
+            | otherwise = l
+
+          windows = foldr window [] ranges
+
+      in windows <> acc
+
+genesisHeight :: ChainId -> Int
+genesisHeight (ChainId c)
+  | c `elem` [0..9] = 0
+  | c `elem` [10..19] = 852_054
+  | otherwise = error "chaingraphs larger than 20 are unimplemented"
