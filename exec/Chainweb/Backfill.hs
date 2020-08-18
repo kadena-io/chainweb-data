@@ -132,15 +132,15 @@ lookupPlan' = M.foldrWithKey go []
 
           -- calculate high water entry against minimum block height for cid
           --
-          chigh@(High high) = High $ max genesis (cmin - 1)
+          high@(High h) = High $ max genesis (cmin - 1)
 
           -- given a lo-hi window (calculated in 'ranges'), choose best window
           -- against the 'chigh' water mark and calcaulated ranges
           --
-          window (clow@(Low low), maxN) l
-            | maxN > chigh, low <= high = (cid, clow, chigh):l
-            | maxN <= chigh = (cid, clow, maxN):l
-            | otherwise = l
+          window (low@(Low l), high') lst
+            | high' > high, l <= h = (cid, low, high):lst
+            | high' <= high = (cid, low, high'):lst
+            | otherwise = lst
 
           windows = foldr window [] ranges
 
