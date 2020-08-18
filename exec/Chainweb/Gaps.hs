@@ -70,12 +70,6 @@ work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Determine the missing pairs --
   pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping
 
-genesisHeight :: ChainId -> Int
-genesisHeight (ChainId c)
-  | c `elem` [0..9] = 0
-  | c `elem` [10..19] = 852_054
-  | otherwise = error "chaingraphs larger than 20 are unimplemented"
-
 grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
 grouping = NEL.map (fst . NEL.head &&& NEL.map snd) . NEL.groupWith1 fst
 

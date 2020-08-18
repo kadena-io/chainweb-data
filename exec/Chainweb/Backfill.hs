@@ -4,7 +4,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chainweb.Backfill ( backfill ) where
+module Chainweb.Backfill ( backfill, lookupPlan ) where
 
 import           BasePrelude hiding (insert, range)
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -97,8 +97,8 @@ minHeights cids pool = M.fromList <$> wither selectMinHeight cids
 --
 -- TODO: Parametrize by chaingraph history, genesis for each chain id
 --
-lookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
-lookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
+oldLookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
+oldLookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
   where
     maxi :: Int
     maxi = max 0 $ maximum (M.elems mins) - 1
@@ -115,8 +115,8 @@ lookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
       | u <= mx = Just (cid, l, u)
       | otherwise = Nothing
 
-lookupPlan' :: Map ChainId Int -> [(ChainId, Low, High)]
-lookupPlan' = M.foldrWithKey go []
+lookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
+lookupPlan = M.foldrWithKey go []
   where
     go cid cmin acc =
       let
@@ -142,9 +142,7 @@ lookupPlan' = M.foldrWithKey go []
             | high' <= high = (cid, low, high'):lst
             | otherwise = lst
 
-          windows = foldr window [] ranges
-
-      in windows <> acc
+      in foldr window acc ranges
 
 genesisHeight :: ChainId -> Int
 genesisHeight (ChainId c)
