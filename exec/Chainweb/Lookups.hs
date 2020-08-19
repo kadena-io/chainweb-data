@@ -80,7 +80,10 @@ payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutp
 payloadWithOutputs env (T2 cid0 hsh0) = do
   req <- parseRequest url
   res <- httpLbs req (_env_httpManager env)
+  print req
+  print res
   let body = responseBody res
+  print body
   case eitherDecode' body of
     Left e -> do
       putStrLn "Decoding error in payloadWithOutputs:"
