@@ -4,7 +4,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chainweb.Backfill ( backfill, lookupPlan ) where
+module Chainweb.Backfill ( backfill, lookupPlan, oldLookupPlan ) where
 
 import           BasePrelude hiding (insert, range)
 import           Chainweb.Api.ChainId (ChainId(..))

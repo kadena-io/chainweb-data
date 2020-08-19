@@ -68,7 +68,8 @@ work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
       bs <- all_ $ _cddb_blocks database
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
-  pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping
+  pure $ NEL.nonEmpty pairs >>= pruning . filling cids . expanding . grouping
+
 
 grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
 grouping = NEL.map (fst . NEL.head &&& NEL.map snd) . NEL.groupWith1 fst
@@ -103,3 +104,15 @@ filling cids pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
     -- | Detect gaps in existing rows.
     f :: (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
     f (h, cs) = NEL.nonEmpty . map (h,) . S.toList . S.difference chains $ S.fromList cs
+
+pruning :: Maybe (NonEmpty (BlockHeight, Int)) -> Maybe (NonEmpty (BlockHeight, Int))
+pruning pairs = NEL.nonEmpty . NEL.filter p =<< pairs
+  where
+    genesisHeight :: Int -> Int
+    genesisHeight c
+      | c `elem` [0..9] = 0
+      | c `elem` [10..19] = 852_054
+      | otherwise = error "chaingraphs larger than 20 are unimplemented"
+
+    p :: (BlockHeight, Int) -> Bool
+    p (bh, cid) = bh >= genesisHeight cid
