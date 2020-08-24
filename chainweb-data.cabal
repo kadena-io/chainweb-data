@@ -15,39 +15,36 @@ extra-source-files:
 
 common commons
   default-language:   Haskell2010
-  default-extensions:
-    OverloadedStrings
-
+  default-extensions: OverloadedStrings
   ghc-options:
     -Wall -Wcompat -Wpartial-fields -Wincomplete-record-updates
     -Wincomplete-uni-patterns -Widentities -funclutter-valid-hole-fits
     -fmax-relevant-binds=0
 
   build-depends:
-    , aeson             >=0.11.3.0 && <1.5
-    , base              >=4.7      && <5
-    , base-prelude      ^>=1.3
-    , base16-bytestring ^>=0.1
-    , beam-core         ^>=0.8
-    , beam-migrate      ^>=0.4
-    , beam-postgres     ^>=0.4
-    , bytestring        ^>=0.10
-    , chainweb-api      ^>=1.0
-    , containers        ^>=0.6
+    , aeson              >=0.11.3.0 && <1.5
+    , base               >=4.7      && <5
+    , base-prelude       ^>=1.3
+    , base16-bytestring  ^>=0.1
+    , beam-core          ^>=0.8
+    , beam-migrate       ^>=0.4
+    , beam-postgres      ^>=0.4
+    , bytestring         ^>=0.10
+    , chainweb-api       ^>=1.0
+    , containers         ^>=0.6
     , data-default
     , lens
     , lens-aeson
-    , scientific        ^>=0.3
-    , streaming-events  ^>=1.0.1
-    , text              ^>=1.2
-    , time              ^>=1.8
-
+    , scientific         ^>=0.3
     , servant
+    , streaming-events   ^>=1.0.1
+    , text               ^>=1.2
+    , time               ^>=1.8
 
 flag ghc-flags
-    description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
-    default: False
-    manual: True
+  description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
+  default:     False
+  manual:      True
 
 library
   import:          commons
@@ -60,9 +57,9 @@ library
     ChainwebDb.Types.Transaction
 
   if flag(ghc-flags)
-      build-tool-depends: hsinspect:hsinspect
-      ghc-options: -fplugin GhcFlags.Plugin
-      build-depends: ghcflags
+    build-tool-depends: hsinspect:hsinspect -any
+    ghc-options:        -fplugin GhcFlags.Plugin
+    build-depends:      ghcflags
 
 executable chainweb-data
   import:         commons
@@ -70,35 +67,32 @@ executable chainweb-data
   hs-source-dirs: exec
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-    , Decimal
-    , async                 ^>=2.2
+    , async                    ^>=2.2
     , base16-bytestring
-    , base64-bytestring     ^>=1.0
+    , base64-bytestring        ^>=1.0
     , bytestring
-    , cereal                ^>=0.5
+    , cereal                   ^>=0.5
     , chainweb-data
     , connection
-    , errors                ^>=2.3
+    , Decimal
+    , errors                   ^>=2.3
     , gargoyle
     , gargoyle-postgresql
-    -- , gargoyle-postgresql-nix
-    , http-client           ^>=0.6
-    , http-client-tls       ^>=0.3
+    , http-client              ^>=0.6
+    , http-client-tls          ^>=0.3
     , mtl
-    , optparse-applicative  ^>=0.14
+    , optparse-applicative     ^>=0.14
     , pact
     , postgresql-simple
-    , resource-pool         ^>=0.2
-    , retry                 ^>=0.8
-    , scheduler             ^>=1.4
-    , streaming             ^>=0.2
-    , streaming-events
-    , strict-tuple          ^>=0.1
-    , witherable-class      ^>=0
-
+    , resource-pool            ^>=0.2
+    , retry                    ^>=0.8
+    , scheduler                ^>=1.4
     , servant-client
     , servant-client-core
     , servant-server
+    , streaming                ^>=0.2
+    , streaming-events
+    , strict-tuple             ^>=0.1
     , wai
     , wai-app-static
     , wai-cors
@@ -106,8 +100,9 @@ executable chainweb-data
     , wai-middleware-throttle
     , warp
     , warp-tls
+    , witherable-class         ^>=0
 
-
+  -- , gargoyle-postgresql-nix
   other-modules:
     Chainweb.Allocations
     Chainweb.Backfill
@@ -117,30 +112,29 @@ executable chainweb-data
     Chainweb.Gaps
     Chainweb.Listen
     Chainweb.Lookups
-    Chainweb.Single
     Chainweb.Server
+    Chainweb.Single
     Chainweb.Worker
 
 test-suite testsuite
-    default-language: Haskell2010
-    type: exitcode-stdio-1.0
-    hs-source-dirs: test
-    main-is: Main.hs
+  default-language: Haskell2010
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  other-modules:
+    Chainweb.Data.Test.Backfill
+    Chainweb.Data.Test.Parser
 
-    other-modules:
-      Chainweb.Data.Test.Parser
-      Chainweb.Data.Test.Backfill
+  build-depends:
+    , aeson
+    , base
+    , bytestring
+    , chainweb-api
+    , chainweb-data
+    , neat-interpolation  ^>=0.3.2
+    , tasty               ^>=1.2
+    , tasty-hunit         ^>=0.10
+    , text
 
-    build-depends:
-        -- internal
-          chainweb-data
-
-        -- external
-        , aeson
-        , base
-        , bytestring
-        , chainweb-api
-        , neat-interpolation >= 0.3.2 && < 0.4
-        , tasty       ^>= 1.2
-        , tasty-hunit ^>= 0.10
-        , text
+-- internal
+-- external

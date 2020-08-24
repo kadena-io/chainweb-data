@@ -22,11 +22,11 @@ import           ChainwebDb.Types.Block
 
 
 tests :: TestTree
-tests = testGroup "Block Parsing tests" [ parseTest ]
+tests = testGroup "Block Parsing tests" [ parseUnitTests ]
 
 
-parseTest :: TestTree
-parseTest = testGroup "Parser unit tests"
+parseUnitTests :: TestTree
+parseUnitTests = testGroup "Parser unit tests"
     [ testCase "Block target parses correctly" $
       Right 14474011154664524427946373126085988481658748083205070504932198000989141204991
       @=? (getTarget <$> eitherDecodeStrict (encodeUtf8 blockJson))
