@@ -79,10 +79,7 @@ headersBetween env (cid, Low low, High up) = do
 payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
 payloadWithOutputs env (T2 cid0 hsh0) = do
   req <- parseRequest url
-
-  print req
   res <- httpLbs req (_env_httpManager env)
-  print res
   let body = responseBody res
   case eitherDecode' body of
     Left e -> do
