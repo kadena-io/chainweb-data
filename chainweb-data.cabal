@@ -1,6 +1,6 @@
 cabal-version:      2.2
 name:               chainweb-data
-version:            1.1.0
+version:            1.2.0
 description:        Data ingestion for Chainweb.
 homepage:           https://github.com/kadena-io/chainweb-data
 author:             Colin Woodbury
