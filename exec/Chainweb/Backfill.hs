@@ -6,7 +6,6 @@
 module Chainweb.Backfill
 ( backfill
 , lookupPlan
-, oldLookupPlan
 ) where
 
 
@@ -21,7 +20,6 @@ import           Chainweb.Worker
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 
-import           Control.Arrow
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
@@ -101,29 +99,6 @@ minHeights cids pool = M.fromList <$> wither selectMinHeight cids
       $ orderBy_ (asc_ . _block_height)
       $ filter_ (\b -> _block_chainId b ==. val_ cid)
       $ all_ (_cddb_blocks database)
-
--- | Based on some initial minimum heights per chain, form a lazy list of block
--- ranges that need to be looked up.
---
--- TODO: Parametrize by chaingraph history, genesis for each chain id
---
-oldLookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
-oldLookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
-  where
-    maxi :: Int
-    maxi = max 0 $ maximum (M.elems mins) - 1
-
-    asList :: [(ChainId, High)]
-    asList = map (second (\n -> High . max 0 $ n - 1)) $ M.toList mins
-
-    ranges :: [(Low, High)]
-    ranges = map (Low . last &&& High . head) $ groupsOf 100 [maxi, maxi-1 .. 0]
-
-    g :: (Low, High) -> (ChainId, High) -> Maybe (ChainId, Low, High)
-    g (l@(Low l'), u) (cid, mx@(High mx'))
-      | u > mx && l' <= mx' = Just (cid, l, mx)
-      | u <= mx = Just (cid, l, u)
-      | otherwise = Nothing
 
 lookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
 lookupPlan = M.foldrWithKey go []
