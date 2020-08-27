@@ -52,6 +52,8 @@ library
   import:          commons
   hs-source-dirs:  lib
   exposed-modules:
+    ChainwebData.Backfill
+    ChainwebData.Genesis
     ChainwebData.Types
     ChainwebDb.Types.Block
     ChainwebDb.Types.DbHash

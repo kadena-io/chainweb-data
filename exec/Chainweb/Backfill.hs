@@ -17,6 +17,7 @@ import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
+import           ChainwebData.Backfill
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 
@@ -99,38 +100,3 @@ minHeights cids pool = M.fromList <$> wither selectMinHeight cids
       $ orderBy_ (asc_ . _block_height)
       $ filter_ (\b -> _block_chainId b ==. val_ cid)
       $ all_ (_cddb_blocks database)
-
-lookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
-lookupPlan = M.foldrWithKey go []
-  where
-    go cid cmin acc =
-      let
-          -- calculate genesis height for chain id
-          --
-          genesis = genesisHeight cid
-
-          -- calculate 100-entry batches using min blockheight @cmin@
-          -- and genesis height
-          --
-          ranges = map (Low . last &&& High . head) $
-            groupsOf 100 [cmin, cmin - 1 .. genesis]
-
-          -- calculate high water entry against minimum block height for cid
-          --
-          high@(High h) = High $ max genesis (cmin - 1)
-
-          -- given a lo-hi window (calculated in 'ranges'), choose best window
-          -- against the 'chigh' water mark and calcaulated ranges
-          --
-          window (low@(Low l), high') lst
-            | high' > high, l <= h = (cid, low, high):lst
-            | high' <= high = (cid, low, high'):lst
-            | otherwise = lst
-
-      in foldr window acc ranges
-
-genesisHeight :: ChainId -> Int
-genesisHeight (ChainId c)
-  | c `elem` [0..9] = 0
-  | c `elem` [10..19] = 852_054
-  | otherwise = error "chaingraphs larger than 20 are unimplemented"
