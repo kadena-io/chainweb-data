@@ -1,15 +1,17 @@
-cabal-version:      2.2
-name:               chainweb-data
-version:            1.1.0
-description:        Data ingestion for Chainweb.
-homepage:           https://github.com/kadena-io/chainweb-data
-author:             Colin Woodbury
-maintainer:         colin@kadena.io
-copyright:          2020 Kadena LLC
-license:            BSD-3-Clause
-license-file:       LICENSE
-build-type:         Simple
-extra-source-files:
+cabal-version:   2.2
+name:            chainweb-data
+version:         1.1.0
+description:     Data ingestion for Chainweb.
+homepage:        https://github.com/kadena-io/chainweb-data
+author:          Colin Woodbury
+maintainer:
+  Douglas Beardsley <doug@kadena.io>, Emily Pillmore <emily@kadena.io>
+
+copyright:       2020 Kadena LLC
+license:         BSD-3-Clause
+license-file:    LICENSE
+build-type:      Simple
+extra-doc-files:
   README.org
   ChangeLog.md
 
@@ -39,7 +41,7 @@ common commons
     , servant
     , streaming-events   ^>=1.0.1
     , text               ^>=1.2
-    , time               ^>=1.8
+    , time               >=1.8      && <1.11
 
 flag ghc-flags
   description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
@@ -74,6 +76,7 @@ executable chainweb-data
     , cereal                   ^>=0.5
     , chainweb-data
     , connection
+    , containers               ^>=0.6
     , Decimal
     , errors                   ^>=2.3
     , gargoyle
@@ -81,7 +84,7 @@ executable chainweb-data
     , http-client              ^>=0.6
     , http-client-tls          ^>=0.3
     , mtl
-    , optparse-applicative     ^>=0.14
+    , optparse-applicative     >=0.14 && <0.17
     , pact
     , postgresql-simple
     , resource-pool            ^>=0.2
@@ -131,6 +134,7 @@ test-suite testsuite
     , bytestring
     , chainweb-api
     , chainweb-data
+    , containers          ^>=0.6
     , neat-interpolation  ^>=0.3.2
     , tasty               ^>=1.2
     , tasty-hunit         ^>=0.10

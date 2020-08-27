@@ -14,6 +14,7 @@ import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker (writeBlock)
 import           ChainwebDb.Types.Block
+import           ChainwebData.Types
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import qualified Data.IntSet as S
 import qualified Data.List.NonEmpty as NEL

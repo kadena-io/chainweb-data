@@ -1,13 +1,8 @@
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-
 module Chainweb.Lookups
-  ( -- * Types
-    Low(..)
-  , High(..)
-    -- * Endpoints
-  , headersBetween
+  ( -- * Endpoints
+    headersBetween
   , payloadWithOutputs
   , getNodeInfo
   , queryCut
@@ -29,7 +24,7 @@ import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Env
-import           ChainwebData.Types ()
+import           ChainwebData.Types (Low(..), High(..))
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
@@ -49,13 +44,6 @@ import           Database.Beam.Postgres
 import           Control.Lens
 import           Data.Aeson.Lens
 import           Network.HTTP.Client hiding (Proxy)
-
---------------------------------------------------------------------------------
--- Types
-
-newtype Low = Low Int deriving newtype (Show)
-
-newtype High = High Int deriving newtype (Eq, Ord, Show)
 
 --------------------------------------------------------------------------------
 -- Endpoints

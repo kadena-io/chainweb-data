@@ -3,28 +3,38 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
+module Chainweb.Backfill
+( backfill
+, lookupPlan
+, oldLookupPlan
+) where
 
-module Chainweb.Backfill ( backfill, lookupPlan, oldLookupPlan ) where
 
-import           BasePrelude hiding (insert, range)
+import           BasePrelude hiding (insert, range, second)
+
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
-import           ChainwebData.Types (groupsOf)
+import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+
+import           Control.Arrow
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
+
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Witherable.Class (wither)
+
 import           Database.Beam
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
+
 import           System.IO
 
 ---
