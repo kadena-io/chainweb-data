@@ -40,9 +40,13 @@ lookupPlanTests = testGroup "Lookup plan unit tests"
       let a = sortOn (\(t,_,_) -> t) $ oldLookupPlan twentyChainsData
           b = sortOn (\(t,_,_) -> t) $ lookupPlan twentyChainsData
 
-      -- note: old lookup plans don't accommodate genesis info,
-      -- and so backfill for more chains back to 0, which is wrong.
-      -- So we filter.
+      -- Note: old lookup plans don't accommodate genesis info,
+      -- backfilling for all chains back to 0, which is wrong.
+      -- The new lookup plans do not build plans for pre-genesis
+      -- blocks, so will not generate plans for 10-19 because our
+      -- test data only fills to block height 1,000.
+      --
+      -- So we filter to prove consistency on chains 0-9.
       --
       filter (\(ChainId t,_,_) -> t < 10) a @=? b
 
