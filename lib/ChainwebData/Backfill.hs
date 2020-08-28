@@ -7,8 +7,8 @@ module ChainwebData.Backfill
 import Control.Arrow ((&&&))
 
 import Data.Bifunctor
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
+import Data.Map.Lazy (Map)
+import qualified Data.Map.Lazy as M
 import Data.Maybe (mapMaybe)
 
 import Chainweb.Api.ChainId (ChainId(..))
@@ -41,7 +41,7 @@ lookupPlan = M.foldrWithKey go []
             -- against the 'chigh' water mark and calcaulated ranges
             --
             window (low@(Low l), high') lst
-              | high' > high, l < cmin = (cid, low, high):lst
+              | high' >= high, l < cmin = (cid, low, high ):lst
               | high' <= high, l < cmin = (cid, low, high'):lst
               | otherwise = lst
 

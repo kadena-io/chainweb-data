@@ -10,8 +10,8 @@ import Data.Bifunctor
 import Data.Foldable (for_)
 import Data.Function
 import Data.List (sortOn)
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
+import Data.Map.Lazy (Map)
+import qualified Data.Map.Lazy as M
 import Data.Maybe (mapMaybe)
 
 import Chainweb.Api.ChainId (ChainId(..))
