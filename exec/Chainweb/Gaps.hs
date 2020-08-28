@@ -14,6 +14,7 @@ import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker (writeBlock)
 import           ChainwebDb.Types.Block
+import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import qualified Data.IntSet as S
@@ -109,11 +110,5 @@ filling cids pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
 pruning :: Maybe (NonEmpty (BlockHeight, Int)) -> Maybe (NonEmpty (BlockHeight, Int))
 pruning pairs = NEL.nonEmpty . NEL.filter p =<< pairs
   where
-    genesisHeight :: Int -> Int
-    genesisHeight c
-      | c `elem` [0..9] = 0
-      | c `elem` [10..19] = 852_054
-      | otherwise = error "chaingraphs larger than 20 are unimplemented"
-
     p :: (BlockHeight, Int) -> Bool
-    p (bh, cid) = bh >= genesisHeight cid
+    p (bh, cid) = bh >= genesisHeight (ChainId cid)
