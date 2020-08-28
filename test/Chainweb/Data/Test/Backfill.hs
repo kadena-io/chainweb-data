@@ -29,11 +29,16 @@ tests = testGroup "Backfill tests"
 
 lookupPlanTests :: TestTree
 lookupPlanTests = testGroup "Lookup plan unit tests"
-    [ testCase "New/Old Lookup plans should be isomorphic" $ do
-      let a = sortOn (\(t,_,_) -> t) $ oldLookupPlan testData
-          b = sortOn (\(t,_,_) -> t) $ lookupPlan testData
+    [ testCase "New/Old Lookup plans should be the same" $ do
+      let a = sortOn (\(t,_,_) -> t) $ oldLookupPlan tenChainsData
+          b = sortOn (\(t,_,_) -> t) $ lookupPlan tenChainsData
       a @=? b
 
+    , testCase "New/Old lookup plans should be the same for chains 0-9, pre-fork" $ do
+      let a = sortOn (\(t,_,_) -> t) $ oldLookupPlan twentyChainsData
+          b = sortOn (\(t,_,_) -> t) $ lookupPlan twentyChainsData
+      (filter (\(ChainId t,_,_) -> t < 10) a) @=? b
     ]
   where
-    testData = M.fromList [ (ChainId x, 1_000) | x <- [0..9] ]
+    tenChainsData = M.fromList [ (ChainId x, 1_000) | x <- [0..9] ]
+    twentyChainsData = M.fromList [ (ChainId x, 1_000) | x <- [0..19] ]

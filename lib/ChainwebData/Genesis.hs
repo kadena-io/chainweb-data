@@ -5,6 +5,7 @@ module ChainwebData.Genesis
 
 import Chainweb.Api.ChainId (ChainId(..))
 
+
 genesisHeight :: ChainId -> Int
 genesisHeight (ChainId c)
   | c `elem` [0..9] = 0
