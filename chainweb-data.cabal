@@ -37,6 +37,7 @@ common commons
     , data-default
     , lens
     , lens-aeson
+    , process
     , scientific         ^>=0.3
     , servant
     , streaming-events   ^>=1.0.1
@@ -117,6 +118,7 @@ executable chainweb-data
     Chainweb.Gaps
     Chainweb.Listen
     Chainweb.Lookups
+    Chainweb.RichList
     Chainweb.Server
     Chainweb.Single
     Chainweb.Worker

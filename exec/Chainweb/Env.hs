@@ -96,7 +96,13 @@ parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's ru
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
-data Command = Server ServerEnv | Listen | Backfill | Gaps | Single ChainId BlockHeight
+data Command
+    = Server ServerEnv
+    | Listen
+    | Backfill
+    | Gaps
+    | RichList
+    | Single ChainId BlockHeight
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
@@ -145,6 +151,8 @@ commands = hsubparser
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
   <> command "gaps" (info (pure Gaps)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
+  <> command "rich-list" (info (pure RichList)
+       (progDesc "Rich List Worker - Compiles a CSV containing the top 20 richest accounts"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   <> command "server" (info (Server <$> serverP)

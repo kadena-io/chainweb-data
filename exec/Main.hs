@@ -13,6 +13,7 @@ import           Chainweb.Gaps (gaps)
 import           Chainweb.Listen (listen)
 import           Chainweb.Server (apiServer)
 import           Chainweb.Lookups (getNodeInfo)
+import           Chainweb.RichList (richList)
 import           Chainweb.Single (single)
 import           Data.Bifunctor
 import qualified Data.Pool as P
@@ -46,6 +47,7 @@ main = do
               Listen -> listen env
               Backfill -> backfill env
               Gaps -> gaps env
+              RichList -> richList env
               Single cid h -> single env cid h
               Server serverEnv -> apiServer env serverEnv
   where
