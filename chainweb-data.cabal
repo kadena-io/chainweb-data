@@ -37,6 +37,7 @@ common commons
     , data-default
     , lens
     , lens-aeson
+    , neat-interpolation
     , process
     , scientific         ^>=0.3
     , servant
