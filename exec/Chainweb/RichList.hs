@@ -49,7 +49,7 @@ enrich (ChainId cid) = do
 
     cmd = T.unpack
       [text|
-       sqlite3 -header -csv pact-v1-chain-$c.sqlite
+       sqlite3 -header -csv ~/.local/share/chainweb-node/mainnet01/0/sqlite/pact-v1-chain-$c.sqlite
          "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance'
          from 'coin_coin-table' as coin
          INNER JOIN (
