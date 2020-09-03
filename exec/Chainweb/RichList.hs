@@ -22,7 +22,7 @@ import Data.Pool
 import qualified Data.Text as T
 import qualified Data.Vector as V
 
-import Database.Beam.Postgres (Connection, runBeamPostgres)
+import Database.Beam.Postgres (Connection)
 
 import GHC.Generics
 
@@ -35,6 +35,7 @@ import Text.Printf
 
 richList :: Env -> IO ()
 richList cenv = do
+
     cut <- queryCut cenv
 
     let bh = fromIntegral $ cutMaxHeight cut
@@ -55,7 +56,7 @@ richList cenv = do
 enrich :: ChainId -> IO ()
 enrich (ChainId cid) = do
     printf "[INFO] Compiling rich-list for chain id %d" cid
-    callCommand cmd
+    void $! createProcess_ ("rich-list-" <> show cid) (shell cmd) { delegate_ctlc = True }
   where
     c = T.pack $ show cid
 
@@ -77,7 +78,7 @@ enrich (ChainId cid) = do
 -- | TODO: write to postgres. In the meantime, testing with print statements
 --
 consolidate :: Pool Connection -> [ChainId] -> IO ()
-consolidate pool cids = do
+consolidate _pool cids = do
     entries <- foldM extractCsv [] cids
     print entries
   where
