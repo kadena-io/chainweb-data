@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 module Chainweb.RichList
@@ -5,14 +7,24 @@ module Chainweb.RichList
 ) where
 
 
-import Control.Scheduler (Comp(Par'), traverseConcurrently_)
+import Control.DeepSeq
+import Control.Monad
+import Control.Scheduler
 
 import Chainweb.Api.ChainId
 import Chainweb.Api.NodeInfo
 import Chainweb.Env
 import Chainweb.Lookups
 
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Csv as Csv
+import Data.Pool
 import qualified Data.Text as T
+import qualified Data.Vector as V
+
+import Database.Beam.Postgres (Connection, runBeamPostgres)
+
+import GHC.Generics
 
 import NeatInterpolation
 
@@ -64,16 +76,28 @@ enrich (ChainId cid) = do
 
 -- | TODO: write to postgres. In the meantime, testing with print statements
 --
-consolidate :: Pool -> [ChainId] -> IO ()
+consolidate :: Pool Connection -> [ChainId] -> IO ()
 consolidate pool cids = do
     entries <- foldM extractCsv [] cids
     print entries
   where
-    extractCsv (ChainId c) lst = do
+    extractCsv lst (ChainId c) = do
       let richCsv = "rich-list-chain-" <> show c <> ".csv"
 
       csvData <- LBS.readFile richCsv
 
-      case Csv.decode NoHeader csvData of
-        Left e -> throwIO $ "Error while decoding richlist: " <> show e
-        Right rs -> V.foldl' (\acc (Account a b) -> (a,b):acc) lst rs
+      case Csv.decode Csv.NoHeader csvData of
+        Left e -> error $ "Error while decoding richlist: " <> show e
+        Right rs -> return $ V.foldl' (\acc (RichAccount a b) -> (a,b):acc) lst rs
+
+-- -------------------------------------------------------------------- --
+-- Local data
+
+data RichAccount = RichAccount
+    { richAccount :: !String
+    , richBalanace :: !Double
+    } deriving
+      ( Eq, Ord, Show
+      , Generic, NFData
+      , Csv.ToRecord, Csv.FromRecord
+      )
