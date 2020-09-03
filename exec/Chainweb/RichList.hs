@@ -63,8 +63,8 @@ enrich (ChainId cid) = do
     cmd = T.unpack
       [text|
        sqlite3 -header -csv ~/.local/share/chainweb-node/mainnet01/0/sqlite/pact-v1-chain-$c.sqlite
-         "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance'
-         from 'coin_coin-table' as coin
+       "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance'
+        from 'coin_coin-table' as coin
          INNER JOIN (
           select
            rowkey as acct_id,
@@ -73,6 +73,7 @@ enrich (ChainId cid) = do
           group by acct_id
          ) latest ON coin.rowkey = latest.acct_id AND coin.txid = latest.last_txid
          order by balance desc;" > rich-list-chain-$c.csv
+
       |]
 
 -- | TODO: write to postgres. In the meantime, testing with print statements
