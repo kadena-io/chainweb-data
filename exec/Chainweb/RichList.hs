@@ -56,25 +56,36 @@ richList cenv = do
 enrich :: ChainId -> IO ()
 enrich (ChainId cid) = do
     printf "[INFO] Compiling rich-list for chain id %d" cid
-    void $! createProcess_ ("rich-list-" <> show cid) (shell cmd) { delegate_ctlc = True }
+    (_, Just pout, _, _) <- createProcess $ (proc "sqlite3" args)
+      { std_out = CreatePipe
+      }
+
+    void $! createProcess $ (proc ">" ["rich-list-chain-" <> c <> ".csv"])
+      { std_in = UseHandle pout
+      }
   where
-    c = T.pack $ show cid
+    c = show cid
 
-    cmd = T.unpack
-      [text|
-       sqlite3 -header -csv ~/.local/share/chainweb-node/mainnet01/0/sqlite/pact-v1-chain-$c.sqlite
-       "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance'
-        from 'coin_coin-table' as coin
-         INNER JOIN (
-          select
-           rowkey as acct_id,
-           max(txid) as last_txid
-          from 'coin_coin-table'
-          group by acct_id
-         ) latest ON coin.rowkey = latest.acct_id AND coin.txid = latest.last_txid
-         order by balance desc;" > rich-list-chain-$c.csv
+    query =
+      "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance' \
+      \ from 'coin_coin-table' as coin \
+      \  INNER JOIN ( \
+      \    select \
+      \    rowkey as acct_id, \
+      \    max(txid) as last_txid \
+      \   from 'coin_coin-table' \
+      \   group by acct_id \
+      \  ) latest ON coin.rowkey = latest.acct_id AND coin.txid = latest.last_txid \
+      \  order by balance desc;"
 
-      |]
+    args =
+      [ "-header"
+      , "-csv"
+      , "$HOME/.local/share/chainweb-node/mainnet01/0/sqlite/pact-v1-chain-" <> c <> ".sqlite"
+      , query
+      ]
+
+          -- "> rich-list-chain-" <> c <> ".csv"
 
 -- | TODO: write to postgres. In the meantime, testing with print statements
 --
