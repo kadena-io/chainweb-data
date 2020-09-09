@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Chainweb.RichList
 ( richList
 ) where
@@ -39,70 +40,26 @@ richList cenv = do
     cut <- queryCut cenv
 
     let bh = fromIntegral $ cutMaxHeight cut
-        cids = atBlockHeight bh chains
+        cmd = (proc "/bin/sh" ["richlist.sh"]) { cwd = Just "./scripts" }
 
-    traverseConcurrently_ Par' enrich cids
-    consolidate pool cids
+    void $! readCreateProcess cmd []
+
+    consolidate pool
   where
     pool = _env_dbConnPool cenv
-    chains = _env_chainsAtHeight cenv
-
--- | For each chain id, generate a rich list csv containing a sorted list of
--- accounts and their balances
---
--- Invariant: 'pact-v1-chain-$c.sqlite' will always exist because
--- we are dispatching on latest cut height, which is one of: 10, or 20.
---
-enrich :: ChainId -> IO ()
-enrich (ChainId cid) = do
-    printf "[INFO] Compiling rich-list for chain id %d" cid
-    (_, Just pout, _, _) <- createProcess $ (proc "sqlite3" args)
-      { std_out = CreatePipe
-      }
-
-    void $! createProcess $ (proc ">" ["rich-list-chain-" <> c <> ".csv"])
-      { std_in = UseHandle pout
-      }
-  where
-    c = show cid
-
-    query =
-      "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance' \
-      \ from 'coin_coin-table' as coin \
-      \  INNER JOIN ( \
-      \    select \
-      \    rowkey as acct_id, \
-      \    max(txid) as last_txid \
-      \   from 'coin_coin-table' \
-      \   group by acct_id \
-      \  ) latest ON coin.rowkey = latest.acct_id AND coin.txid = latest.last_txid \
-      \  order by balance desc;"
-
-    args =
-      [ "-header"
-      , "-csv"
-      , "$HOME/.local/share/chainweb-node/mainnet01/0/sqlite/pact-v1-chain-" <> c <> ".sqlite"
-      , query
-      ]
 
           -- "> rich-list-chain-" <> c <> ".csv"
 
 -- | TODO: write to postgres. In the meantime, testing with print statements
 --
-consolidate :: Pool Connection -> [ChainId] -> IO ()
-consolidate _pool cids = do
-    entries <- foldM extractCsv [] cids
-    print entries
+consolidate :: Pool Connection -> IO ()
+consolidate _pool = do
+    csvData <- LBS.readFile richCsv
+    case Csv.decode Csv.NoHeader csvData of
+      Left e -> error $ "Error while decoding richlist: " <> show e
+      Right (rs :: V.Vector RichAccount) -> print rs
   where
-    extractCsv lst (ChainId c) = do
-      let richCsv = "rich-list-chain-" <> show c <> ".csv"
-
-      csvData <- LBS.readFile richCsv
-
-      case Csv.decode Csv.NoHeader csvData of
-        Left e -> error $ "Error while decoding richlist: " <> show e
-        Right rs -> return $ V.foldl' (\acc (RichAccount a b) -> (a,b):acc) lst rs
-
+    richCsv = "./scripts/richlist.csv"
 -- -------------------------------------------------------------------- --
 -- Local data
 
