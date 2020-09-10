@@ -53,6 +53,8 @@ richList fp = do
 
     putStrLn "[INFO] Filtering top 100 richest accounts..."
     void $! pruneRichList
+
+    putStrLn "[INFO] Finished."
   where
     pruneRichList = do
       csv <- LBS.readFile "richlist.csv"
