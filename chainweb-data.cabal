@@ -37,10 +37,10 @@ common commons
     , data-default
     , deepseq
     , directory
+    , exceptions
     , filepath
     , lens
     , lens-aeson
-    , neat-interpolation
     , process
     , scientific         ^>=0.3
     , servant

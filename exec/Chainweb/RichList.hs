@@ -8,34 +8,18 @@ module Chainweb.RichList
 ) where
 
 
-import Control.DeepSeq
-import Control.Exception
 import Control.Monad
-import Control.Scheduler
-
-import Chainweb.Api.ChainId
-import Chainweb.Api.NodeInfo
-import Chainweb.Env
-import Chainweb.Lookups
 
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Csv as Csv
 import Data.Foldable (for_)
-import Data.Pool
-import qualified Data.Text as T
+import Data.List (sortOn)
+import qualified Data.Map.Strict as M
 import qualified Data.Vector as V
-
-import Database.Beam.Postgres (Connection)
-
-import GHC.Generics
-
-import NeatInterpolation
 
 import System.Directory
 import System.FilePath
 import System.Process
-
-import Text.Printf
 
 
 richList :: FilePath -> IO ()
@@ -47,6 +31,7 @@ richList fp = do
     --      Check that the sqlite db paths exist. If yes, copy them to current
     --      working dir.
     --   3. Execute richlist generation, outputing `richlist.csv`
+    --   4. Aggregate richest accounts and prune to top 100
     --
     void $! doesPathExist fp >>= \case
       True -> for_ [0::Int .. 19] $ \i -> do
@@ -59,6 +44,26 @@ richList fp = do
           False -> ioError $ userError $ "Cannot find sqlite table: " <> fp' <> ". Is your node synced?"
       False -> ioError $ userError $ "Chainweb-node top-level db directory does not exist: " <> fp
 
-    let cmd = (proc "/bin/sh" ["scripts/richlist.sh"])
+    let cmd = proc "/bin/sh" ["scripts/richlist.sh"]
 
     void $! readCreateProcess cmd []
+    void $! pruneRichList
+  where
+    pruneRichList = do
+      csv <- LBS.readFile "richlist.csv"
+      case Csv.decode Csv.NoHeader csv of
+        Left e -> ioError $ userError $ "Could not decode rich list .csv file: " <> e
+        Right rs -> do
+          let acc = Csv.encode
+                $ sortOn snd
+                $ take 100
+                $ M.toList
+                $ V.foldl' go M.empty rs
+
+          void $! LBS.writeFile "richlist.csv" acc
+
+    go
+      :: M.Map String Double
+      -> (String, String, Double)
+      -> M.Map String Double
+    go acc (acct,_,bal) = M.insertWith (+) acct bal acc
