@@ -12,6 +12,7 @@ module Chainweb.Env
   , ChainwebVersion(..)
   , Command(..)
   , envP
+  , richListP
   ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -39,7 +40,13 @@ import           Options.Applicative
 
 ---
 
-data Args = Args Command Connect Url
+data Args
+  = Args Command Connect Url
+    -- ^ arguments for the Listen, Backfill, Gaps, Single,
+    -- and Server cmds
+  | RichListArgs FilePath
+    -- ^ arguments for the Richlist command
+  deriving (Show)
 
 data Env = Env
   { _env_httpManager :: Manager
@@ -101,8 +108,8 @@ data Command
     | Listen
     | Backfill
     | Gaps
-    | RichList
     | Single ChainId BlockHeight
+    deriving (Show)
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
@@ -114,6 +121,22 @@ envP = Args
   <$> commands
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
   <*> (parseUrl <$> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node"))
+
+richListP :: Parser Args
+richListP = hsubparser
+  ( command "richlist"
+    ( info rlOpts
+      ( progDesc "Create a richlist using existing chainweb node data"
+      )
+    )
+  )
+  where
+    rlOpts = RichListArgs
+      <$> strOption
+        ( long "db-path"
+        <> value ""
+        <> help "Chainweb node db filepath"
+        )
 
 connectP :: Parser Connect
 connectP = (PGString <$> pgstringP) <|> (PGInfo <$> connectInfoP) <|> (PGGargoyle <$> dbdirP)
@@ -151,8 +174,6 @@ commands = hsubparser
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
   <> command "gaps" (info (pure Gaps)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
-  <> command "rich-list" (info (pure RichList)
-       (progDesc "Rich List Worker - Compiles a CSV containing the top 20 richest accounts"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   <> command "server" (info (Server <$> serverP)
