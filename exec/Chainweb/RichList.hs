@@ -44,16 +44,18 @@ richList fp = do
     -- Steps:
     --   1. Check whether specified top-level db path is reachable
     --   2. We assume the node data db is up to date, and for chains 0..19,
-    --      Check that the sqlite db paths exist
+    --      Check that the sqlite db paths exist. If yes, copy them to current
+    --      working dir.
     --   3. Execute richlist generation, outputing `richlist.csv`
     --
     void $! doesPathExist fp >>= \case
       True -> for_ [0::Int .. 19] $ \i -> do
-        let postfix = "chainweb-node/mainnet01/0/sqlite/pact-v1-chain-" <> show i <> ".sqlite"
-        let fp' = fp </> postfix
+        let prefix = "chainweb-node/mainnet01/0/sqlite"
+            postfix = "pact-v1-chain-" <> show i <> ".sqlite"
+        let fp' = fp </> prefix </> postfix
 
         doesFileExist fp' >>= \case
-          True -> return ()
+          True -> void $! copyFile fp' postfix
           False -> ioError $ userError $ "Cannot find sqlite table: " <> fp' <> ". Is your node synced?"
       False -> ioError $ userError $ "Chainweb-node top-level db directory does not exist: " <> fp
 
