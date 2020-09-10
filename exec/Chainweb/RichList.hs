@@ -16,6 +16,7 @@ import qualified Data.Csv as Csv
 import Data.Foldable (for_)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
+import Data.Ord (Down(..))
 import qualified Data.Vector as V
 
 import System.Directory
@@ -59,8 +60,8 @@ richList fp = do
         Left e -> ioError $ userError $ "Could not decode rich list .csv file: " <> e
         Right rs -> do
           let acc = Csv.encode
-                $ sortOn snd
                 $ take 100
+                $ sortOn (Down . snd)
                 $ M.toList
                 $ V.foldl' go M.empty rs
 

@@ -37,10 +37,10 @@ main = do
         True -> do
           h <- getHomeDirectory
           let h' = h </> ".local/share"
-          putStrLn $ "Constructing rich list using default db-path: " <> h'
+          putStrLn $ "[INFO] Constructing rich list using default db-path: " <> h'
           return h'
         False -> do
-          putStrLn $ "Constructing rich list using given db-path: " <> fp
+          putStrLn $ "[INFO] Constructing rich list using given db-path: " <> fp
           return fp
       richList fp'
     Args c pgc u -> do
