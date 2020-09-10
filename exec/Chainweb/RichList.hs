@@ -54,37 +54,9 @@ richList fp = do
 
         doesFileExist fp' >>= \case
           True -> return ()
-          False -> ioError $ userError $ "Chainweb data not synced. Cannot find sqlite table: " <> fp'
+          False -> ioError $ userError $ "Cannot find sqlite table: " <> fp' <> ". Is your node synced?"
       False -> ioError $ userError $ "Chainweb-node top-level db directory does not exist: " <> fp
 
     let cmd = (proc "/bin/sh" ["richlist.sh", fp]) { cwd = Just "./scripts" }
 
-    void $! readCreateProcess cmd [] `finally` cleanup
-    putStrLn "DONE"
-  where
-    cleanup = return ()
-
-          -- "> rich-list-chain-" <> c <> ".csv"
-
--- | TODO: write to postgres. In the meantime, testing with print statements
---
-consolidate :: Pool Connection -> IO ()
-consolidate _pool = do
-    csvData <- LBS.readFile richCsv
-    case Csv.decode Csv.NoHeader csvData of
-      Left e -> error $ "Error while decoding richlist: " <> show e
-      Right (rs :: V.Vector RichAccount) -> print rs
-  where
-    richCsv = "./scripts/richlist.csv"
-
--- -------------------------------------------------------------------- --
--- Local data
-
-data RichAccount = RichAccount
-    { richAccount :: !String
-    , richBalanace :: !Double
-    } deriving
-      ( Eq, Ord, Show
-      , Generic, NFData
-      , Csv.ToRecord, Csv.FromRecord
-      )
+    void $! readCreateProcess cmd []
