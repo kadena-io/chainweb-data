@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 module Chainweb.RichList
 ( richList
 ) where
@@ -67,6 +68,8 @@ richList fp = do
 
     go
       :: M.Map String Double
-      -> (String, String, Double)
+      -> (String, String, String)
       -> M.Map String Double
-    go acc (acct,_,bal) = M.insertWith (+) acct bal acc
+    go acc (acct,_,bal)
+      | bal == "balance" = acc
+      | otherwise = M.insertWith (+) acct (read @Double bal) acc
