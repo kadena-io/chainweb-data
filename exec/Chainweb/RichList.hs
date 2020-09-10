@@ -59,6 +59,6 @@ richList fp = do
           False -> ioError $ userError $ "Cannot find sqlite table: " <> fp' <> ". Is your node synced?"
       False -> ioError $ userError $ "Chainweb-node top-level db directory does not exist: " <> fp
 
-    let cmd = (proc "/bin/sh" ["richlist.sh", fp]) { cwd = Just "./scripts" }
+    let cmd = (proc "/bin/sh" ["scripts/richlist.sh"])
 
     void $! readCreateProcess cmd []

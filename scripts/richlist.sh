@@ -4,7 +4,7 @@
 for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
 do
    sqlite3 -header -csv pact-v1-chain-$i.sqlite "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance'
-     from 'coin_coin-table' as coin
+     from [coin_coin-table] as coin
      INNER JOIN (
       select
        rowkey as acct_id,
