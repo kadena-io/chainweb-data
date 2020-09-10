@@ -46,12 +46,15 @@ richList fp = do
 
     let cmd = proc "/bin/sh" ["scripts/richlist.sh"]
 
+    putStrLn "[INFO] Aggregating richlist.csv..."
     void $! readCreateProcess cmd []
+
+    putStrLn "[INFO] Filtering top 100 richest accounts..."
     void $! pruneRichList
   where
     pruneRichList = do
       csv <- LBS.readFile "richlist.csv"
-      case Csv.decode Csv.NoHeader csv of
+      case Csv.decode Csv.HasHeader csv of
         Left e -> ioError $ userError $ "Could not decode rich list .csv file: " <> e
         Right rs -> do
           let acc = Csv.encode
