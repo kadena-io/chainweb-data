@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "kpkgs",
-  "branch": "bump-2020-07-20",
+  "branch": "master",
   "private": false,
-  "rev": "3e37c1a23185a7778c95b18d87fee3f7ead213c0",
-  "sha256": "1njvw9f31zs67phvnjhmyikwr4ldi0ycch3laz2syxbz11nch159"
+  "rev": "9b4eca57231077d42f9c65a7c9ae30dcc268059b",
+  "sha256": "1rjdnj136gwibg5rms8zxp1g41r8n7ih61713pzr9gxi2w0057xl"
 }

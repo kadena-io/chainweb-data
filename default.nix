@@ -7,7 +7,7 @@ in haskellPackages.developPackage {
   name = builtins.baseNameOf ./.;
   root = kpkgs.gitignoreSource ./.;
   overrides = self: super: with pkgs.haskell.lib;
-  let gargoylePkgs = import ./deps/gargoyle self;
+  let gargoylePkgs = import ./deps/gargoyle { haskellPackages = self; };
   in
   {
     inherit (gargoylePkgs) gargoyle gargoyle-postgresql gargoyle-postgresql-nix gargoyle-postgresql-connect;
