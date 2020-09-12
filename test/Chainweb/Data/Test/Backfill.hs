@@ -55,12 +55,12 @@ lookupPlanTests = testGroup "Lookup plan unit tests"
 
     , testCase "New lookup plans generate windows at genesis" $ do
       for_ (filter (\ (ChainId c, _,_) -> c > 9) $ lookupPlan ni genesisData)
-        $ \(c,Low l, High h) -> (Just l == genesisHeight c ni && Just h == genesisHeight c ni) @?
+        $ \(c,Low l, High h) -> (l == genesisHeight c ni && h == genesisHeight c ni) @?
           "lower and upper bounds are fixed on genesis"
 
     , testCase "New lookup plans generate windows back to genesis" $ do
       for_ (lookupPlan ni postForkData) $ \(c,Low l,_) ->
-        (Just l >= genesisHeight c ni) @? "lower bound is less than genesis height"
+        (l >= genesisHeight c ni) @? "lower bound is less than genesis height"
     ]
   where
     tenChainsData = M.fromList [ (ChainId x, 1_000) | x <- [0..9] ]

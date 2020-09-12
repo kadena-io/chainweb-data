@@ -117,6 +117,4 @@ pruning :: NodeInfo -> Maybe (NonEmpty (BlockHeight, Int)) -> Maybe (NonEmpty (B
 pruning ni pairs = NEL.nonEmpty . NEL.filter p =<< pairs
   where
     p :: (BlockHeight, Int) -> Bool
-    p (bh, cid) = case genesisHeight (ChainId cid) ni of
-      Just bh' -> bh >= bh'
-      Nothing -> False
+    p (bh, cid) = bh >= genesisHeight (ChainId cid) ni
