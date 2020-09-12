@@ -12,21 +12,20 @@ import qualified Data.Map.Lazy as M
 import Data.Maybe (mapMaybe)
 
 import Chainweb.Api.ChainId (ChainId(..))
-import Chainweb.Api.NodeInfo (NodeInfo(..))
 import ChainwebData.Genesis
 import ChainwebData.Types
 
 
-lookupPlan :: NodeInfo -> Map ChainId Int -> [(ChainId, Low, High)]
-lookupPlan ni = M.foldrWithKey go []
+lookupPlan :: GenesisInfo -> Map ChainId Int -> [(ChainId, Low, High)]
+lookupPlan gi = M.foldrWithKey go []
   where
     go cid cmin acc
-       | cmin < genesisHeight cid ni = acc
+       | cmin < genesisHeight cid gi = acc
        | otherwise =
          let
             -- calculate genesis height for chain id
             --
-            genesis = genesisHeight cid ni
+            genesis = genesisHeight cid gi
 
             -- calculate 100-entry batches using min blockheight @cmin@
             -- and genesis height
