@@ -12,10 +12,8 @@ import Chainweb.Api.NodeInfo (NodeInfo(..))
 
 
 genesisHeight :: ChainId -> NodeInfo -> Int
-genesisHeight (ChainId c) ni = M.lookup c
-    . foldr go mempty
-    . fromMaybe []
-    . _nodeInfo_graphs
+genesisHeight (ChainId c) ni =
+    fromMaybe 0 $ M.lookup c . foldr go mempty =<< _nodeInfo_graphs ni
   where
     go (bh, adjs) m =
       let f Nothing =  Just bh
