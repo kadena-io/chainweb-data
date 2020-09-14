@@ -137,7 +137,7 @@ test-suite testsuite
     , chainweb-api
     , chainweb-data
     , containers          ^>=0.6
-    , neat-interpolation  ^>=0.3.2
+    , neat-interpolation  >=0.3.2 && < 0.6
     , tasty               ^>=1.2
     , tasty-hunit         ^>=0.10
     , text
