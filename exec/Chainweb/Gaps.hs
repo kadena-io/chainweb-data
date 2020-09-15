@@ -30,7 +30,7 @@ gaps e = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight $ _env_chainsAtHeight e
-  work cids pool >>= \case
+  work genesisInfo cids pool >>= \case
     Nothing -> printf "[INFO] No gaps detected."
     Just bs -> do
       count <- newIORef 0
@@ -39,6 +39,8 @@ gaps e = do
       printf "[INFO] Filled in %d missing blocks.\n" final
   where
     pool = _env_dbConnPool e
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+
     f :: IORef Int -> (BlockHeight, Int) -> IO ()
     f count (h, cid) =
       headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
@@ -60,8 +62,12 @@ gaps e = do
 
 -- | TODO: Parametrize chain id with genesis block info so we can mark min height to grep.
 --
-work :: [ChainId] -> P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
-work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
+work
+  :: GenesisInfo
+  -> [ChainId]
+  -> P.Pool Connection
+  -> IO (Maybe (NonEmpty (BlockHeight, Int)))
+work gi cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Pull all (chain, height) pairs --
   pairs <- runSelectReturningList
     $ select
@@ -70,7 +76,7 @@ work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
       bs <- all_ $ _cddb_blocks database
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
-  pure $ NEL.nonEmpty pairs >>= pruning . filling cids . expanding . grouping
+  pure $ NEL.nonEmpty pairs >>= pruning gi . filling cids . expanding . grouping
 
 
 grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
@@ -107,8 +113,8 @@ filling cids pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
     f :: (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
     f (h, cs) = NEL.nonEmpty . map (h,) . S.toList . S.difference chains $ S.fromList cs
 
-pruning :: Maybe (NonEmpty (BlockHeight, Int)) -> Maybe (NonEmpty (BlockHeight, Int))
-pruning pairs = NEL.nonEmpty . NEL.filter p =<< pairs
+pruning :: GenesisInfo -> Maybe (NonEmpty (BlockHeight, Int)) -> Maybe (NonEmpty (BlockHeight, Int))
+pruning gi pairs = NEL.nonEmpty . NEL.filter p =<< pairs
   where
     p :: (BlockHeight, Int) -> Bool
-    p (bh, cid) = bh >= genesisHeight (ChainId cid)
+    p (bh, cid) = bh >= genesisHeight (ChainId cid) gi

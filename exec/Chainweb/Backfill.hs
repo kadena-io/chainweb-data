@@ -18,6 +18,7 @@ import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Backfill
+import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 
@@ -55,10 +56,12 @@ backfill e = do
     else do
       printf "[INFO] Beginning backfill on %d chains.\n" count
       race_ (progress counter mins)
-        $ traverseConcurrently_ Par' (f counter) $ lookupPlan mins
+        $ traverseConcurrently_ Par' (f counter) $ lookupPlan genesisInfo mins
   where
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = headersBetween e range >>= \case
       [] -> printf "[FAIL] headersBetween: %s\n" $ show range

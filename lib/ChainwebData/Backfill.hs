@@ -16,16 +16,16 @@ import ChainwebData.Genesis
 import ChainwebData.Types
 
 
-lookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
-lookupPlan = M.foldrWithKey go []
+lookupPlan :: GenesisInfo -> Map ChainId Int -> [(ChainId, Low, High)]
+lookupPlan gi = M.foldrWithKey go []
   where
     go cid cmin acc
-       | genesisHeight cid > cmin = acc
+       | cmin < genesisHeight cid gi = acc
        | otherwise =
          let
             -- calculate genesis height for chain id
             --
-            genesis = genesisHeight cid
+            genesis = genesisHeight cid gi
 
             -- calculate 100-entry batches using min blockheight @cmin@
             -- and genesis height
