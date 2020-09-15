@@ -1,15 +1,12 @@
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-
 module Chainweb.Lookups
-  ( -- * Types
-    Low(..)
-  , High(..)
-    -- * Endpoints
-  , headersBetween
+  ( -- * Endpoints
+    headersBetween
   , payloadWithOutputs
-  , allChains
+  , getNodeInfo
+  , queryCut
+  , cutMaxHeight
     -- * Transformations
   , mkBlockTransactions
   , bpwoMinerKeys
@@ -22,20 +19,23 @@ import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.ChainwebMeta
 import           Chainweb.Api.Hash
 import           Chainweb.Api.MinerData
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Env
-import           ChainwebData.Types ()
+import           ChainwebData.Types (Low(..), High(..))
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
 import           Control.Error.Util (hush)
-import           Data.Aeson (decode')
+import           Data.Aeson
+import           Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Base64.URL as B64
-import qualified Data.List.NonEmpty as NEL
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
@@ -46,22 +46,17 @@ import           Data.Aeson.Lens
 import           Network.HTTP.Client hiding (Proxy)
 
 --------------------------------------------------------------------------------
--- Types
-
-newtype Low = Low Int deriving newtype (Show)
-
-newtype High = High Int deriving newtype (Eq, Ord, Show)
-
---------------------------------------------------------------------------------
 -- Endpoints
 
 headersBetween :: Env -> (ChainId, Low, High) -> IO [BlockHeader]
-headersBetween (Env m _ u (ChainwebVersion v) _) (cid, Low low, High up) = do
+headersBetween env (cid, Low low, High up) = do
   req <- parseRequest url
-  res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding }) m
+  res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding })
+                 (_env_httpManager env)
   pure . (^.. key "items" . values . _String . to f . _Just) $ responseBody res
   where
-    url = "https://" <> urlToString u <> query
+    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
+    url = "https://" <> urlToString (_env_nodeUrl env) <> query
     query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
       (T.unpack v) (unChainId cid) low up
     encoding = [("accept", "application/json")]
@@ -70,25 +65,46 @@ headersBetween (Env m _ u (ChainwebVersion v) _) (cid, Low low, High up) = do
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
 
 payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
-payloadWithOutputs (Env m _ u (ChainwebVersion v) _) (T2 cid0 hsh0) = do
+payloadWithOutputs env (T2 cid0 hsh0) = do
   req <- parseRequest url
-  res <- httpLbs req m
-  pure . decode' $ responseBody res
+  res <- httpLbs req (_env_httpManager env)
+  let body = responseBody res
+  case eitherDecode' body of
+    Left e -> do
+      putStrLn "Decoding error in payloadWithOutputs:"
+      putStrLn e
+      putStrLn "Received response:"
+      T.putStrLn $ T.decodeUtf8 $ B.toStrict body
+      pure Nothing
+    Right a -> pure $ Just a
   where
-    url = "https://" <> urlToString u <> T.unpack query
+    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
+    url = "https://" <> urlToString (_env_nodeUrl env) <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
     cid = T.pack $ show cid0
     hsh = unDbHash hsh0
 
 -- | Query a node for the `ChainId` values its current `ChainwebVersion` has
 -- available.
-allChains :: Manager -> Url -> IO (Maybe (NonEmpty ChainId))
-allChains m u = do
+getNodeInfo :: Manager -> Url -> IO (Either String NodeInfo)
+getNodeInfo m u = do
   req <- parseRequest $ "https://" <> urlToString u <> "/info"
   res <- httpLbs req m
-  pure . NEL.nonEmpty $ responseBody res ^.. lns
-  where
-    lns = key "nodeChains" . values . _JSON . to readMaybe . _Just . to ChainId
+  pure $ eitherDecode' (responseBody res)
+
+queryCut :: Env -> IO ByteString
+queryCut e = do
+  let v = _nodeInfo_chainwebVer $ _env_nodeInfo e
+      m = _env_httpManager e
+      u = _env_nodeUrl e
+      url = printf "https://%s/chainweb/0.0/%s/cut" (urlToString u) (T.unpack v)
+  req <- parseRequest url
+  res <- httpLbs req m
+  pure $ responseBody res
+
+cutMaxHeight :: ByteString -> Integer
+cutMaxHeight bs = maximum $ (0:) $ bs ^.. key "hashes" . members . key "height" . _Integer
+
 
 --------------------------------------------------------------------------------
 -- Transformations

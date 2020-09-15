@@ -23,6 +23,8 @@ import           Servant.Client
 import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.ChainId (unChainId)
+import           Chainweb.Api.Common (BlockHeight)
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Env hiding (Command)
 ------------------------------------------------------------------------------
 
@@ -30,9 +32,9 @@ coinQuery :: Text
 coinQuery =
   "(fold (+) 0 (map (at 'balance) (map (read coin.coin-table) (keys coin.coin-table))))"
 
-queryCirculatingCoins :: Env -> IO (Either String Double)
-queryCirculatingCoins env = do
-  echains <- mapM (sendCoinQuery env . unChainId) (_env_chains env)
+queryCirculatingCoins :: Env -> BlockHeight -> IO (Either String Double)
+queryCirculatingCoins env curHeight = do
+  echains <- mapM (sendCoinQuery env . unChainId) (atBlockHeight curHeight $ _env_chainsAtHeight env)
   return $ do
     chains <- sequence echains
     return $ realToFrac $ sum chains
@@ -40,7 +42,7 @@ queryCirculatingCoins env = do
 sendCoinQuery :: Env -> Int -> IO (Either String Decimal)
 sendCoinQuery env chain = do
   let (Url h p) = _env_nodeUrl env
-      ChainwebVersion network = _env_chainwebVersion env
+      network = _nodeInfo_chainwebVer $ _env_nodeInfo env
       path = printf "/chainweb/0.0/%s/chain/%d/pact" network chain
       cenv = mkClientEnv (_env_httpManager env) (BaseUrl Https h p path)
   cmd <- mkPactCommand (NetworkId network) (ChainId $ T.pack $ show chain) coinQuery

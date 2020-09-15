@@ -42,6 +42,7 @@ import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Allocations
 import           Chainweb.Api.BlockPayloadWithOutputs
+import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Coins
 import           Chainweb.Database
 import           Chainweb.Env
@@ -63,6 +64,7 @@ setCors = cors . const . Just $ simpleCorsResourcePolicy
 
 data ServerState = ServerState
     { _ssRecentTxs :: RecentTxs
+    , _ssHighestBlockHeight :: BlockHeight
     , _ssTransactionCount :: Maybe Int
     , _ssCirculatingCoins :: Maybe Double
     } deriving (Eq,Show)
@@ -74,6 +76,14 @@ ssRecentTxs
 ssRecentTxs = lens _ssRecentTxs setter
   where
     setter sc v = sc { _ssRecentTxs = v }
+
+ssHighestBlockHeight
+    :: Functor f
+    => (BlockHeight -> f BlockHeight)
+    -> ServerState -> f ServerState
+ssHighestBlockHeight = lens _ssHighestBlockHeight setter
+  where
+    setter sc v = sc { _ssHighestBlockHeight = v }
 
 ssTransactionCount
     :: Functor f
@@ -93,12 +103,14 @@ ssCirculatingCoins = lens _ssCirculatingCoins setter
 
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
-  circulatingCoins <- queryCirculatingCoins env
+  cutBS <- queryCut env
+  let curHeight = cutMaxHeight cutBS
+  circulatingCoins <- queryCirculatingCoins env (fromIntegral curHeight)
   putStrLn $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
   recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv) pool
   numTxs <- getTransactionCount (logFunc senv) pool
-  ssRef <- newIORef $ ServerState recentTxs numTxs (hush circulatingCoins)
+  ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
   _ <- forkIO $ scheduledUpdates env senv pool ssRef
   _ <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
@@ -120,7 +132,8 @@ scheduledUpdates env senv pool ssRef = forever $ do
     now <- getCurrentTime
     print now
     putStrLn "Recalculating coins in circulation:"
-    circulatingCoins <- queryCirculatingCoins env
+    height <- _ssHighestBlockHeight <$> readIORef ssRef
+    circulatingCoins <- queryCirculatingCoins env height
     print circulatingCoins
     let f ss = (ss & ssCirculatingCoins %~ (hush circulatingCoins <|>), ())
     atomicModifyIORef' ssRef f
@@ -162,6 +175,7 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
           tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
           ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
           f ss = (ss & ssRecentTxs %~ addNewTransactions ts
+                     & ssHighestBlockHeight %~ max height
                      & (ssTransactionCount . _Just) +~ (S.length ts), ())
 
       let msg = printf "Got new header on chain %d height %d" (unChainId chain) height

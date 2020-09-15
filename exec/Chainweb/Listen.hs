@@ -15,12 +15,14 @@ import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (unChainId)
 import           Chainweb.Api.Hash
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Types
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Pool as P
+import           Data.Text.Encoding
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam.Postgres (Connection)
 import           Network.HTTP.Client
@@ -34,8 +36,12 @@ listen :: Env -> IO ()
 listen e = listenWithHandler e (getOutputsAndInsert e)
 
 listenWithHandler :: Env -> (PowHeader -> IO a) -> IO ()
-listenWithHandler (Env mgr _ u _ _) handler =
-  withEvents (req u) mgr $ SP.mapM_ handler . dataOnly @PowHeader
+listenWithHandler env handler =
+  withEvents (req u cv) mgr $ SP.mapM_ handler . dataOnly @PowHeader
+  where
+    mgr = _env_httpManager env
+    u = _env_nodeUrl env
+    cv = ChainwebVersion $ _nodeInfo_chainwebVer $ _env_nodeInfo env
 
 getOutputsAndInsert :: Env -> PowHeader -> IO ()
 getOutputsAndInsert e ph@(PowHeader h _) = do
@@ -55,10 +61,10 @@ insertNewHeader pool ph pl = do
       !k = bpwoMinerKeys pl
   writes pool b k t
 
-req :: Url -> Request
-req (Url h p) = defaultRequest
+req :: Url -> ChainwebVersion -> Request
+req (Url h p) (ChainwebVersion cv) = defaultRequest
   { host = B.pack h
-  , path = "chainweb/0.0/mainnet01/header/updates"  -- TODO Parameterize as needed.
+  , path = "chainweb/0.0/" <> encodeUtf8 cv <> "/header/updates"  -- TODO Parameterize as needed.
   , port = p
   , secure = True
   , method = "GET"

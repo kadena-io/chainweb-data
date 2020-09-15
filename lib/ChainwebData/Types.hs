@@ -1,13 +1,17 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeApplications #-}
-
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-
 module ChainwebData.Types
   ( -- * Types
     PowHeader(..)
   , asBlock
   , hashToDbHash
+
+  , Low(..)
+  , High(..)
+
     -- * Utils
   , groupsOf
   ) where
@@ -73,6 +77,12 @@ groupsOf n as
     go bs = xs : go rest
       where
         (xs, rest) = splitAt n bs
+
+newtype Low = Low Int
+  deriving newtype (Eq, Ord, Show, Num)
+
+newtype High = High Int
+  deriving newtype (Eq, Ord, Show, Num)
 
 --------------------------------------------------------------------------------
 -- Orphans

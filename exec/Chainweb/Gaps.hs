@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
@@ -7,11 +8,14 @@ module Chainweb.Gaps ( gaps ) where
 import           BasePrelude
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Common (BlockHeight)
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker (writeBlock)
 import           ChainwebDb.Types.Block
+import           ChainwebData.Genesis
+import           ChainwebData.Types
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import qualified Data.IntSet as S
 import qualified Data.List.NonEmpty as NEL
@@ -22,20 +26,48 @@ import           Database.Beam.Postgres
 ---
 
 gaps :: Env -> IO ()
-gaps e@(Env _ pool _ _ cids) = work cids pool >>= \case
-  Nothing -> printf "[INFO] No gaps detected."
-  Just bs -> do
-    count <- newIORef 0
-    traverseConcurrently_ Par' (f count) bs
-    final <- readIORef count
-    printf "[INFO] Filled in %d missing blocks.\n" final
+gaps e = do
+  cutBS <- queryCut e
+  let curHeight = fromIntegral $ cutMaxHeight cutBS
+      cids = atBlockHeight curHeight $ _env_chainsAtHeight e
+  work genesisInfo cids pool >>= \case
+    Nothing -> printf "[INFO] No gaps detected."
+    Just bs -> do
+      count <- newIORef 0
+      traverseConcurrently_ Par' (f count) bs
+      final <- readIORef count
+      printf "[INFO] Filled in %d missing blocks.\n" final
   where
+    pool = _env_dbConnPool e
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+
     f :: IORef Int -> (BlockHeight, Int) -> IO ()
     f count (h, cid) =
       headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
 
-work :: NonEmpty ChainId -> P.Pool Connection -> IO (Maybe (NonEmpty (BlockHeight, Int)))
-work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
+--queryGaps :: Env -> IO (BlockHeight, Int, Int)
+--queryGaps e = P.withResource pool $ \c -> runBeamPostgres c $ do
+--  gaps <- runSelectReturningList
+--    $ select
+--    $ do
+--      (chain, height, nextHeight) <-
+--        orderBy_ (asc_ . snd) $
+--        aggregate_ (\(c,h) -> (group_ (c,h), lead1_ h)) $ do
+--          blk <- all_ $ _cddb_blocks database
+--          pure (_block_chainId blk, _block_height blk)
+--      guard_ (nextHeight - height >. val_ 1)
+--  pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping
+
+-- with gaps as (select chainid, height, LEAD (height,1) OVER (PARTITION BY chainid ORDER BY height ASC) AS next_height from blocks group by chainid, height) select * from gaps where next_height - height > 1;
+
+-- | TODO: Parametrize chain id with genesis block info so we can mark min height to grep.
+--
+work
+  :: GenesisInfo
+  -> [ChainId]
+  -> P.Pool Connection
+  -> IO (Maybe (NonEmpty (BlockHeight, Int)))
+work gi cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Pull all (chain, height) pairs --
   pairs <- runSelectReturningList
     $ select
@@ -44,7 +76,8 @@ work cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
       bs <- all_ $ _cddb_blocks database
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
-  pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping
+  pure $ NEL.nonEmpty pairs >>= pruning gi . filling cids . expanding . grouping
+
 
 grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
 grouping = NEL.map (fst . NEL.head &&& NEL.map snd) . NEL.groupWith1 fst
@@ -70,12 +103,18 @@ expanding (h :| t) = g h :| f (map g t)
     g :: (BlockHeight, NonEmpty Int) -> (BlockHeight, [Int])
     g = second NEL.toList
 
-filling :: NonEmpty ChainId -> NonEmpty (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
+filling :: [ChainId] -> NonEmpty (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
 filling cids pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
   where
     chains :: S.IntSet
-    chains = S.fromList . map unChainId $ NEL.toList cids
+    chains = S.fromList $ map unChainId cids
 
     -- | Detect gaps in existing rows.
     f :: (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
     f (h, cs) = NEL.nonEmpty . map (h,) . S.toList . S.difference chains $ S.fromList cs
+
+pruning :: GenesisInfo -> Maybe (NonEmpty (BlockHeight, Int)) -> Maybe (NonEmpty (BlockHeight, Int))
+pruning gi pairs = NEL.nonEmpty . NEL.filter p =<< pairs
+  where
+    p :: (BlockHeight, Int) -> Bool
+    p (bh, cid) = bh >= genesisHeight (ChainId cid) gi

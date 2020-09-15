@@ -3,35 +3,48 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
+module Chainweb.Backfill
+( backfill
+, lookupPlan
+) where
 
-module Chainweb.Backfill ( backfill ) where
 
-import           BasePrelude hiding (insert, range)
+import           BasePrelude hiding (insert, range, second)
+
 import           Chainweb.Api.ChainId (ChainId(..))
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
-import           ChainwebData.Types (groupsOf)
+import           ChainwebData.Backfill
+import           ChainwebData.Genesis
+import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
-import qualified Data.List.NonEmpty as NEL
+
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Witherable.Class (wither)
+
 import           Database.Beam
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
+
 import           System.IO
 
 ---
 
 backfill :: Env -> IO ()
-backfill e@(Env _ pool _ _ cids) = do
-  cont <- newIORef 0
+backfill e = do
+  cutBS <- queryCut e
+  let curHeight = fromIntegral $ cutMaxHeight cutBS
+      cids = atBlockHeight curHeight allCids
+  counter <- newIORef 0
   mins <- minHeights cids pool
   let count = M.size mins
   if count /= length cids
@@ -42,9 +55,13 @@ backfill e@(Env _ pool _ _ cids) = do
       exitFailure
     else do
       printf "[INFO] Beginning backfill on %d chains.\n" count
-      race_ (progress cont mins)
-        $ traverseConcurrently_ Par' (f cont) $ lookupPlan mins
+      race_ (progress counter mins)
+        $ traverseConcurrently_ Par' (f counter) $ lookupPlan genesisInfo mins
   where
+    pool = _env_dbConnPool e
+    allCids = _env_chainsAtHeight e
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = headersBetween e range >>= \case
       [] -> printf "[FAIL] headersBetween: %s\n" $ show range
@@ -72,12 +89,12 @@ progress count mins = do
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
-minHeights :: NonEmpty ChainId -> P.Pool Connection -> IO (Map ChainId Int)
-minHeights cids pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) (NEL.toList cids)
+minHeights :: [ChainId] -> P.Pool Connection -> IO (Map ChainId Int)
+minHeights cids pool = M.fromList <$> wither selectMinHeight cids
   where
     -- | Get the current minimum height of any block on some chain.
-    f :: ChainId -> IO (Maybe Int)
-    f (ChainId cid) = fmap (fmap _block_height)
+    selectMinHeight :: ChainId -> IO (Maybe (ChainId, Int))
+    selectMinHeight cid_@(ChainId cid) = fmap (fmap (\bh -> (cid_, _block_height bh)))
       $ P.withResource pool
       $ \c -> runBeamPostgres c
       $ runSelectReturningOne
@@ -86,23 +103,3 @@ minHeights cids pool = M.fromList <$> wither (\cid -> fmap (cid,) <$> f cid) (NE
       $ orderBy_ (asc_ . _block_height)
       $ filter_ (\b -> _block_chainId b ==. val_ cid)
       $ all_ (_cddb_blocks database)
-
--- | Based on some initial minimum heights per chain, form a lazy list of block
--- ranges that need to be looked up.
-lookupPlan :: Map ChainId Int -> [(ChainId, Low, High)]
-lookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
-  where
-    maxi :: Int
-    maxi = max 0 $ maximum (M.elems mins) - 1
-
-    asList :: [(ChainId, High)]
-    asList = map (second (\n -> High . max 0 $ n - 1)) $ M.toList mins
-
-    ranges :: [(Low, High)]
-    ranges = map (Low . last &&& High . head) $ groupsOf 100 [maxi, maxi-1 .. 0]
-
-    g :: (Low, High) -> (ChainId, High) -> Maybe (ChainId, Low, High)
-    g (l@(Low l'), u) (cid, mx@(High mx'))
-      | u > mx && l' <= mx' = Just (cid, l, mx)
-      | u <= mx = Just (cid, l, u)
-      | otherwise = Nothing
