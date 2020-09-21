@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -23,10 +24,12 @@ import           Control.Monad.Except
 import           Data.Foldable
 import           Data.IORef
 import qualified Data.Pool as P
+import           Data.Proxy
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as S
 import           Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import           Data.Time
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
@@ -38,6 +41,7 @@ import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
 import           Servant.API
 import           Servant.Server
+import           System.Directory
 import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Allocations
@@ -48,6 +52,7 @@ import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Listen
 import           Chainweb.Lookups
+import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
 import           ChainwebData.Pagination
@@ -101,6 +106,10 @@ ssCirculatingCoins = lens _ssCirculatingCoins setter
   where
     setter sc v = sc { _ssCirculatingCoins = v }
 
+type TheApi = ChainwebDataApi :<|> ("richlist.csv" :> Get '[PlainText] Text)
+theApi :: Proxy TheApi
+theApi = Proxy
+
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
   cutBS <- queryCut env
@@ -114,11 +123,12 @@ apiServer env senv = do
   _ <- forkIO $ scheduledUpdates env senv pool ssRef
   _ <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
-  Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve chainwebDataApi $
-    (recentTxsHandler ssRef :<|>
+  Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve theApi $
+    ((recentTxsHandler ssRef :<|>
     searchTxs (logFunc senv) pool) :<|>
     statsHandler ssRef :<|>
-    coinsHandler ssRef
+    coinsHandler ssRef) :<|>
+    richlistHandler
 
 scheduledUpdates
   :: Env
@@ -142,8 +152,19 @@ scheduledUpdates env senv pool ssRef = forever $ do
     putStrLn $ "Updated number of transactions: " <> show numTxs
     let g ss = (ss & ssTransactionCount %~ (numTxs <|>), ())
     atomicModifyIORef' ssRef g
+
+    richList "~/.local/share"
+    putStrLn $ "Updated rich list"
   where
     micros = 1000000
+
+richlistHandler :: Handler Text
+richlistHandler = do
+  let f = "richlist.csv"
+  exists <- liftIO $ doesFileExist f
+  if exists
+    then liftIO $ T.readFile f
+    else throwError err404
 
 coinsHandler :: IORef ServerState -> Handler Text
 coinsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
