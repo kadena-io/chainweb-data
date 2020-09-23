@@ -153,7 +153,8 @@ scheduledUpdates env senv pool ssRef = forever $ do
     let g ss = (ss & ssTransactionCount %~ (numTxs <|>), ())
     atomicModifyIORef' ssRef g
 
-    richList "~/.local/share"
+    h <- getHomeDirectory
+    richList (h </> ".local/share")
     putStrLn $ "Updated rich list"
   where
     micros = 1000000
