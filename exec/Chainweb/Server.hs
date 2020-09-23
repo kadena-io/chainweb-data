@@ -42,6 +42,7 @@ import           Network.Wai.Middleware.Cors
 import           Servant.API
 import           Servant.Server
 import           System.Directory
+import           System.FilePath
 import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Allocations
