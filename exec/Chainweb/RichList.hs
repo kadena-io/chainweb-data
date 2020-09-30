@@ -72,6 +72,7 @@ richList fp = do
         True -> do
           dir <- filter ((==) ".sqlite" . takeExtension) <$> listDirectory sqlitePath
 
+          print dir
           -- count the number of  and aggregate associate file paths
           --
           let f (n,acc) p
