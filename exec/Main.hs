@@ -32,7 +32,7 @@ main :: IO ()
 main = do
   args <- execParser opts
   case args of
-    RichListArgs mfp -> do
+    RichListArgs (NodeDbPath mfp) -> do
       fp <- case mfp of
         Nothing -> do
           h <- getHomeDirectory

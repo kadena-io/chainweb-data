@@ -13,6 +13,7 @@ module Chainweb.Env
   , Command(..)
   , envP
   , richListP
+  , NodeDbPath(..)
   ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -44,7 +45,7 @@ data Args
   = Args Command Connect Url
     -- ^ arguments for the Listen, Backfill, Gaps, Single,
     -- and Server cmds
-  | RichListArgs (Maybe FilePath)
+  | RichListArgs NodeDbPath
     -- ^ arguments for the Richlist command
   deriving (Show)
 
@@ -106,6 +107,11 @@ newtype ChainwebVersion = ChainwebVersion Text
 newtype NodeDbPath = NodeDbPath { getNodeDbPath :: Maybe FilePath }
   deriving (Eq, Show)
 
+readNodeDbPath :: ReadM NodeDbPath
+readNodeDbPath = eitherReader $ \case
+  "" -> Right $ NodeDbPath Nothing
+  s -> Right $ NodeDbPath $ Just s
+
 data Command
     = Server ServerEnv
     | Listen
@@ -135,8 +141,9 @@ richListP = hsubparser
   )
   where
     rlOpts = RichListArgs
-      <$> option auto
+      <$> option readNodeDbPath
         ( long "db-path"
+        <> value (NodeDbPath Nothing)
         <> help "Chainweb node db filepath"
         )
 

@@ -71,9 +71,13 @@ richList fp = do
       (chains, files) <- doesPathExist sqlitePath >>= \case
         True -> do
           dir <- filter ((==) ".sqlite" . takeExtension) <$> listDirectory sqlitePath
+
+          -- count the number of  and aggregate associate file paths
+          --
           let f (n,acc) p
                 | (sqlitePath </> "pact-v1-chain-") `isPrefixOf` p = (n+1,(sqlitePath </> p):acc)
                 | otherwise = (n,acc)
+
           return $ foldl' f (0, []) dir
         False -> ioError $ userError $ "Cannot find sqlite data. Is your node synced?"
 
