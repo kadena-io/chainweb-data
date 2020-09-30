@@ -17,4 +17,4 @@ done
 
 cat richlist-chain-*.csv > richlist.csv
 rm richlist-chain-*.csv
-rm pact-v1-chain-*.sqlite
+rm pact-v1-chain-*.sqlite*

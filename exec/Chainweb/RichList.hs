@@ -14,7 +14,7 @@ import Control.Monad
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Csv as Csv
 import Data.Foldable (traverse_, foldl')
-import Data.List (sortOn, isPrefixOf)
+import Data.List (sortOn, isPrefixOf, sort)
 import qualified Data.Map.Strict as M
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
@@ -68,25 +68,34 @@ richList fp = do
       let prefix = "chainweb-node/mainnet01/0/sqlite"
           sqlitePath = fp </> prefix
 
-      (chains, files) <- doesPathExist sqlitePath >>= \case
+      cids <- doesPathExist sqlitePath >>= \case
         True -> do
           dir <- filter ((==) ".sqlite" . takeExtension) <$> listDirectory sqlitePath
 
-          print dir
           -- count the number of  and aggregate associate file paths
           --
-          let f (n,acc) p
-                | "pact-v1-chain-" `isPrefixOf` p = (n+1, p:acc)
-                | otherwise = (n,acc)
+          let f (ns,acc) p
+                | "pact-v1-chain-" `isPrefixOf` p =
+                  let (p',_) = splitExtension p
+                      -- this is not a magical 14 - this is the number of chars in "pact-v1-chain"
+                      cid = read @Int $ snd $ splitAt 14 p'
+                  in (cid:ns, p:acc)
+                | otherwise = (sort ns,acc)
 
-          return $ foldl' f (0, []) dir
+          let (chains, files) = foldl' f mempty dir
+              isConsecutive = all (\(x,y) -> succ x == y) . (zip <*> tail)
+
+          unless (isConsecutive chains)
+            $ ioError $ userError
+            $ "Missing tables for some chain ids. Is your node synced?"
+
+          -- copy all files to current working dir
+          traverse_ (\p -> copyFile (sqlitePath </> p) p) files
+          return $ length chains
         False -> ioError $ userError $ "Cannot find sqlite data. Is your node synced?"
 
-      -- copy all files to current working dir
-      traverse_ (\p -> copyFile (sqlitePath </> p) p) files
-
       -- return # of chains for bash
-      return chains
+      return cids
 
     go
       :: M.Map String Double
