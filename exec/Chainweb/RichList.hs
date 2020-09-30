@@ -54,7 +54,11 @@ richList fp = do
       csv <- LBS.readFile "richlist.csv"
       case Csv.decode Csv.HasHeader csv of
         Left e -> ioError $ userError $ "Could not decode rich list .csv file: " <> e
-        Right rs -> do
+        Right (rs :: V.Vector (String,String,String)) -> do
+          let go acc (acct,_,bal)
+                | bal == "balance" = acc
+                | otherwise = M.insertWith (+) acct (read @Double bal) acc
+
           let acc = Csv.encode
                 $ take 100
                 $ sortOn (Down . snd)
@@ -65,18 +69,18 @@ richList fp = do
 
     copyTables :: IO Int
     copyTables = do
-      let prefix = "chainweb-node/mainnet01/0/sqlite"
-          sqlitePath = fp </> prefix
+      let sqlitePath = fp </> "chainweb-node/mainnet01/0/sqlite"
 
-      cids <- doesPathExist sqlitePath >>= \case
+      doesPathExist sqlitePath >>= \case
+        False -> ioError $ userError $ "Cannot find sqlite data. Is your node synced?"
         True -> do
           dir <- filter ((==) ".sqlite" . takeExtension) <$> listDirectory sqlitePath
 
-          -- count the number of  and aggregate associate file paths
+          -- count the number of sqlite files and aggregate associated file paths
           --
           let f (ns,acc) p
                 | "pact-v1-chain-" `isPrefixOf` p =
-                -- this is not a magical 14 - this is the number of chars in "pact-v1-chain"
+                  -- this is not a magical 14 - this is the number of chars in "pact-v1-chain-"
                   case splitAt 14 (fst $ splitExtension p) of
                     (_, "") -> ioError $ userError $ "Found corrupt sqlite path: " <> p
                     (_, cid) -> return ((read @Int cid):ns,p:acc)
@@ -94,16 +98,6 @@ richList fp = do
 
           -- copy all files to current working dir
           traverse_ (\p -> copyFile (sqlitePath </> p) p) files
+
+          -- return # of chains for bash
           return $ length chains
-        False -> ioError $ userError $ "Cannot find sqlite data. Is your node synced?"
-
-      -- return # of chains for bash
-      return cids
-
-    go
-      :: M.Map String Double
-      -> (String, String, String)
-      -> M.Map String Double
-    go acc (acct,_,bal)
-      | bal == "balance" = acc
-      | otherwise = M.insertWith (+) acct (read @Double bal) acc
