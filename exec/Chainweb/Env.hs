@@ -1,6 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
+{-# LANGUAGE LambdaCase #-}
 module Chainweb.Env
   ( Args(..)
   , Env(..)
@@ -44,7 +44,7 @@ data Args
   = Args Command Connect Url
     -- ^ arguments for the Listen, Backfill, Gaps, Single,
     -- and Server cmds
-  | RichListArgs FilePath
+  | RichListArgs (Maybe FilePath)
     -- ^ arguments for the Richlist command
   deriving (Show)
 
@@ -103,6 +103,9 @@ parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's ru
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
+newtype NodeDbPath = NodeDbPath { getNodeDbPath :: Maybe FilePath }
+  deriving (Eq, Show)
+
 data Command
     = Server ServerEnv
     | Listen
@@ -132,9 +135,8 @@ richListP = hsubparser
   )
   where
     rlOpts = RichListArgs
-      <$> strOption
+      <$> option auto
         ( long "db-path"
-        <> value ""
         <> help "Chainweb node db filepath"
         )
 

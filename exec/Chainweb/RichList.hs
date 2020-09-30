@@ -13,8 +13,8 @@ import Control.Monad
 
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Csv as Csv
-import Data.Foldable (for_)
-import Data.List (sortOn)
+import Data.Foldable (traverse_, foldl')
+import Data.List (sortOn, isPrefixOf)
 import qualified Data.Map.Strict as M
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
@@ -35,20 +35,14 @@ richList fp = do
     --   3. Execute richlist generation, outputing `richlist.csv`
     --   4. Aggregate richest accounts and prune to top 100
     --
-    void $! doesPathExist fp >>= \case
-      True -> for_ [0::Int .. 19] $ \i -> do
-        let prefix = "chainweb-node/mainnet01/0/sqlite"
-            postfix = "pact-v1-chain-" <> show i <> ".sqlite"
-        let fp' = fp </> prefix </> postfix
-
-        doesFileExist fp' >>= \case
-          True -> void $! copyFile fp' postfix
-          False -> ioError $ userError $ "Cannot find sqlite table: " <> fp' <> ". Is your node synced?"
-      False -> ioError $ userError $ "Chainweb-node top-level db directory does not exist: " <> fp
-
-    let cmd = proc "/bin/sh" ["scripts/richlist.sh"]
+    chains <- doesPathExist fp >>= \case
+      True -> copyTables
+      False -> ioError $ userError
+        $ "Chainweb-node top-level db directory does not exist: "
+        <> fp
 
     putStrLn "[INFO] Aggregating richlist.csv..."
+    let cmd = proc "/bin/sh" ["scripts/richlist.sh", show chains]
     void $! readCreateProcess cmd []
 
     putStrLn "[INFO] Filtering top 100 richest accounts..."
@@ -68,6 +62,25 @@ richList fp = do
                 $ V.foldl' go M.empty rs
 
           void $! LBS.writeFile "richlist.csv" acc
+
+    copyTables :: IO Int
+    copyTables = do
+      let prefix = "chainweb-node/mainnet01/0/sqlite"
+          sqlitePath = fp </> prefix
+
+      (chains, files) <- doesPathExist sqlitePath >>= \case
+        True -> do
+          dir <- filter ((==) ".sqlite" . takeExtension) <$> listDirectory sqlitePath
+          let f (n,acc) p
+                | (sqlitePath </> "pact-v1-chain-") `isPrefixOf` p = (n+1,(sqlitePath </> p):acc)
+                | otherwise = (n,acc)
+          return $ foldl' f (0, []) dir
+        False -> ioError $ userError $ "Cannot find sqlite data. Is your node synced?"
+
+      print files
+      print chains
+      traverse_ (flip copyFile ".") files
+      return chains
 
     go
       :: M.Map String Double

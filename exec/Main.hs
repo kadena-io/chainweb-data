@@ -32,17 +32,17 @@ main :: IO ()
 main = do
   args <- execParser opts
   case args of
-    RichListArgs fp -> do
-      fp' <- case fp == "" of
-        True -> do
+    RichListArgs mfp -> do
+      fp <- case mfp of
+        Nothing -> do
           h <- getHomeDirectory
           let h' = h </> ".local/share"
           putStrLn $ "[INFO] Constructing rich list using default db-path: " <> h'
           return h'
-        False -> do
+        Just fp -> do
           putStrLn $ "[INFO] Constructing rich list using given db-path: " <> fp
           return fp
-      richList fp'
+      richList fp
     Args c pgc u -> do
       putStrLn $ "Using database: " <> show pgc
       withPool pgc $ \pool -> do
