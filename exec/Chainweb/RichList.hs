@@ -76,15 +76,16 @@ richList fp = do
           -- count the number of  and aggregate associate file paths
           --
           let f (n,acc) p
-                | "pact-v1-chain-" `isPrefixOf` p = (n+1,(sqlitePath </> p):acc)
+                | "pact-v1-chain-" `isPrefixOf` p = (n+1, p:acc)
                 | otherwise = (n,acc)
 
           return $ foldl' f (0, []) dir
         False -> ioError $ userError $ "Cannot find sqlite data. Is your node synced?"
 
-      print files
-      print chains
-      traverse_ (flip copyFile ".") files
+      -- copy all files to current working dir
+      traverse_ (\p -> copyFile (sqlitePath </> p) p) files
+
+      -- return # of chains for bash
       return chains
 
     go
