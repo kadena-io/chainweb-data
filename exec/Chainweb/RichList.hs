@@ -13,7 +13,7 @@ import Control.Monad
 
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Csv as Csv
-import Data.Foldable (traverse_, foldl')
+import Data.Foldable (traverse_)
 import Data.List (sortOn, isPrefixOf, sort)
 import qualified Data.Map.Strict as M
 import Data.Ord (Down(..))
@@ -76,14 +76,17 @@ richList fp = do
           --
           let f (ns,acc) p
                 | "pact-v1-chain-" `isPrefixOf` p =
-                  let (p',_) = splitExtension p
-                      -- this is not a magical 14 - this is the number of chars in "pact-v1-chain"
-                      cid = read @Int $ snd $ splitAt 14 p'
-                  in (cid:ns, p:acc)
-                | otherwise = (sort ns,acc)
+                -- this is not a magical 14 - this is the number of chars in "pact-v1-chain"
+                  case splitAt 14 (fst $ splitExtension p) of
+                    (_, "") -> ioError $ userError $ "Found corrupt sqlite path: " <> p
+                    (_, cid) -> return ((read @Int cid):ns,p:acc)
+                | otherwise = return (ns,acc)
 
-          let (chains, files) = foldl' f mempty dir
-              isConsecutive = all (\(x,y) -> succ x == y) . (zip <*> tail)
+          (chains, files) <- foldM f mempty dir
+
+          let isConsecutive = all (\(x,y) -> succ x == y)
+                . (zip <*> tail)
+                . sort
 
           unless (isConsecutive chains)
             $ ioError $ userError
