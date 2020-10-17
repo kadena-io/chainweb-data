@@ -101,6 +101,20 @@ configuration value is ~true~.
 As a new block comes in, its chain number is printed as a single digit.
 ~listen~ will continue until you stop it.
 
+*** server
+
+~server~ just just like ~listen~ but also runs an HTTP server that serves a
+few endpoints for doing common queries.
+
+**** endpoints
+
+- ~/txs/recent~ gets a list of recent transactions
+- ~/txs/search?search=foo&limit=20&offset=40~ searches for transactions containing the string ~foo~
+- ~/stats~ returns a few stats such as transaction count and coins in circulation
+- ~/coins~ returns just the coins in circulation
+
+For more detailed information, see the API definition [[https://github.com/kadena-io/chainweb-api/blob/master/lib/ChainwebData/Api.hs#L24][here]].
+
 *** backfill
 
 ~backfill~ rapidly fills the database downward from the lowest block height it
