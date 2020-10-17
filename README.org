@@ -66,6 +66,10 @@ chainweb-data <command> --url=<node> --dbstring="host=localhost port=5432..."
 ~chainweb-data~ syncs its data from a running ~chainweb-node~. The node's
 address is specified with the ~--url~ command.
 
+#+begin_example
+chainweb-data <command> --url=foo.chainweb.com ...
+#+end_example
+
 *** Configuring the Node
 
 ~chainweb-data~ also needs some special node configuration.  The ~server~
@@ -79,10 +83,6 @@ chainweb:
   headerStream: true
   throttling:
     global: 1000
-#+end_example
-
-#+begin_example
-chainweb-data <command> --url=foo.chainweb.com ...
 #+end_example
 
 ** Commands
