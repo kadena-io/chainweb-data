@@ -27,7 +27,7 @@ jobs:
           ghc-version: "8.8.3"
 
       - name: Setup Stack
-        uses: mstksg/setup-stack@v1
+        uses: mstksg/setup-stack@v2
 
       - name: Clone project
         uses: actions/checkout@v2
