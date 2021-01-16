@@ -4,19 +4,20 @@ ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
 extra-deps:
   - ed25519-donna-0.1.1
-  - megaparsec-8.0.0
+  - megaparsec-9.0.0
+  - neat-interpolation-0.5.1.2
   - posix-escape-0.1
   - prettyprinter-1.6.0
-  - sbv-8.7
+  - sbv-8.8
   - streaming-events-1.0.1
   - strict-tuple-0.1.3
   - trifecta-2.1
   - which-0.1.0.0
   - witherable-class-0
   - github: kadena-io/chainweb-api
-    commit: f3b4ff4832af0e57ed9a729f2e10a73193886b7f
+    commit: 5d345f46a9cb08e55a4a9f0be113756333d9ba7d
   - github: kadena-io/pact
-    commit: 94cfeb57e2f90c299fc27cc3e72f6b6aa9109c06
+    commit: eff39aefdcff3979dd93b20bca8bff7ed8490ea8
   - github: tathougies/beam
     commit: 2fa99310557e49b37a59e349032ff7236085b6f8
     subdirs:
