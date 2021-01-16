@@ -40,7 +40,6 @@ import           Servant.API
 import           Servant.Server
 import           Text.Printf
 ------------------------------------------------------------------------------
-import           Chainweb.Allocations
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Coins
@@ -152,12 +151,10 @@ coinsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
 
 statsHandler :: IORef ServerState -> Handler ChainwebDataStats
 statsHandler ssRef = liftIO $ do
-    now <- getCurrentTime
-    fmap (mkStats $ utctDay now) $ readIORef ssRef
+    fmap mkStats $ readIORef ssRef
   where
-    mkStats now ss = ChainwebDataStats (_ssTransactionCount ss)
-                                       (_ssCirculatingCoins ss)
-                                       (maxPossibleCoinsForDate now)
+    mkStats ss = ChainwebDataStats (_ssTransactionCount ss)
+                                   (_ssCirculatingCoins ss)
 
 recentTxsHandler :: IORef ServerState -> Handler [TxSummary]
 recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ readIORef ss

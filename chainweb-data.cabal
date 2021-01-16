@@ -109,7 +109,6 @@ executable chainweb-data
 
   -- , gargoyle-postgresql-nix
   other-modules:
-    Chainweb.Allocations
     Chainweb.Backfill
     Chainweb.Coins
     Chainweb.Database
