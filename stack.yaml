@@ -5,6 +5,7 @@ ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 extra-deps:
   - ed25519-donna-0.1.1
   - megaparsec-9.0.0
+  - neat-interpolation-0.5.1.2
   - posix-escape-0.1
   - prettyprinter-1.6.0
   - sbv-8.8
