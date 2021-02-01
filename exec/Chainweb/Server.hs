@@ -23,6 +23,7 @@ import           Control.Error
 import           Control.Monad.Except
 import           Data.Foldable
 import           Data.IORef
+import           Data.Maybe
 import qualified Data.Pool as P
 import           Data.Proxy
 import           Data.Sequence (Seq)
@@ -178,6 +179,7 @@ statsHandler ssRef = liftIO $ do
   where
     mkStats ss = ChainwebDataStats (_ssTransactionCount ss)
                                    (_ssCirculatingCoins ss)
+                                   (fromMaybe 0 $ _ssCirculatingCoins ss)
 
 recentTxsHandler :: IORef ServerState -> Handler [TxSummary]
 recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ readIORef ss
