@@ -1,6 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
+{-# LANGUAGE LambdaCase #-}
 module Chainweb.Env
   ( Args(..)
   , Env(..)
@@ -12,6 +12,8 @@ module Chainweb.Env
   , ChainwebVersion(..)
   , Command(..)
   , envP
+  , richListP
+  , NodeDbPath(..)
   ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -39,7 +41,13 @@ import           Options.Applicative
 
 ---
 
-data Args = Args Command Connect Url
+data Args
+  = Args Command Connect Url
+    -- ^ arguments for the Listen, Backfill, Gaps, Single,
+    -- and Server cmds
+  | RichListArgs NodeDbPath
+    -- ^ arguments for the Richlist command
+  deriving (Show)
 
 data Env = Env
   { _env_httpManager :: Manager
@@ -96,7 +104,21 @@ parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's ru
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
 
-data Command = Server ServerEnv | Listen | Backfill | Gaps | Single ChainId BlockHeight
+newtype NodeDbPath = NodeDbPath { getNodeDbPath :: Maybe FilePath }
+  deriving (Eq, Show)
+
+readNodeDbPath :: ReadM NodeDbPath
+readNodeDbPath = eitherReader $ \case
+  "" -> Right $ NodeDbPath Nothing
+  s -> Right $ NodeDbPath $ Just s
+
+data Command
+    = Server ServerEnv
+    | Listen
+    | Backfill
+    | Gaps
+    | Single ChainId BlockHeight
+    deriving (Show)
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
@@ -108,6 +130,22 @@ envP = Args
   <$> commands
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
   <*> (parseUrl <$> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node"))
+
+richListP :: Parser Args
+richListP = hsubparser
+  ( command "richlist"
+    ( info rlOpts
+      ( progDesc "Create a richlist using existing chainweb node data"
+      )
+    )
+  )
+  where
+    rlOpts = RichListArgs
+      <$> option readNodeDbPath
+        ( long "db-path"
+        <> value (NodeDbPath Nothing)
+        <> help "Chainweb node db filepath"
+        )
 
 connectP :: Parser Connect
 connectP = (PGString <$> pgstringP) <|> (PGInfo <$> connectInfoP) <|> (PGGargoyle <$> dbdirP)

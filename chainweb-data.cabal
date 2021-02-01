@@ -35,6 +35,10 @@ common commons
     , chainweb-api       ^>=1.0
     , containers         ^>=0.6
     , data-default
+    , deepseq
+    , directory
+    , exceptions
+    , filepath
     , lens
     , lens-aeson
     , scientific         ^>=0.3
@@ -75,6 +79,7 @@ executable chainweb-data
     , base16-bytestring
     , base64-bytestring        ^>=1.0
     , bytestring
+    , cassava                  ^>=0.5
     , cereal                   ^>=0.5
     , chainweb-data
     , connection
@@ -89,6 +94,7 @@ executable chainweb-data
     , optparse-applicative     >=0.14 && <0.17
     , pact
     , postgresql-simple
+    , process                  ^>=1.6
     , resource-pool            ^>=0.2
     , retry                    ^>=0.8
     , scheduler                ^>=1.4
@@ -98,6 +104,7 @@ executable chainweb-data
     , streaming                ^>=0.2
     , streaming-events
     , strict-tuple             ^>=0.1
+    , vector
     , wai
     , wai-app-static
     , wai-cors
@@ -116,6 +123,7 @@ executable chainweb-data
     Chainweb.Gaps
     Chainweb.Listen
     Chainweb.Lookups
+    Chainweb.RichList
     Chainweb.Server
     Chainweb.Single
     Chainweb.Worker
@@ -136,7 +144,7 @@ test-suite testsuite
     , chainweb-api
     , chainweb-data
     , containers          ^>=0.6
-    , neat-interpolation  >=0.4
+    , neat-interpolation  >=0.5 && < 0.6
     , tasty               ^>=1.2
     , tasty-hunit         ^>=0.10
     , text
