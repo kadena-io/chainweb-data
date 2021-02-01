@@ -10,13 +10,16 @@ jobs:
     name: CI
     runs-on: ubuntu-latest
     steps:
+      - name: 'GitHub actions env workaround'
+        run: 'echo "ACTIONS_ALLOW_UNSECURE_COMMANDS=true" >> $GITHUB_ENV'
+
       - name: Install non-Haskell dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev
 
       - name: Setup Z3
-        uses: pavpanchekha/setup-z3@v1.2
+        uses: pavpanchekha/setup-z3@1.2.2
         with:
           version: "4.8.7"
           architecture: "x64"
@@ -27,7 +30,7 @@ jobs:
           ghc-version: "8.8.3"
 
       - name: Setup Stack
-        uses: mstksg/setup-stack@v1
+        uses: mstksg/setup-stack@master
 
       - name: Clone project
         uses: actions/checkout@v2

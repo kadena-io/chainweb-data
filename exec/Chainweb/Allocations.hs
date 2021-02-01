@@ -2,6 +2,8 @@ module Chainweb.Allocations where
 
 import Data.Time.Calendar
 
+-- Currently unused. Not deleting the code yet because we might use it to
+-- implement a more accurate calculation of circulating coins in the future.
 maxPossibleCoinsForDate :: Day -> Double
 maxPossibleCoinsForDate asOf = sum $ map snd $ takeWhile (\(d,_) -> d < asOf) allocations
 
