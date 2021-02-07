@@ -2,7 +2,7 @@
 }:
 let pkgs = kpkgs.pkgs;
     haskellPackages = kpkgs.rp.ghc8_6;
-
+    nix-thunk = import ./deps/nix-thunk {};
 in haskellPackages.developPackage {
   name = builtins.baseNameOf ./.;
   root = kpkgs.gitignoreSource ./.;
@@ -11,17 +11,12 @@ in haskellPackages.developPackage {
   in
   {
     inherit (gargoylePkgs) gargoyle gargoyle-postgresql gargoyle-postgresql-nix gargoyle-postgresql-connect;
-    chainweb-api = self.callCabal2nix "chainweb-api" (pkgs.hackGet ./deps/chainweb-api) {};
-    pact = dontCheck (self.callCabal2nix "pact" (pkgs.hackGet ./deps/pact) {});
+    pact = dontCheck super.pact;
   };
-#  source-overrides = {
-#    chainweb-api = pkgs.fetchFromGitHub {
-#      owner = "kadena-io";
-#      repo = "chainweb-api";
-#      rev = "ed82f95111395313476d988a8c531d669593b034";
-#      sha256 = "06mzlbdbpc86y2ncznvbqipj78l54lsaw5pnrfjz2v4ljn6n92jc";
-#    };
-#  };
+  source-overrides = {
+    chainweb-api = nix-thunk.thunkSource ./deps/chainweb-api;
+    pact = nix-thunk.thunkSource ./deps/pact;
+  };
   modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
     buildTools = (attrs.buildTools or []) ++ [
       haskellPackages.cabal-install
