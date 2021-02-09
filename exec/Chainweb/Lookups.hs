@@ -121,8 +121,8 @@ mkTransaction b (tx,txo) = Transaction
   { _tx_chainId = _block_chainId b
   , _tx_block = pk b
   , _tx_creationTime = posixSecondsToUTCTime $ _chainwebMeta_creationTime mta
-  , _tx_ttl = _chainwebMeta_ttl mta
-  , _tx_gasLimit = _chainwebMeta_gasLimit mta
+  , _tx_ttl = fromIntegral $ _chainwebMeta_ttl mta
+  , _tx_gasLimit = fromIntegral $ _chainwebMeta_gasLimit mta
   , _tx_gasPrice = _chainwebMeta_gasPrice mta
   , _tx_sender = _chainwebMeta_sender mta
   , _tx_nonce = _pactCommand_nonce cmd
@@ -130,18 +130,18 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_code = _exec_code <$> exc
   , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
-  , _tx_step = _cont_step <$> cnt
+  , _tx_step = fromIntegral . _cont_step <$> cnt
   , _tx_data = (PgJSONB . _cont_data <$> cnt)
     <|> (PgJSONB <$> (exc >>= _exec_data))
   , _tx_proof = join (_cont_proof <$> cnt)
 
-  , _tx_gas = _toutGas txo
+  , _tx_gas = fromIntegral $ _toutGas txo
   , _tx_badResult = badres
   , _tx_goodResult = goodres
   , _tx_logs = hashB64U <$> _toutLogs txo
   , _tx_metadata = PgJSONB <$> _toutMetaData txo
   , _tx_continuation = PgJSONB <$> _toutContinuation txo
-  , _tx_txid = _toutTxId txo
+  , _tx_txid = fromIntegral <$> _toutTxId txo
   }
   where
     cmd = CW._transaction_cmd tx

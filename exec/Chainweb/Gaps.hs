@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
@@ -76,8 +77,10 @@ work gi cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
       bs <- all_ $ _cddb_blocks database
       pure (_block_height bs, _block_chainId bs)
   -- Determine the missing pairs --
-  pure $ NEL.nonEmpty pairs >>= pruning gi . filling cids . expanding . grouping
+  pure $ NEL.nonEmpty (map changeIntPair pairs) >>= pruning gi . filling cids . expanding . grouping
 
+changeIntPair :: (Int64, Int64) -> (BlockHeight, Int)
+changeIntPair (a, b) = (fromIntegral a, fromIntegral b)
 
 grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
 grouping = NEL.map (fst . NEL.head &&& NEL.map snd) . NEL.groupWith1 fst

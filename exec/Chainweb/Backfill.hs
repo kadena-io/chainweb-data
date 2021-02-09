@@ -94,12 +94,12 @@ minHeights cids pool = M.fromList <$> wither selectMinHeight cids
   where
     -- | Get the current minimum height of any block on some chain.
     selectMinHeight :: ChainId -> IO (Maybe (ChainId, Int))
-    selectMinHeight cid_@(ChainId cid) = fmap (fmap (\bh -> (cid_, _block_height bh)))
+    selectMinHeight cid_@(ChainId cid) = fmap (fmap (\bh -> (cid_, fromIntegral $ _block_height bh)))
       $ P.withResource pool
       $ \c -> runBeamPostgres c
       $ runSelectReturningOne
       $ select
       $ limit_ 1
       $ orderBy_ (asc_ . _block_height)
-      $ filter_ (\b -> _block_chainId b ==. val_ cid)
+      $ filter_ (\b -> _block_chainId b ==. val_ (fromIntegral cid))
       $ all_ (_cddb_blocks database)

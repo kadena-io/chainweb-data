@@ -48,8 +48,8 @@ instance FromEvent PowHeader where
 asBlock :: PowHeader -> MinerData -> Block
 asBlock (PowHeader bh ph) m = Block
   { _block_creationTime = posixSecondsToUTCTime $ _blockHeader_creationTime bh
-  , _block_chainId      = unChainId $ _blockHeader_chainId bh
-  , _block_height       = _blockHeader_height bh
+  , _block_chainId      = fromIntegral $ unChainId $ _blockHeader_chainId bh
+  , _block_height       = fromIntegral $ _blockHeader_height bh
   , _block_parent       = DbHash . hashB64U $ _blockHeader_parent bh
   , _block_hash         = DbHash . hashB64U $ _blockHeader_hash bh
   , _block_payload      = DbHash . hashB64U $ _blockHeader_payloadHash bh

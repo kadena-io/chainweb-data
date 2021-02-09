@@ -44,8 +44,8 @@ instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be HashAsNum where
 ------------------------------------------------------------------------------
 data BlockT f = Block
   { _block_creationTime :: C f UTCTime
-  , _block_chainId :: C f Int
-  , _block_height :: C f Int
+  , _block_chainId :: C f Int64
+  , _block_height :: C f Int64
   , _block_hash :: C f DbHash
   , _block_parent :: C f DbHash
   , _block_powHash :: C f DbHash

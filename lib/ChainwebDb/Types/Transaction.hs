@@ -20,9 +20,7 @@ import Data.Aeson
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import Database.Beam
-import Database.Beam.Backend.SQL.SQL92 (timestampType)
-import Database.Beam.Migrate.Generics (HasDefaultSqlDataType(..))
-import Database.Beam.Postgres (PgJSONB, Postgres)
+import Database.Beam.Postgres (PgJSONB)
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
 ------------------------------------------------------------------------------
@@ -30,11 +28,11 @@ import ChainwebDb.Types.Block
 
 ------------------------------------------------------------------------------
 data TransactionT f = Transaction
-  { _tx_chainId :: C f Int
+  { _tx_chainId :: C f Int64
   , _tx_block :: PrimaryKey BlockT f
   , _tx_creationTime :: C f UTCTime
-  , _tx_ttl :: C f Int
-  , _tx_gasLimit :: C f Int
+  , _tx_ttl :: C f Int64
+  , _tx_gasLimit :: C f Int64
   , _tx_gasPrice :: C f Double
   , _tx_sender :: C f Text
   , _tx_nonce :: C f Text
@@ -42,17 +40,17 @@ data TransactionT f = Transaction
   , _tx_code :: C f (Maybe Text)
   , _tx_pactId :: C f (Maybe Text)
   , _tx_rollback :: C f (Maybe Bool)
-  , _tx_step :: C f (Maybe Int)
+  , _tx_step :: C f (Maybe Int64)
   , _tx_data :: C f (Maybe (PgJSONB Value))
   , _tx_proof :: C f (Maybe Text)
 
-  , _tx_gas :: C f Int
+  , _tx_gas :: C f Int64
   , _tx_badResult :: C f (Maybe (PgJSONB Value))
   , _tx_goodResult :: C f (Maybe (PgJSONB Value))
   , _tx_logs :: C f (Maybe Text)
   , _tx_metadata :: C f (Maybe (PgJSONB Value))
   , _tx_continuation :: C f (Maybe (PgJSONB Value))
-  , _tx_txid :: C f (Maybe Int)
+  , _tx_txid :: C f (Maybe Int64)
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -101,9 +99,3 @@ instance Table TransactionT where
     deriving anyclass (Beamable)
   primaryKey = TransactionId . _tx_requestKey
 
---------------------------------------------------------------------------------
--- Orphan
-
--- Until this is merged: https://github.com/tathougies/beam/pull/422
-instance HasDefaultSqlDataType Postgres UTCTime where
-  defaultSqlDataType _ _ _ = timestampType Nothing True

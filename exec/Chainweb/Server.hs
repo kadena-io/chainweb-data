@@ -22,6 +22,7 @@ import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
 import           Data.Foldable
+import           Data.Int
 import           Data.IORef
 import qualified Data.Pool as P
 import           Data.Proxy
@@ -70,7 +71,7 @@ setCors = cors . const . Just $ simpleCorsResourcePolicy
 data ServerState = ServerState
     { _ssRecentTxs :: RecentTxs
     , _ssHighestBlockHeight :: BlockHeight
-    , _ssTransactionCount :: Maybe Int
+    , _ssTransactionCount :: Maybe Int64
     , _ssCirculatingCoins :: Maybe Double
     } deriving (Eq,Show)
 
@@ -92,7 +93,7 @@ ssHighestBlockHeight = lens _ssHighestBlockHeight setter
 
 ssTransactionCount
     :: Functor f
-    => (Maybe Int -> f (Maybe Int))
+    => (Maybe Int64 -> f (Maybe Int64))
     -> ServerState -> f ServerState
 ssTransactionCount = lens _ssTransactionCount setter
   where
@@ -176,7 +177,7 @@ statsHandler :: IORef ServerState -> Handler ChainwebDataStats
 statsHandler ssRef = liftIO $ do
     fmap mkStats $ readIORef ssRef
   where
-    mkStats ss = ChainwebDataStats (_ssTransactionCount ss)
+    mkStats ss = ChainwebDataStats (fromIntegral <$> _ssTransactionCount ss)
                                    (_ssCirculatingCoins ss)
 
 recentTxsHandler :: IORef ServerState -> Handler [TxSummary]
@@ -196,7 +197,7 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
           ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
           f ss = (ss & ssRecentTxs %~ addNewTransactions ts
                      & ssHighestBlockHeight %~ max height
-                     & (ssTransactionCount . _Just) +~ (S.length ts), ())
+                     & (ssTransactionCount . _Just) +~ (fromIntegral $ S.length ts), ())
 
       let msg = printf "Got new header on chain %d height %d" (unChainId chain) height
           addendum = if S.length ts == 0
@@ -248,7 +249,7 @@ searchTxs printLog pool limit offset (Just search) = do
     lim = maybe 10 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
     getHeight (_,a,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary a b (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
     searchString = "%" <> search <> "%"
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
@@ -282,13 +283,13 @@ queryRecentTxs printLog pool = do
       return $ mkSummary <$> res
   where
     getHeight (_,a,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary a b (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
 
-getTransactionCount :: (String -> IO ()) -> P.Pool Connection -> IO (Maybe Int)
+getTransactionCount :: (String -> IO ()) -> P.Pool Connection -> IO (Maybe Int64)
 getTransactionCount printLog pool = do
     P.withResource pool $ \c -> do
       runBeamPostgresDebug printLog c $ runSelectReturningOne $ select $
-        aggregate_ (\_ -> as_ @Int countAll_) (all_ (_cddb_transactions database))
+        aggregate_ (\_ -> as_ @Int64 countAll_) (all_ (_cddb_transactions database))
 
 data RecentTxs = RecentTxs
   { _recentTxs_txs :: Seq TxSummary
