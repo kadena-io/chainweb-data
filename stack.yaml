@@ -19,7 +19,7 @@ extra-deps:
   - github: kadena-io/pact
     commit: b6bca495a685d5bef0fe3546f50137a4625193fa
   - github: tathougies/beam
-    commit: 2fa99310557e49b37a59e349032ff7236085b6f8
+    commit: 596981a1ea6765b9f311d48a2ec4d8460ebc4b7e
     subdirs:
       - beam-core
       - beam-migrate
