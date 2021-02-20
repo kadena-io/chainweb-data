@@ -113,13 +113,10 @@ data Url = Url
 urlToString :: Url -> String
 urlToString (Url h p) = h <> ":" <> show p
 
-parseUrl :: String -> Url
-parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's run on startup
-  where
-    (h,pstr) = break (==':') s
-
-urlParser :: String -> Parser Url
-urlParser prefix = parseUrl <$> strOption (long (prefix <> "-url") <> metavar "URL" <> help ("url:port of the " <> prefix <> " API"))
+urlParser :: String -> String -> Parser Url
+urlParser prefix usualPort = Url
+  <$> strOption (long (prefix <> "-host") <> metavar "HOST" <> help ("host for the " <> prefix <> " API (usually " <> usualPort <> ")"))
+  <*> option auto (long (prefix <> "-port") <> metavar "PORT" <> help ("port for the " <> prefix <> " API (usually " <> usualPort <> ")"))
 
 schemeParser :: String -> Parser Scheme
 schemeParser prefix =
@@ -133,8 +130,10 @@ data UrlScheme = UrlScheme
 showUrlScheme :: UrlScheme -> String
 showUrlScheme (UrlScheme s u) = schemeToString s <> "://" <> urlToString u
 
-urlSchemeParser :: String -> Parser UrlScheme
-urlSchemeParser prefix = UrlScheme <$> schemeParser prefix <*> urlParser prefix
+urlSchemeParser :: String -> String -> Parser UrlScheme
+urlSchemeParser prefix usualPort = UrlScheme
+  <$> schemeParser prefix
+  <*> urlParser prefix usualPort
 
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
@@ -164,8 +163,8 @@ envP :: Parser Args
 envP = Args
   <$> commands
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
-  <*> urlSchemeParser "service"
-  <*> urlParser "p2p"
+  <*> urlSchemeParser "service" "1848"
+  <*> urlParser "p2p" "443"
 
 richListP :: Parser Args
 richListP = hsubparser

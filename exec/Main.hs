@@ -45,6 +45,8 @@ main = do
       richList fp
     Args c pgc us u -> do
       putStrLn $ "Using database: " <> show pgc
+      putStrLn $ "Service API: " <> showUrlScheme us
+      putStrLn $ "P2P API: " <> urlToString u
       withPool pgc $ \pool -> do
         P.withResource pool initializeTables
         putStrLn "DB Tables Initialized"
