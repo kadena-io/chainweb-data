@@ -153,7 +153,7 @@ data Command
     = Server ServerEnv
     | Listen
     | Backfill
-    | Gaps
+    | Gaps (Maybe Double)
     | Single ChainId BlockHeight
     deriving (Show)
 
@@ -213,13 +213,16 @@ serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> switch (short 'v' <> help "Verbose mode that shows when headers come in")
 
+gapsP :: Parser (Maybe Double)
+gapsP = optional $ option auto (long "rate" <> metavar "RATE_LIMIT" <> help "Max requests / sec the worker will make to the node")
+
 commands :: Parser Command
 commands = hsubparser
   (  command "listen" (info (pure Listen)
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
   <> command "backfill" (info (pure Backfill)
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
-  <> command "gaps" (info (pure Gaps)
+  <> command "gaps" (info (Gaps <$> gapsP)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))

@@ -26,8 +26,8 @@ import           Database.Beam.Postgres
 
 ---
 
-gaps :: Env -> IO ()
-gaps e = do
+gaps :: Env -> Maybe Double -> IO ()
+gaps e rateLimit = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight $ _env_chainsAtHeight e
@@ -35,16 +35,23 @@ gaps e = do
     Nothing -> printf "[INFO] No gaps detected."
     Just bs -> do
       count <- newIORef 0
-      traverseConcurrently_ Par' (f count) bs
+      let strat = case rateLimit of
+                    Nothing -> Par'
+                    Just _ -> Seq
+      traverseConcurrently_ strat (f count) bs
       final <- readIORef count
       printf "[INFO] Filled in %d missing blocks.\n" final
   where
     pool = _env_dbConnPool e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
-
+    delayFunc =
+      case rateLimit of
+        Nothing -> pure ()
+        Just rps -> threadDelay (round $ 1_000_000 / rps)
     f :: IORef Int -> (BlockHeight, Int) -> IO ()
-    f count (h, cid) =
+    f count (h, cid) = do
       headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
+      delayFunc
 
 --queryGaps :: Env -> IO (BlockHeight, Int, Int)
 --queryGaps e = P.withResource pool $ \c -> runBeamPostgres c $ do

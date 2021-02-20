@@ -63,7 +63,7 @@ main = do
                 case c of
                   Listen -> listen env
                   Backfill -> backfill env
-                  Gaps -> gaps env
+                  Gaps rateLimit -> gaps env rateLimit
                   Single cid h -> single env cid h
                   Server serverEnv -> apiServer env serverEnv
   where
