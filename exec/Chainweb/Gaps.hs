@@ -32,12 +32,13 @@ gaps e rateLimit = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight $ _env_chainsAtHeight e
   work genesisInfo cids pool >>= \case
-    Nothing -> printf "[INFO] No gaps detected."
+    Nothing -> printf "[INFO] No gaps detected.\n"
     Just bs -> do
       count <- newIORef 0
       let strat = case rateLimit of
                     Nothing -> Par'
                     Just _ -> Seq
+      printf "[INFO] Filling %d gaps\n" (length bs)
       traverseConcurrently_ strat (f count) bs
       final <- readIORef count
       printf "[INFO] Filled in %d missing blocks.\n" final
