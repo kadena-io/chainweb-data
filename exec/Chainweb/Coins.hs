@@ -19,7 +19,7 @@ import           Pact.Types.Exp
 import           Pact.Types.Hash
 import           Pact.Types.PactValue
 import           Servant.API
-import           Servant.Client
+import           Servant.Client hiding (Scheme)
 import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.ChainId (unChainId)
@@ -41,10 +41,10 @@ queryCirculatingCoins env curHeight = do
 
 sendCoinQuery :: Env -> Int -> IO (Either String Decimal)
 sendCoinQuery env chain = do
-  let (Url h p) = _env_nodeUrl env
+  let (UrlScheme s (Url h p)) = _env_nodeUrlScheme env
       network = _nodeInfo_chainwebVer $ _env_nodeInfo env
       path = printf "/chainweb/0.0/%s/chain/%d/pact" network chain
-      cenv = mkClientEnv (_env_httpManager env) (BaseUrl Https h p path)
+      cenv = mkClientEnv (_env_httpManager env) (BaseUrl (toServantScheme s) h p path)
   cmd <- mkPactCommand (NetworkId network) (ChainId $ T.pack $ show chain) coinQuery
   eres <- runClientM (pactLocal cmd) cenv
   return $ do

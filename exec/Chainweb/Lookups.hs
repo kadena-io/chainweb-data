@@ -56,7 +56,7 @@ headersBetween env (cid, Low low, High up) = do
   pure . (^.. key "items" . values . _String . to f . _Just) $ responseBody res
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
-    url = "https://" <> urlToString (_env_nodeUrl env) <> query
+    url = showUrlScheme (_env_nodeUrlScheme env) <> query
     query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
       (T.unpack v) (unChainId cid) low up
     encoding = [("accept", "application/json")]
@@ -79,16 +79,16 @@ payloadWithOutputs env (T2 cid0 hsh0) = do
     Right a -> pure $ Just a
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
-    url = "https://" <> urlToString (_env_nodeUrl env) <> T.unpack query
+    url = showUrlScheme (_env_nodeUrlScheme env) <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
     cid = T.pack $ show cid0
     hsh = unDbHash hsh0
 
 -- | Query a node for the `ChainId` values its current `ChainwebVersion` has
 -- available.
-getNodeInfo :: Manager -> Url -> IO (Either String NodeInfo)
-getNodeInfo m u = do
-  req <- parseRequest $ "https://" <> urlToString u <> "/info"
+getNodeInfo :: Manager -> UrlScheme -> IO (Either String NodeInfo)
+getNodeInfo m us = do
+  req <- parseRequest $ showUrlScheme us <> "/info"
   res <- httpLbs req m
   pure $ eitherDecode' (responseBody res)
 
@@ -96,8 +96,8 @@ queryCut :: Env -> IO ByteString
 queryCut e = do
   let v = _nodeInfo_chainwebVer $ _env_nodeInfo e
       m = _env_httpManager e
-      u = _env_nodeUrl e
-      url = printf "https://%s/chainweb/0.0/%s/cut" (urlToString u) (T.unpack v)
+      u = _env_nodeUrlScheme e
+      url = printf "%s/chainweb/0.0/%s/cut" (showUrlScheme u) (T.unpack v)
   req <- parseRequest url
   res <- httpLbs req m
   pure $ responseBody res

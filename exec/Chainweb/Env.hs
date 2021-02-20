@@ -7,8 +7,12 @@ module Chainweb.Env
   , chainStartHeights
   , ServerEnv(..)
   , Connect(..), withPool
+  , Scheme(..)
+  , toServantScheme
   , Url(..)
   , urlToString
+  , UrlScheme(..)
+  , showUrlScheme
   , ChainwebVersion(..)
   , Command(..)
   , envP
@@ -38,11 +42,12 @@ import           Gargoyle.PostgreSQL
 --import Gargoyle.PostgreSQL.Nix
 import           Network.HTTP.Client (Manager)
 import           Options.Applicative
+import qualified Servant.Client as S
 
 ---
 
 data Args
-  = Args Command Connect Url
+  = Args Command Connect UrlScheme
     -- ^ arguments for the Listen, Backfill, Gaps, Single,
     -- and Server cmds
   | RichListArgs NodeDbPath
@@ -52,7 +57,7 @@ data Args
 data Env = Env
   { _env_httpManager :: Manager
   , _env_dbConnPool :: Pool Connection
-  , _env_nodeUrl :: Url
+  , _env_nodeUrlScheme :: UrlScheme
   , _env_nodeInfo :: NodeInfo
   , _env_chainsAtHeight :: [(BlockHeight, [ChainId])]
   }
@@ -88,6 +93,17 @@ withPool (PGGargoyle dbPath) = withGargoyleDb dbPath
 withPool (PGInfo ci) = bracket (getPool (connect ci)) destroyAllResources
 withPool (PGString s) = bracket (getPool (connectPostgreSQL s)) destroyAllResources
 
+data Scheme = Http | Https
+  deriving (Eq,Ord,Show,Enum,Bounded)
+
+toServantScheme :: Scheme -> S.Scheme
+toServantScheme Http = S.Http
+toServantScheme Https = S.Https
+
+schemeToString :: Scheme -> String
+schemeToString Http = "http"
+schemeToString Https = "https"
+
 data Url = Url
   { urlHost :: String
   , urlPort :: Int
@@ -100,6 +116,24 @@ parseUrl :: String -> Url
 parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's run on startup
   where
     (h,pstr) = break (==':') s
+
+urlParser :: Parser Url
+urlParser = parseUrl <$> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node")
+
+schemeParser :: Parser Scheme
+schemeParser =
+  flag Http Https (long "use-https" <> help "Use HTTPS to connect to the node")
+
+data UrlScheme = UrlScheme
+  { usScheme :: Scheme
+  , usUrl :: Url
+  } deriving (Eq, Show)
+
+showUrlScheme :: UrlScheme -> String
+showUrlScheme (UrlScheme s u) = schemeToString s <> "://" <> urlToString u
+
+urlSchemeParser :: Parser UrlScheme
+urlSchemeParser = UrlScheme <$> schemeParser <*> urlParser
 
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
@@ -129,7 +163,7 @@ envP :: Parser Args
 envP = Args
   <$> commands
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
-  <*> (parseUrl <$> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node"))
+  <*> urlSchemeParser
 
 richListP :: Parser Args
 richListP = hsubparser
