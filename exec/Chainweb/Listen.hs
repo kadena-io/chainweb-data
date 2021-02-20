@@ -40,7 +40,7 @@ listenWithHandler env handler =
   withEvents (req u cv) mgr $ SP.mapM_ handler . dataOnly @PowHeader
   where
     mgr = _env_httpManager env
-    u = _env_nodeUrlScheme env
+    u = _env_p2pUrl env
     cv = ChainwebVersion $ _nodeInfo_chainwebVer $ _env_nodeInfo env
 
 getOutputsAndInsert :: Env -> PowHeader -> IO ()
@@ -61,17 +61,17 @@ insertNewHeader pool ph pl = do
       !k = bpwoMinerKeys pl
   writes pool b k t
 
-req :: UrlScheme -> ChainwebVersion -> Request
-req us (ChainwebVersion cv) = defaultRequest
-  { host = B.pack $ urlHost $ usUrl us
+req :: Url -> ChainwebVersion -> Request
+req u (ChainwebVersion cv) = defaultRequest
+  { host = B.pack $ urlHost u
   , path = "chainweb/0.0/" <> encodeUtf8 cv <> "/header/updates"  -- TODO Parameterize as needed.
-  , port = urlPort $ usUrl us
-  , secure = secureFlag
+  , port = urlPort u
+  , secure = True
   , method = "GET"
   , requestBody = mempty
   , responseTimeout = responseTimeoutNone
   , checkResponse = throwErrorStatusCodes }
-  where
-    secureFlag = case usScheme us of
-                   Http -> False
-                   Https -> True
+--  where
+--    secureFlag = case usScheme us of
+--                   Http -> False
+--                   Https -> True

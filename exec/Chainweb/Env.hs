@@ -47,7 +47,7 @@ import qualified Servant.Client as S
 ---
 
 data Args
-  = Args Command Connect UrlScheme
+  = Args Command Connect UrlScheme Url
     -- ^ arguments for the Listen, Backfill, Gaps, Single,
     -- and Server cmds
   | RichListArgs NodeDbPath
@@ -57,7 +57,8 @@ data Args
 data Env = Env
   { _env_httpManager :: Manager
   , _env_dbConnPool :: Pool Connection
-  , _env_nodeUrlScheme :: UrlScheme
+  , _env_serviceUrlScheme :: UrlScheme
+  , _env_p2pUrl :: Url
   , _env_nodeInfo :: NodeInfo
   , _env_chainsAtHeight :: [(BlockHeight, [ChainId])]
   }
@@ -117,8 +118,8 @@ parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's ru
   where
     (h,pstr) = break (==':') s
 
-urlParser :: Parser Url
-urlParser = parseUrl <$> strOption (long "url" <> metavar "URL" <> help "Url of Chainweb node")
+urlParser :: String -> Parser Url
+urlParser prefix = parseUrl <$> strOption (long (prefix <> "-url") <> metavar "URL" <> help "url:port of Chainweb node")
 
 schemeParser :: Parser Scheme
 schemeParser =
@@ -132,8 +133,8 @@ data UrlScheme = UrlScheme
 showUrlScheme :: UrlScheme -> String
 showUrlScheme (UrlScheme s u) = schemeToString s <> "://" <> urlToString u
 
-urlSchemeParser :: Parser UrlScheme
-urlSchemeParser = UrlScheme <$> schemeParser <*> urlParser
+urlSchemeParser :: String -> Parser UrlScheme
+urlSchemeParser prefix = UrlScheme <$> schemeParser <*> urlParser prefix
 
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
@@ -163,7 +164,8 @@ envP :: Parser Args
 envP = Args
   <$> commands
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
-  <*> urlSchemeParser
+  <*> urlSchemeParser "service"
+  <*> urlParser "p2p"
 
 richListP :: Parser Args
 richListP = hsubparser

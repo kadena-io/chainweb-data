@@ -43,7 +43,7 @@ main = do
           putStrLn $ "[INFO] Constructing rich list using given db-path: " <> fp
           return fp
       richList fp
-    Args c pgc us -> do
+    Args c pgc us u -> do
       putStrLn $ "Using database: " <> show pgc
       withPool pgc $ \pool -> do
         P.withResource pool initializeTables
@@ -57,7 +57,7 @@ main = do
             case mcids of
               Nothing -> printf "[FAIL] Node did not have graph information" >> exitFailure
               Just cids -> do
-                let !env = Env m pool us ni cids
+                let !env = Env m pool us u ni cids
                 case c of
                   Listen -> listen env
                   Backfill -> backfill env
