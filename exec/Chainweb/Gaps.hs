@@ -17,6 +17,7 @@ import           Chainweb.Worker (writeBlock)
 import           ChainwebDb.Types.Block
 import           ChainwebData.Genesis
 import           ChainwebData.Types
+import           Control.Concurrent.Async
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import qualified Data.IntSet as S
 import qualified Data.List.NonEmpty as NEL
@@ -26,8 +27,8 @@ import           Database.Beam.Postgres
 
 ---
 
-gaps :: Env -> Maybe Double -> IO ()
-gaps e rateLimit = do
+gaps :: Env -> Maybe Int -> IO ()
+gaps e delay = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight $ _env_chainsAtHeight e
@@ -35,20 +36,22 @@ gaps e rateLimit = do
     Nothing -> printf "[INFO] No gaps detected.\n"
     Just bs -> do
       count <- newIORef 0
-      let strat = case rateLimit of
+      let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      printf "[INFO] Filling %d gaps\n" (length bs)
-      traverseConcurrently_ strat (f count) bs
+          total = length bs
+      printf "[INFO] Filling %d gaps\n" total
+      race_ (progress count total) $
+        traverseConcurrently_ strat (f count) bs
       final <- readIORef count
       printf "[INFO] Filled in %d missing blocks.\n" final
   where
     pool = _env_dbConnPool e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
     delayFunc =
-      case rateLimit of
+      case delay of
         Nothing -> pure ()
-        Just rps -> threadDelay (round $ 1_000_000 / rps)
+        Just d -> threadDelay d
     f :: IORef Int -> (BlockHeight, Int) -> IO ()
     f count (h, cid) = do
       headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)

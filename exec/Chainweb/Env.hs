@@ -1,6 +1,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 module Chainweb.Env
   ( Args(..)
   , Env(..)
@@ -18,6 +19,7 @@ module Chainweb.Env
   , envP
   , richListP
   , NodeDbPath(..)
+  , progress
   ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -25,13 +27,16 @@ import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Monad
 import           Data.ByteString (ByteString)
+import           Data.IORef
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import           Data.Maybe
 import           Data.String
 import           Data.Pool
 import           Data.Text (Text)
+import           Data.Time.Clock.POSIX
 import           Database.Beam.Postgres
 import           Gargoyle
 import           Gargoyle.PostgreSQL
@@ -43,6 +48,7 @@ import           Gargoyle.PostgreSQL
 import           Network.HTTP.Client (Manager)
 import           Options.Applicative
 import qualified Servant.Client as S
+import           System.IO
 import           Text.Printf
 
 ---
@@ -152,8 +158,8 @@ readNodeDbPath = eitherReader $ \case
 data Command
     = Server ServerEnv
     | Listen
-    | Backfill (Maybe Double)
-    | Gaps (Maybe Double)
+    | Backfill (Maybe Int)
+    | Gaps (Maybe Int)
     | Single ChainId BlockHeight
     deriving (Show)
 
@@ -213,19 +219,37 @@ serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> switch (short 'v' <> help "Verbose mode that shows when headers come in")
 
-rateP :: Parser (Maybe Double)
-rateP = optional $ option auto (long "rate" <> metavar "RATE_LIMIT" <> help "Max requests / sec the worker will make to the node")
+delayP :: Parser (Maybe Int)
+delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help "Number of microseconds to delay between queries to the node")
 
 commands :: Parser Command
 commands = hsubparser
   (  command "listen" (info (pure Listen)
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
-  <> command "backfill" (info (Backfill <$> rateP)
+  <> command "backfill" (info (Backfill <$> delayP)
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
-  <> command "gaps" (info (Gaps <$> rateP)
+  <> command "gaps" (info (Gaps <$> delayP)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   <> command "server" (info (Server <$> serverP)
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   )
+
+progress :: IORef Int -> Int -> IO a
+progress count total = do
+  start <- getPOSIXTime
+  forever $ do
+    threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
+    completed <- readIORef count
+    now <- getPOSIXTime
+    let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
+        elapsedMinutes = (now - start) / 60
+        blocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
+        estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
+        (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
+                              | otherwise = ("hours", estMinutesLeft `div` 60)
+    printf "[INFO] Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute.\n"
+      completed total perc timeLeft timeUnits blocksPerMinute
+    hFlush stdout
+

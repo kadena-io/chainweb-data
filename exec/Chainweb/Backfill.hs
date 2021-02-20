@@ -29,18 +29,15 @@ import           Control.Scheduler hiding (traverse_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Witherable.Class (wither)
 
 import           Database.Beam
 import           Database.Beam.Postgres (Connection, runBeamPostgres)
 
-import           System.IO
-
 ---
 
-backfill :: Env -> Maybe Double -> IO ()
-backfill e rateLimit = do
+backfill :: Env -> Maybe Int -> IO ()
+backfill e delay = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
@@ -55,45 +52,25 @@ backfill e rateLimit = do
       exitFailure
     else do
       printf "[INFO] Beginning backfill on %d chains.\n" count
-      let strat = case rateLimit of
+      let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      race_ (progress counter mins)
+      race_ (progress counter $ foldl' (+) 0 mins)
         $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
   where
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
     delayFunc =
-      case rateLimit of
+      case delay of
         Nothing -> pure ()
-        Just rps -> threadDelay (round $ 1_000_000 / rps)
+        Just d -> threadDelay d
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = do
       headersBetween e range >>= \case
         [] -> printf "[FAIL] headersBetween: %s\n" $ show range
         hs -> traverse_ (writeBlock e pool count) hs
       delayFunc
-
-progress :: IORef Int -> Map ChainId Int -> IO a
-progress count mins = do
-  start <- getPOSIXTime
-  forever $ do
-    threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
-    completed <- readIORef count
-    now <- getPOSIXTime
-    let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
-        elapsedMinutes = (now - start) / 60
-        blocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
-        estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
-        (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
-                              | otherwise = ("hours", estMinutesLeft `div` 60)
-    printf "[INFO] Progress: %d/%d blocks (%.2f%%), ~%d %s remaining at %.0f blocks per minute.\n"
-      completed total perc timeLeft timeUnits blocksPerMinute
-    hFlush stdout
-  where
-    total :: Int
-    total = foldl' (+) 0 mins
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
