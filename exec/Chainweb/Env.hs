@@ -43,6 +43,7 @@ import           Gargoyle.PostgreSQL
 import           Network.HTTP.Client (Manager)
 import           Options.Applicative
 import qualified Servant.Client as S
+import           Text.Printf
 
 ---
 
@@ -113,14 +114,16 @@ data Url = Url
 urlToString :: Url -> String
 urlToString (Url h p) = h <> ":" <> show p
 
-urlParser :: String -> String -> Parser Url
-urlParser prefix usualPort = Url
-  <$> strOption (long (prefix <> "-host") <> metavar "HOST" <> help ("host for the " <> prefix <> " API (usually " <> usualPort <> ")"))
-  <*> option auto (long (prefix <> "-port") <> metavar "PORT" <> help ("port for the " <> prefix <> " API (usually " <> usualPort <> ")"))
+urlParser :: String -> Int -> Parser Url
+urlParser prefix defaultPort = Url
+    <$> strOption (long (prefix <> "-host") <> metavar "HOST" <> help ("host for the " <> prefix <> " API"))
+    <*> option auto (long (prefix <> "-port") <> metavar "PORT" <> value defaultPort <> help portHelp)
+  where
+    portHelp = printf "port for the %s API (default %d)" prefix defaultPort
 
 schemeParser :: String -> Parser Scheme
 schemeParser prefix =
-  flag Http Https (long (prefix <> "-https") <> help "Use HTTPS to connect to the service API")
+  flag Http Https (long (prefix <> "-https") <> help "Use HTTPS to connect to the service API (instead of HTTP)")
 
 data UrlScheme = UrlScheme
   { usScheme :: Scheme
@@ -130,10 +133,10 @@ data UrlScheme = UrlScheme
 showUrlScheme :: UrlScheme -> String
 showUrlScheme (UrlScheme s u) = schemeToString s <> "://" <> urlToString u
 
-urlSchemeParser :: String -> String -> Parser UrlScheme
-urlSchemeParser prefix usualPort = UrlScheme
+urlSchemeParser :: String -> Int -> Parser UrlScheme
+urlSchemeParser prefix defaultPort = UrlScheme
   <$> schemeParser prefix
-  <*> urlParser prefix usualPort
+  <*> urlParser prefix defaultPort
 
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
@@ -163,8 +166,8 @@ envP :: Parser Args
 envP = Args
   <$> commands
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
-  <*> urlSchemeParser "service" "1848"
-  <*> urlParser "p2p" "443"
+  <*> urlSchemeParser "service" 1848
+  <*> urlParser "p2p" 443
 
 richListP :: Parser Args
 richListP = hsubparser
