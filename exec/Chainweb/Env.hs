@@ -121,9 +121,9 @@ parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's ru
 urlParser :: String -> Parser Url
 urlParser prefix = parseUrl <$> strOption (long (prefix <> "-url") <> metavar "URL" <> help "url:port of Chainweb node")
 
-schemeParser :: Parser Scheme
-schemeParser =
-  flag Http Https (long "use-https" <> help "Use HTTPS to connect to the node")
+schemeParser :: String -> Parser Scheme
+schemeParser prefix =
+  flag Http Https (long (prefix <> "-https") <> help "Use HTTPS to connect to the node")
 
 data UrlScheme = UrlScheme
   { usScheme :: Scheme
@@ -134,7 +134,7 @@ showUrlScheme :: UrlScheme -> String
 showUrlScheme (UrlScheme s u) = schemeToString s <> "://" <> urlToString u
 
 urlSchemeParser :: String -> Parser UrlScheme
-urlSchemeParser prefix = UrlScheme <$> schemeParser <*> urlParser prefix
+urlSchemeParser prefix = UrlScheme <$> schemeParser prefix <*> urlParser prefix
 
 newtype ChainwebVersion = ChainwebVersion Text
   deriving newtype (IsString)
