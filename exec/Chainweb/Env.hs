@@ -119,11 +119,11 @@ parseUrl s = Url h (read $ drop 1 pstr)-- Read should be ok here because it's ru
     (h,pstr) = break (==':') s
 
 urlParser :: String -> Parser Url
-urlParser prefix = parseUrl <$> strOption (long (prefix <> "-url") <> metavar "URL" <> help "url:port of Chainweb node")
+urlParser prefix = parseUrl <$> strOption (long (prefix <> "-url") <> metavar "URL" <> help ("url:port of the " <> prefix <> " API"))
 
 schemeParser :: String -> Parser Scheme
 schemeParser prefix =
-  flag Http Https (long (prefix <> "-https") <> help "Use HTTPS to connect to the node")
+  flag Http Https (long (prefix <> "-https") <> help "Use HTTPS to connect to the service API")
 
 data UrlScheme = UrlScheme
   { usScheme :: Scheme
