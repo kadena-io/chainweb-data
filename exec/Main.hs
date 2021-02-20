@@ -62,7 +62,7 @@ main = do
                 let !env = Env m pool us u ni cids
                 case c of
                   Listen -> listen env
-                  Backfill -> backfill env
+                  Backfill rateLimit -> backfill env rateLimit
                   Gaps rateLimit -> gaps env rateLimit
                   Single cid h -> single env cid h
                   Server serverEnv -> apiServer env serverEnv

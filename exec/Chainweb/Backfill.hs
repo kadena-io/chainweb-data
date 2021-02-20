@@ -39,8 +39,8 @@ import           System.IO
 
 ---
 
-backfill :: Env -> IO ()
-backfill e = do
+backfill :: Env -> Maybe Double -> IO ()
+backfill e rateLimit = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
@@ -55,17 +55,25 @@ backfill e = do
       exitFailure
     else do
       printf "[INFO] Beginning backfill on %d chains.\n" count
+      let strat = case rateLimit of
+                    Nothing -> Par'
+                    Just _ -> Seq
       race_ (progress counter mins)
-        $ traverseConcurrently_ Par' (f counter) $ lookupPlan genesisInfo mins
+        $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
   where
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
-
+    delayFunc =
+      case rateLimit of
+        Nothing -> pure ()
+        Just rps -> threadDelay (round $ 1_000_000 / rps)
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
-    f count range = headersBetween e range >>= \case
-      [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-      hs -> traverse_ (writeBlock e pool count) hs
+    f count range = do
+      headersBetween e range >>= \case
+        [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+        hs -> traverse_ (writeBlock e pool count) hs
+      delayFunc
 
 progress :: IORef Int -> Map ChainId Int -> IO a
 progress count mins = do
