@@ -25,7 +25,16 @@ can easily determine mining statistics and confirm transaction contents.
 
 * Requirements
 
-~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]] to be installed.
+~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]] and [[https://nixos.org/download.html][Nix]] to be installed.
+
+* Building 
+
+#+begin_example
+
+wget https://github.com/kadena-io/chainweb-data
+cd chainweb-data
+nix-build
+#+end_example
 
 * Usage
 
@@ -52,22 +61,24 @@ configured user permissions for a user named ~joe~, the following would connect
 to a local Postgres database at port 5432:
 
 #+begin_example
-chainweb-data <command> --url=<node> --dbuser=joe --dbname=chainweb-data
+chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbuser=joe --dbname=chainweb-data
 #+end_example
 
 *** via a Postgres Connection String
 
 #+begin_example
-chainweb-data <command> --url=<node> --dbstring="host=localhost port=5432..."
+chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbstring="host=localhost port=5432..."
 #+end_example
 
 ** Connecting to a Node
 
 ~chainweb-data~ syncs its data from a running ~chainweb-node~. The node's
-address is specified with the ~--url~ command.
+P2P address is specified with the ~--p2p-host~ command. The node's
+Service address is specified with the ~--service-host~ command.  
+If custom ports are used, you can specify them with ~--service-port~ and ~--p2p-port~
 
 #+begin_example
-chainweb-data <command> --url=foo.chainweb.com ...
+chainweb-data <command> --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com ...
 #+end_example
 
 *** Configuring the Node
@@ -93,7 +104,7 @@ chainweb:
 configuration value is ~true~.
 
 #+begin_example
-  > chainweb-data listen --url=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  > chainweb-data listen --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
   DB Tables Initialized
   28911337084492566901513774
 #+end_example
@@ -103,7 +114,7 @@ As a new block comes in, its chain number is printed as a single digit.
 
 *** server
 
-~server~ just just like ~listen~ but also runs an HTTP server that serves a
+~server~ is just like ~listen~ but also runs an HTTP server that serves a
 few endpoints for doing common queries.
 
 **** endpoints
@@ -125,7 +136,7 @@ chain first via ~listen~ before doing ~backfill~! If ~backfill~ detects any
 empty chains, it won't proceed.
 
 #+begin_example
-  > chainweb-data backfill --url=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  > chainweb-data backfill --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
   DB Tables Initialized
   Backfilling...
   [INFO] Processed blocks: 1000. Progress sample: Chain 9, Height 361720
@@ -141,7 +152,7 @@ empty chains, it won't proceed.
 ~single~.
 
 #+begin_example
-  > chainweb-data gaps --url=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  > chainweb-data gaps --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
   DB Tables Initialized
   [INFO] Processed blocks: 1000. Progress sample: Chain 9, Height 361624
   [INFO] Processed blocks: 2000. Progress sample: Chain 9, Height 362938
@@ -153,7 +164,7 @@ empty chains, it won't proceed.
 ~single~ allows you to sync a block at any location in the blockchain.
 
 #+begin_example
-  > chainweb-data single --chain=0 --height=200 --url=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  > chainweb-data single --chain=0 --height=200 --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
   DB Tables Initialized
   [INFO] Filled in 1 blocks.
 #+end_example
