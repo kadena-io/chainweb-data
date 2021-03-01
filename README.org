@@ -25,13 +25,21 @@ can easily determine mining statistics and confirm transaction contents.
 
 * Requirements
 
-~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]] and [[https://nixos.org/download.html][Nix]] to be installed.
+~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]].
 
 * Building 
 
-#+begin_example
+~chainweb-data~ can be built with either ~cabal~, ~stack~, or
+[[https://nixos.org/download.html][Nix]].  Building with ~nix~ is the most
+predictable because it is a single build command once you've installed Nix.
+This process will go significantly faster if you set up the Kadena nix cache
+as described
+[[https://github.com/kadena-io/pact/wiki/Building-Kadena-Projects][here]].
+Building with ~cabal~ or ~stack~ will probably require a little more knowledge
+of the Haskell ecosystem.
 
-wget https://github.com/kadena-io/chainweb-data
+#+begin_example
+git clone https://github.com/kadena-io/chainweb-data
 cd chainweb-data
 nix-build
 #+end_example

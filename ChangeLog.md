@@ -1,17 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (2021-02-20)
 
 #### Changed
 
-- `backfill` will not start unless there is at least one block in the DB for
-  each chain.
-- `backfill` shows a much more accurate progress report.
-
-#### Fixed
-
-- `backfill` should no longer fail to fetch payloads when the queried node is
-  under strain.
+- Added support for chainweb-node's new separated P2P and Service APIs being served on separate ports.
+- Added ability to rate limit the `gaps` and `backfill` commands with a
+  `--delay` commandline option.
 
 ## 1.1.0 (2020-03-05)
 
