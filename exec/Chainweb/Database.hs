@@ -79,18 +79,14 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _tx_metadata = "metadata"
     , _tx_continuation = "continuation"
     , _tx_txid = "txid"
-    , _tx_events = "events"
     }
   , _cddb_minerkeys = modifyCheckedTable modTableName checkedTableModification
     { _minerKey_block = BlockId "block"
     , _minerKey_key = "key"
     }
   , _cddb_events = modifyCheckedTable modTableName checkedTableModification
-    { _ev_chainId = "chainid"
-    , _ev_block = BlockId "block"
-    , _ev_creationTime = "creationtime"
-    , _ev_requestKey = "requestkey"
-    , _ev_txid = "txid"
+    { _ev_requestKey = TransactionId "requestkey"
+    , _ev_idx = "idx"
     , _ev_name = "name"
     , _ev_module = "module"
     , _ev_moduleHash = "moduleHash"

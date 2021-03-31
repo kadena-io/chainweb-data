@@ -51,7 +51,6 @@ data TransactionT f = Transaction
   , _tx_metadata :: C f (Maybe (PgJSONB Value))
   , _tx_continuation :: C f (Maybe (PgJSONB Value))
   , _tx_txid :: C f (Maybe Int64)
-  , _tx_events :: C f (PgJSONB [Value])
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -79,7 +78,6 @@ Transaction
   (LensFor tx_metadat)
   (LensFor tx_continuation)
   (LensFor tx_txid)
-  (LensFor tx_txevents)
   = tableLenses
 
 type Transaction = TransactionT Identity
@@ -96,7 +94,7 @@ type TransactionId = PrimaryKey TransactionT Identity
 -- deriving instance Ord (PrimaryKey TransactionT Maybe)
 
 instance Table TransactionT where
-  data PrimaryKey TransactionT f = TransactionId (C f Text)
+  data PrimaryKey TransactionT f = TransactionId { _transactionId :: C f Text }
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = TransactionId . _tx_requestKey

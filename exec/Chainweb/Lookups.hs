@@ -1,5 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE TypeFamilies #-}
+
 module Chainweb.Lookups
   ( -- * Endpoints
     headersBetween
@@ -117,8 +119,8 @@ cutMaxHeight bs = maximum $ (0:) $ bs ^.. key "hashes" . members . key "height" 
 mkBlockTransactions :: Block -> BlockPayloadWithOutputs -> [Transaction]
 mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
-mkBlockEvents :: Block -> BlockPayloadWithOutputs -> [Event]
-mkBlockEvents b pl = concatMap (mkEvents b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
+mkBlockEvents :: BlockPayloadWithOutputs -> [Event]
+mkBlockEvents pl = concatMap mkEvents $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -149,7 +151,6 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_metadata = PgJSONB <$> _toutMetaData txo
   , _tx_continuation = PgJSONB <$> _toutContinuation txo
   , _tx_txid = fromIntegral <$> _toutTxId txo
-  , _tx_events = PgJSONB $ _toutEvents txo
   }
   where
     cmd = CW._transaction_cmd tx
@@ -165,15 +166,11 @@ mkTransaction b (tx,txo) = Transaction
       PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
       PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
 
-mkEvents :: Block -> (CW.Transaction, TransactionOutput) -> [Event]
-mkEvents b (tx,txo) = zipWith mkEvent (_toutEvents txo) [0..]
+mkEvents :: (CW.Transaction, TransactionOutput) -> [Event]
+mkEvents (tx,txo) = zipWith mkEvent (_toutEvents txo) [0..]
   where
     mkEvent ev idx = Event
-        { _ev_chainId = _block_chainId b
-        , _ev_block = pk b
-        , _ev_creationTime = posixSecondsToUTCTime $ _chainwebMeta_creationTime mta
-        , _ev_requestKey = hashB64U $ CW._transaction_hash tx
-        , _ev_txid = fromIntegral <$> _toutTxId txo
+        { _ev_requestKey = TransactionId $ hashB64U $ CW._transaction_hash tx
         , _ev_idx = idx
         , _ev_name = ename ev
         , _ev_module = emodule ev
@@ -203,5 +200,3 @@ mkEvents b (tx,txo) = zipWith mkEvent (_toutEvents txo) [0..]
     str n v = case lkp n v of
       Just (String s) -> Just s
       _ -> Nothing
-    cmd = CW._transaction_cmd tx
-    mta = _pactCommand_meta cmd

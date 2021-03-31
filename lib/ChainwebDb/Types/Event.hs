@@ -18,21 +18,16 @@ module ChainwebDb.Types.Event where
 import BasePrelude
 import Data.Aeson
 import Data.Text (Text)
-import Data.Time.Clock (UTCTime)
 import Database.Beam
 import Database.Beam.Postgres (PgJSONB)
 ------------------------------------------------------------------------------
-import ChainwebDb.Types.Block
+import ChainwebDb.Types.Transaction
 ------------------------------------------------------------------------------
 
 
 ------------------------------------------------------------------------------
 data EventT f = Event
-  { _ev_chainId :: C f Int64
-  , _ev_block :: PrimaryKey BlockT f
-  , _ev_creationTime :: C f UTCTime
-  , _ev_requestKey :: C f Text
-  , _ev_txid :: C f (Maybe Int64)
+  { _ev_requestKey :: PrimaryKey TransactionT f
   , _ev_idx :: C f Int64
   , _ev_name :: C f Text
   , _ev_module :: C f Text
@@ -46,11 +41,7 @@ data EventT f = Event
   deriving anyclass (Beamable)
 
 Event
-  (LensFor ev_chainId)
-  (BlockId (LensFor ev_block))
-  (LensFor ev_creationTime)
-  (LensFor ev_requestKey)
-  (LensFor ev_txid)
+  (TransactionId (LensFor ev_requestKey))
   (LensFor ev_idx)
   (LensFor ev_name)
   (LensFor ev_module)
@@ -78,4 +69,4 @@ instance Table EventT where
   data PrimaryKey EventT f = EventId (C f Text) (C f Int64)
     deriving stock (Generic)
     deriving anyclass (Beamable)
-  primaryKey t = EventId (_ev_requestKey t) (_ev_idx t)
+  primaryKey t = EventId (_transactionId $ _ev_requestKey t) (_ev_idx t)

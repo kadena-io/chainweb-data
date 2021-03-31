@@ -75,7 +75,7 @@ writeBlock e pool count bh = do
       let !m = _blockPayloadWithOutputs_minerData pl
           !b = asBlock (asPow bh) m
           !t = mkBlockTransactions b pl
-          !es = mkBlockEvents b pl
+          !es = mkBlockEvents pl
           !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
       writes pool b k t es

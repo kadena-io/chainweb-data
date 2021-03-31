@@ -21,6 +21,7 @@ import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
+import           Data.Aeson
 import           Data.Foldable
 import           Data.Int
 import           Data.IORef
@@ -57,10 +58,12 @@ import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
 import           ChainwebData.Pagination
+import           ChainwebData.TxDetail
 import           ChainwebData.TxSummary
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Event
 ------------------------------------------------------------------------------
 
 setCors :: Middleware
@@ -107,7 +110,14 @@ ssCirculatingCoins = lens _ssCirculatingCoins setter
   where
     setter sc v = sc { _ssCirculatingCoins = v }
 
-type TheApi = ChainwebDataApi :<|> ("richlist.csv" :> Get '[PlainText] Text)
+type RichlistEndpoint = "richlist.csv" :> Get '[PlainText] Text
+
+type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
+
+type TheApi =
+  ChainwebDataApi
+  :<|> RichlistEndpoint
+  :<|> TxEndpoint
 theApi :: Proxy TheApi
 theApi = Proxy
 
@@ -129,7 +139,8 @@ apiServer env senv = do
     searchTxs (logFunc senv) pool) :<|>
     statsHandler ssRef :<|>
     coinsHandler ssRef) :<|>
-    richlistHandler
+    richlistHandler :<|>
+    txHandler (logFunc senv) pool
 
 scheduledUpdates
   :: Env
@@ -252,6 +263,68 @@ searchTxs printLog pool limit offset (Just search) = do
     mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
     searchString = "%" <> search <> "%"
 
+
+txHandler
+  :: (String -> IO ())
+  -> P.Pool Connection
+  -> Maybe Text
+  -> Handler TxDetail
+txHandler _ _ Nothing = do
+  throwError $ err404 { errBody = "You must specify a search string" }
+txHandler printLog pool (Just rk) = liftIO $ P.withResource pool $ \c -> do
+  runBeamPostgresDebug printLog c $ do
+    r <- runSelectReturningOne $ select $ do
+      tx <- all_ (_cddb_transactions database)
+      blk <- all_ (_cddb_blocks database)
+      guard_ (_tx_block tx `references_` blk)
+      guard_ (_tx_requestKey tx ==. val_ rk)
+      return (tx,blk)
+    evs <- runSelectReturningList $ select $ do
+       ev <- all_ (_cddb_events database)
+       guard_ (_ev_requestKey ev ==. val_ (TransactionId rk))
+       return ev
+    case r of
+      Nothing -> undefined
+      Just (tx,blk) -> return $ TxDetail
+        { _txDetail_ttl = fromIntegral $ _tx_ttl tx
+        , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
+        , _txDetail_gasPrice = _tx_gasPrice tx
+        , _txDetail_nonce = _tx_nonce tx
+        , _txDetail_pactId = _tx_pactId tx
+        , _txDetail_rollback = _tx_rollback tx
+        , _txDetail_step = fromIntegral <$> _tx_step tx
+        , _txDetail_data = unMaybeValue $ _tx_data tx
+        , _txDetail_proof = _tx_proof tx
+        , _txDetail_gas = fromIntegral $ _tx_gas tx
+        , _txDetail_result =
+          maybe (unMaybeValue $ _tx_badResult tx) unPgJsonb $
+          _tx_goodResult tx
+        , _txDetail_logs = fromMaybe "" $ _tx_logs tx
+        , _txDetail_metadata = unMaybeValue $ _tx_metadata tx
+        , _txDetail_continuation = unPgJsonb <$> _tx_continuation tx
+        , _txDetail_txid = maybe 0 fromIntegral $ _tx_txid tx
+        , _txDetail_chain = fromIntegral $ _tx_chainId tx
+        , _txDetail_height = fromIntegral $ _block_height blk
+        , _txDetail_blockTime = _block_creationTime blk
+        , _txDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
+        , _txDetail_creationTime = _tx_creationTime tx
+        , _txDetail_requestKey = _tx_requestKey tx
+        , _txDetail_sender = _tx_sender tx
+        , _txDetail_code = _tx_code tx
+        , _txDetail_success =
+          maybe False (const True) $ _tx_goodResult tx
+        , _txDetail_events = map toTxEvent evs
+        }
+
+  where
+    unMaybeValue = maybe Null unPgJsonb
+    toTxEvent :: EventT Identity -> TxEvent
+    toTxEvent ev = TxEvent
+        (ename (_ev_module ev) (_ev_name ev))
+        (unPgJsonb $ _ev_params ev)
+    ename m n | m == "" = n
+              | otherwise = m <> "." <> n
+
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
 infixr 3 :.
 
@@ -309,4 +382,3 @@ logFunc e s = if _serverEnv_verbose e then putStrLn s else return ()
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v
-

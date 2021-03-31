@@ -58,7 +58,7 @@ insertNewHeader pool ph pl = do
   let !m = _blockPayloadWithOutputs_minerData pl
       !b = asBlock ph m
       !t = mkBlockTransactions b pl
-      !es = mkBlockEvents b pl
+      !es = mkBlockEvents pl
       !k = bpwoMinerKeys pl
   writes pool b k t es
 
