@@ -15,7 +15,7 @@ extra-deps:
   - which-0.1.0.0
   - witherable-class-0
   - github: kadena-io/chainweb-api
-    commit: 5d345f46a9cb08e55a4a9f0be113756333d9ba7d
+    commit: cf8676802c3685b0500cedc2f250a65c7f2112e4
   - github: kadena-io/pact
     commit: b6bca495a685d5bef0fe3546f50137a4625193fa
   - github: tathougies/beam

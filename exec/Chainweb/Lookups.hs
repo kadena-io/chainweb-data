@@ -9,6 +9,7 @@ module Chainweb.Lookups
   , cutMaxHeight
     -- * Transformations
   , mkBlockTransactions
+  , mkBlockEvents
   , bpwoMinerKeys
   ) where
 
@@ -28,15 +29,18 @@ import           ChainwebData.Types (Low(..), High(..))
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Event
 import           Control.Error.Util (hush)
 import           Data.Aeson
 import           Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Base64.URL as B64
+import qualified Data.HashMap.Strict as HM
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
+import           Data.Vector ((!?))
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
@@ -113,6 +117,9 @@ cutMaxHeight bs = maximum $ (0:) $ bs ^.. key "hashes" . members . key "height" 
 mkBlockTransactions :: Block -> BlockPayloadWithOutputs -> [Transaction]
 mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
+mkBlockEvents :: Block -> BlockPayloadWithOutputs -> [Event]
+mkBlockEvents b pl = concatMap (mkEvents b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
+
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
 
@@ -142,6 +149,7 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_metadata = PgJSONB <$> _toutMetaData txo
   , _tx_continuation = PgJSONB <$> _toutContinuation txo
   , _tx_txid = fromIntegral <$> _toutTxId txo
+  , _tx_events = PgJSONB $ _toutEvents txo
   }
   where
     cmd = CW._transaction_cmd tx
@@ -156,3 +164,44 @@ mkTransaction b (tx,txo) = Transaction
     (badres, goodres) = case _toutResult txo of
       PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
       PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
+
+mkEvents :: Block -> (CW.Transaction, TransactionOutput) -> [Event]
+mkEvents b (tx,txo) = zipWith mkEvent (_toutEvents txo) [0..]
+  where
+    mkEvent ev idx = Event
+        { _ev_chainId = _block_chainId b
+        , _ev_block = pk b
+        , _ev_creationTime = posixSecondsToUTCTime $ _chainwebMeta_creationTime mta
+        , _ev_requestKey = hashB64U $ CW._transaction_hash tx
+        , _ev_txid = fromIntegral <$> _toutTxId txo
+        , _ev_idx = idx
+        , _ev_name = ename ev
+        , _ev_module = emodule ev
+        , _ev_moduleHash = emoduleHash ev
+        , _ev_param_1 = PgJSONB $ param 0 ev
+        , _ev_param_2 = PgJSONB $ param 1 ev
+        , _ev_param_3 = PgJSONB $ param 2 ev
+        , _ev_params = PgJSONB $ toList $ params ev
+        }
+    ename = fromMaybe "" . str "name"
+    emodule = fromMaybe "" . join . fmap mhash . lkp "module"
+    mhash v = case str "namespace" v of
+      Nothing -> mn
+      Just n -> ((n <> ".") <>) <$> mn
+      where mn = str "name" v
+    emoduleHash = fromMaybe "" . str "moduleHash"
+    params = fromMaybe mempty . fmap ar . lkp "params"
+    ar v = case v of
+      Array l -> l
+      _ -> mempty
+    param i ev = case params ev !? i of
+      Nothing -> Null
+      Just p -> p
+    lkp n v = case v of
+      Object o -> HM.lookup n o
+      _ -> Nothing
+    str n v = case lkp n v of
+      Just (String s) -> Just s
+      _ -> Nothing
+    cmd = CW._transaction_cmd tx
+    mta = _pactCommand_meta cmd

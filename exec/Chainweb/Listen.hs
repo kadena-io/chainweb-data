@@ -58,8 +58,9 @@ insertNewHeader pool ph pl = do
   let !m = _blockPayloadWithOutputs_minerData pl
       !b = asBlock ph m
       !t = mkBlockTransactions b pl
+      !es = mkBlockEvents b pl
       !k = bpwoMinerKeys pl
-  writes pool b k t
+  writes pool b k t es
 
 req :: UrlScheme -> ChainwebVersion -> Request
 req us (ChainwebVersion cv) = defaultRequest

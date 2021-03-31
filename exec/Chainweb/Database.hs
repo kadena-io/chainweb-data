@@ -14,6 +14,7 @@ import           BasePrelude
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Event
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Database.Beam
@@ -27,7 +28,9 @@ import           Database.Beam.Postgres.Migrate (migrationBackend)
 data ChainwebDataDb f = ChainwebDataDb
   { _cddb_blocks :: f (TableEntity BlockT)
   , _cddb_transactions :: f (TableEntity TransactionT)
-  , _cddb_minerkeys :: f (TableEntity MinerKeyT) }
+  , _cddb_minerkeys :: f (TableEntity MinerKeyT)
+  , _cddb_events :: f (TableEntity EventT)
+  }
   deriving stock (Generic)
   deriving anyclass (Database be)
 
@@ -76,10 +79,25 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _tx_metadata = "metadata"
     , _tx_continuation = "continuation"
     , _tx_txid = "txid"
+    , _tx_events = "events"
     }
   , _cddb_minerkeys = modifyCheckedTable modTableName checkedTableModification
     { _minerKey_block = BlockId "block"
     , _minerKey_key = "key"
+    }
+  , _cddb_events = modifyCheckedTable modTableName checkedTableModification
+    { _ev_chainId = "chainid"
+    , _ev_block = BlockId "block"
+    , _ev_creationTime = "creationtime"
+    , _ev_requestKey = "requestkey"
+    , _ev_txid = "txid"
+    , _ev_name = "name"
+    , _ev_module = "module"
+    , _ev_moduleHash = "moduleHash"
+    , _ev_param_1 = "param1"
+    , _ev_param_2 = "param2"
+    , _ev_param_3 = "param3"
+    , _ev_params = "params"
     }
   }
 

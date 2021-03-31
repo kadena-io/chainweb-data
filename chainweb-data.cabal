@@ -32,7 +32,7 @@ common commons
     , beam-migrate       >=0.4 && <0.6
     , beam-postgres      >=0.5 && <0.6
     , bytestring         ^>=0.10
-    , chainweb-api       ^>=1.0
+    , chainweb-api
     , containers         ^>=0.6
     , data-default
     , deepseq
@@ -46,6 +46,7 @@ common commons
     , streaming-events   ^>=1.0.1
     , text               ^>=1.2
     , time               >=1.8      && <1.11
+    , unordered-containers
 
 flag ghc-flags
   description: Enable ghc dumps of .ghc.flags and .ghc.version for tooling
@@ -63,6 +64,7 @@ library
     ChainwebDb.Types.DbHash
     ChainwebDb.Types.MinerKey
     ChainwebDb.Types.Transaction
+    ChainwebDb.Types.Event
 
   if flag(ghc-flags)
     build-tool-depends: hsinspect:hsinspect -any

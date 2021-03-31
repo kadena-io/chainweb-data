@@ -19,6 +19,7 @@ import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Event
 import           Control.Retry
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
@@ -35,8 +36,8 @@ import           Database.Beam.Postgres.Full (insert, onConflict)
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> IO ()
-writes pool b ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
+writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> IO ()
+writes pool b ks ts es = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write Pub Key many-to-many relationships if unique --
   runInsert
     $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
@@ -48,6 +49,10 @@ writes pool b ks ts = P.withResource pool $ \c -> runBeamPostgres c $ do
   -- Write the TXs if unique --
   runInsert
     $ insert (_cddb_transactions database) (insertValues ts)
+    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  -- Write the events if unique --
+  runInsert
+    $ insert (_cddb_events database) (insertValues es)
     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
   --   (_block_chainId b)
@@ -70,9 +75,10 @@ writeBlock e pool count bh = do
       let !m = _blockPayloadWithOutputs_minerData pl
           !b = asBlock (asPow bh) m
           !t = mkBlockTransactions b pl
+          !es = mkBlockEvents b pl
           !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
-      writes pool b k t
+      writes pool b k t es
   where
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
