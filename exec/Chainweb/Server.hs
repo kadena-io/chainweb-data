@@ -2,6 +2,7 @@
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -22,6 +23,7 @@ import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
 import           Data.Aeson
+import           Data.ByteString.Lazy (ByteString)
 import           Data.Foldable
 import           Data.Int
 import           Data.IORef
@@ -232,8 +234,7 @@ searchTxs
   -> Maybe Offset
   -> Maybe Text
   -> Handler [TxSummary]
-searchTxs _ _ _ _ Nothing = do
-    throwError $ err404 { errBody = "You must specify a search string" }
+searchTxs _ _ _ _ Nothing = throw404 "You must specify a search string"
 searchTxs printLog pool limit offset (Just search) = do
     liftIO $ putStrLn $ "Transaction search: " <> T.unpack search
     liftIO $ P.withResource pool $ \c -> do
@@ -263,15 +264,17 @@ searchTxs printLog pool limit offset (Just search) = do
     mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
     searchString = "%" <> search <> "%"
 
+throw404 :: MonadError ServerError m => ByteString -> m a
+throw404 msg = throwError $ err404 { errBody = msg }
 
 txHandler
   :: (String -> IO ())
   -> P.Pool Connection
   -> Maybe Text
   -> Handler TxDetail
-txHandler _ _ Nothing = do
-  throwError $ err404 { errBody = "You must specify a search string" }
-txHandler printLog pool (Just rk) = liftIO $ P.withResource pool $ \c -> do
+txHandler _ _ Nothing = throw404 "You must specify a search string"
+txHandler printLog pool (Just rk) =
+  may404 $ liftIO $ P.withResource pool $ \c ->
   runBeamPostgresDebug printLog c $ do
     r <- runSelectReturningOne $ select $ do
       tx <- all_ (_cddb_transactions database)
@@ -283,9 +286,7 @@ txHandler printLog pool (Just rk) = liftIO $ P.withResource pool $ \c -> do
        ev <- all_ (_cddb_events database)
        guard_ (_ev_requestKey ev ==. val_ (TransactionId rk))
        return ev
-    case r of
-      Nothing -> undefined
-      Just (tx,blk) -> return $ TxDetail
+    return $ (`fmap` r) $ \(tx,blk) -> TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx
         , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
         , _txDetail_gasPrice = _tx_gasPrice tx
@@ -324,6 +325,7 @@ txHandler printLog pool (Just rk) = liftIO $ P.withResource pool $ \c -> do
         (unPgJsonb $ _ev_params ev)
     ename m n | m == "" = n
               | otherwise = m <> "." <> n
+    may404 a = a >>= maybe (throw404 "Tx not found") return
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
 infixr 3 :.
