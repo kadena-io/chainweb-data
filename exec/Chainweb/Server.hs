@@ -59,6 +59,7 @@ import           Chainweb.Lookups
 import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
+import           ChainwebData.EventDetail
 import           ChainwebData.Pagination
 import           ChainwebData.TxDetail
 import           ChainwebData.TxSummary
@@ -116,10 +117,20 @@ type RichlistEndpoint = "richlist.csv" :> Get '[PlainText] Text
 
 type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
 
+type EventEndpoint = "events"
+    :> LimitParam
+    :> OffsetParam
+    :> QueryParam "param" Text
+    :> QueryParam "requestkey" Text
+    :> QueryParam "name" Text
+    :> QueryParam "idx" Int
+    :> Get '[JSON] [EventDetail]
+
 type TheApi =
   ChainwebDataApi
   :<|> RichlistEndpoint
   :<|> TxEndpoint
+  :<|> EventEndpoint
 theApi :: Proxy TheApi
 theApi = Proxy
 
@@ -142,7 +153,8 @@ apiServer env senv = do
     statsHandler ssRef :<|>
     coinsHandler ssRef) :<|>
     richlistHandler :<|>
-    txHandler (logFunc senv) pool
+    txHandler (logFunc senv) pool :<|>
+    evHandler (logFunc senv) pool
 
 scheduledUpdates
   :: Env
@@ -319,13 +331,56 @@ txHandler printLog pool (Just rk) =
 
   where
     unMaybeValue = maybe Null unPgJsonb
-    toTxEvent :: EventT Identity -> TxEvent
-    toTxEvent ev = TxEvent
-        (ename (_ev_module ev) (_ev_name ev))
-        (unPgJsonb $ _ev_params ev)
-    ename m n | m == "" = n
-              | otherwise = m <> "." <> n
+    toTxEvent ev =
+      TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
     may404 a = a >>= maybe (throw404 "Tx not found") return
+
+evHandler
+  :: (String -> IO ())
+  -> P.Pool Connection
+  -> Maybe Limit
+  -> Maybe Offset
+  -> Maybe Text
+  -> Maybe Text
+  -> Maybe Text
+  -> Maybe Int
+  -> Handler [EventDetail]
+evHandler printLog pool limit offset qParam qReqKey qName qIdx =
+  liftIO $ P.withResource pool $ \c -> do
+    r <- runBeamPostgresDebug printLog c $
+      runSelectReturningList $ select $
+        limit_ lim $ offset_ off $ orderBy_ getOrder $ do
+          tx <- all_ (_cddb_transactions database)
+          blk <- all_ (_cddb_blocks database)
+          ev <- all_ (_cddb_events database)
+          guard_ (_tx_block tx `references_` blk)
+          guard_ (_ev_requestKey ev `references_` tx)
+          whenArg qReqKey $ \rk -> guard_ (_tx_requestKey tx ==. val_ rk)
+          whenArg qName $ \n -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
+          whenArg qParam $ \p -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
+          whenArg qIdx $ \i -> guard_ (_ev_idx ev ==. val_ (fromIntegral i))
+          return (tx,blk,ev)
+    return $ (`map` r) $ \(tx,blk,ev) -> EventDetail
+      { _evDetail_name = _ev_qualName ev
+      , _evDetail_params = unPgJsonb $ _ev_params ev
+      , _evDetail_moduleHash = _ev_moduleHash ev
+      , _evDetail_chain = fromIntegral $ _tx_chainId tx
+      , _evDetail_height = fromIntegral $ _block_height blk
+      , _evDetail_blockTime = _block_creationTime blk
+      , _evDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
+      , _evDetail_requestKey = _tx_requestKey tx
+      , _evDetail_idx = fromIntegral $ _ev_idx ev
+      }
+  where
+    whenArg p a = maybe (return ()) a p
+    lim = maybe 10 (min 100 . unLimit) limit
+    off = maybe 0 unOffset offset
+    getOrder (tx,blk,ev) =
+      (desc_ $ _block_height blk
+      ,asc_ $ _tx_chainId tx
+      ,desc_ $ _tx_txid tx
+      ,asc_ $ _ev_idx ev)
+    searchString search = "%" <> search <> "%"
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
 infixr 3 :.

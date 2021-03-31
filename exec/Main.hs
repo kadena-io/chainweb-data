@@ -69,3 +69,10 @@ main = do
   where
     opts = info ((richListP <|> envP) <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
+
+
+{-
+λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
+λ> :main single --chain 0 --height 1494311 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
+λ> :main server --port 9999 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
+-}

@@ -34,7 +34,7 @@ import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
 import           Control.Error.Util (hush)
 import           Data.Aeson
-import           Data.ByteString.Lazy (ByteString)
+import           Data.ByteString.Lazy (ByteString,toStrict)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.HashMap.Strict as HM
@@ -173,16 +173,18 @@ mkEvents (tx,txo) = zipWith mkEvent (_toutEvents txo) [0..]
         { _ev_requestKey = TransactionId $ hashB64U $ CW._transaction_hash tx
         , _ev_idx = idx
         , _ev_name = ename ev
+        , _ev_qualName = qname ev
         , _ev_module = emodule ev
         , _ev_moduleHash = emoduleHash ev
-        , _ev_param_1 = PgJSONB $ param 0 ev
-        , _ev_param_2 = PgJSONB $ param 1 ev
-        , _ev_param_3 = PgJSONB $ param 2 ev
+        , _ev_paramText = T.decodeUtf8 $ toStrict $ encode $ params ev
         , _ev_params = PgJSONB $ toList $ params ev
         }
     ename = fromMaybe "" . str "name"
-    emodule = fromMaybe "" . join . fmap mhash . lkp "module"
-    mhash v = case str "namespace" v of
+    emodule = fromMaybe "" . join . fmap qualm . lkp "module"
+    qname ev = case join $ fmap qualm $ lkp "module" ev of
+      Nothing -> ename ev
+      Just m -> m <> "." <> ename ev
+    qualm v = case str "namespace" v of
       Nothing -> mn
       Just n -> ((n <> ".") <>) <$> mn
       where mn = str "name" v

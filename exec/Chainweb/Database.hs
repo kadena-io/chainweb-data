@@ -88,11 +88,10 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     { _ev_requestKey = TransactionId "requestkey"
     , _ev_idx = "idx"
     , _ev_name = "name"
+    , _ev_qualName = "qualName"
     , _ev_module = "module"
     , _ev_moduleHash = "moduleHash"
-    , _ev_param_1 = "param1"
-    , _ev_param_2 = "param2"
-    , _ev_param_3 = "param3"
+    , _ev_paramText = "paramText"
     , _ev_params = "params"
     }
   }
