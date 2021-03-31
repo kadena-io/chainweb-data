@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0 (2021-03-31)
+
+Adds `events` table and provides the following new queries/endpoints:
+  - `tx` which is a "tx detail" search by request key returning a single result, with full events
+  - `events` which is an event search supporting the following params (along with limit and offset):
+    - `param` for param text wildcard search
+    - `requestkey` for exact request key search
+    - `name` for event name wildcard search (e.g. "TRANSFER")
+    - `idx` for exact event idx search (meaningless without `requestKey` but oh well)
+
+
 ## 1.2.0 (2021-02-20)
 
 #### Changed
