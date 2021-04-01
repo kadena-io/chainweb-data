@@ -42,7 +42,6 @@ import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
-import           Data.Vector ((!?))
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
@@ -193,9 +192,6 @@ mkEvents (tx,txo) = zipWith mkEvent (_toutEvents txo) [0..]
     ar v = case v of
       Array l -> l
       _ -> mempty
-    param i ev = case params ev !? i of
-      Nothing -> Null
-      Just p -> p
     lkp n v = case v of
       Object o -> HM.lookup n o
       _ -> Nothing
