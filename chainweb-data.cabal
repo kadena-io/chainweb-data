@@ -58,11 +58,8 @@ library
   hs-source-dirs:  lib
   exposed-modules:
     ChainwebData.Backfill
-    ChainwebData.TxDetail
-    ChainwebData.EventDetail
     ChainwebData.Genesis
     ChainwebData.Types
-    ChainwebData.Util
     ChainwebDb.Types.Block
     ChainwebDb.Types.DbHash
     ChainwebDb.Types.MinerKey
