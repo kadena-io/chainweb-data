@@ -150,6 +150,7 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_metadata = PgJSONB <$> _toutMetaData txo
   , _tx_continuation = PgJSONB <$> _toutContinuation txo
   , _tx_txid = fromIntegral <$> _toutTxId txo
+  , _tx_events = Just $ PgJSONB $ _toutEvents txo
   }
   where
     cmd = CW._transaction_cmd tx

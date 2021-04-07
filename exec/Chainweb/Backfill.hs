@@ -21,6 +21,7 @@ import           ChainwebData.Backfill
 import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
@@ -29,6 +30,7 @@ import           Control.Scheduler hiding (traverse_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import           Data.Text (Text)
 import           Data.Witherable.Class (wither)
 
 import           Database.Beam
@@ -36,8 +38,14 @@ import           Database.Beam.Postgres (Connection, runBeamPostgres)
 
 ---
 
-backfill :: Env -> Maybe Int -> IO ()
-backfill e delay = do
+backfill :: Env -> BackfillArgs -> IO ()
+backfill e args = do
+  if _backfillArgs_onlyEvents args
+    then backfillBlocks e args
+    else backfillEvents e args
+
+backfillBlocks :: Env -> BackfillArgs -> IO ()
+backfillBlocks e args = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
@@ -58,6 +66,7 @@ backfill e delay = do
       race_ (progress counter $ foldl' (+) 0 mins)
         $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
   where
+    delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
@@ -71,6 +80,10 @@ backfill e delay = do
         [] -> printf "[FAIL] headersBetween: %s\n" $ show range
         hs -> traverse_ (writeBlock e pool count) hs
       delayFunc
+
+backfillEvents :: Env -> BackfillArgs -> IO ()
+backfillEvents e args = do
+  putStrLn "WIP...not implemented yet"
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
@@ -88,3 +101,20 @@ minHeights cids pool = M.fromList <$> wither selectMinHeight cids
       $ orderBy_ (asc_ . _block_height)
       $ filter_ (\b -> _block_chainId b ==. val_ (fromIntegral cid))
       $ all_ (_cddb_blocks database)
+
+-- | For all blocks written to the DB, find the shortest (in terms of block
+-- height) for each chain.
+minEventHeights :: [ChainId] -> P.Pool Connection -> IO (Map ChainId Text)
+minEventHeights cids pool = M.fromList <$> wither selectMinHeight cids
+  where
+    -- | Get the current minimum height of any block on some chain.
+    selectMinHeight :: ChainId -> IO (Maybe (ChainId, Text))
+    selectMinHeight cid_@(ChainId cid) = fmap (fmap (\t -> (cid_, _tx_requestKey t)))
+      $ P.withResource pool
+      $ \c -> runBeamPostgres c
+      $ runSelectReturningOne
+      $ select
+      $ limit_ 1
+      $ orderBy_ (desc_ . _tx_creationTime)
+      $ filter_ (\t -> _tx_events t ==. val_ Nothing)
+      $ all_ (_cddb_transactions database)
