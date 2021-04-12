@@ -51,7 +51,7 @@ data TransactionT f = Transaction
   , _tx_metadata :: C f (Maybe (PgJSONB Value))
   , _tx_continuation :: C f (Maybe (PgJSONB Value))
   , _tx_txid :: C f (Maybe Int64)
-  , _tx_events :: C f (Maybe (PgJSONB [Value]))
+  , _tx_numEvents :: C f (Maybe Int64)
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -79,7 +79,7 @@ Transaction
   (LensFor tx_metadat)
   (LensFor tx_continuation)
   (LensFor tx_txid)
-  (LensFor tx_events)
+  (LensFor tx_numEvents)
   = tableLenses
 
 type Transaction = TransactionT Identity
