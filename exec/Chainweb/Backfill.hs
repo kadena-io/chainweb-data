@@ -171,8 +171,7 @@ getTxMissingEvents chain pool lim = do
       runSelectReturningList $
       select $
       limit_ lim $
-      nub_ $
-      orderBy_ (desc_ . fst) $ do
+      orderBy_ (desc_ . fst) $ nub_ $ do
         tx <- all_ (_cddb_transactions database)
         blk <- all_ (_cddb_blocks database)
         guard_ (_tx_block tx `references_` blk &&.
