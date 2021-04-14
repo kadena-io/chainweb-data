@@ -102,11 +102,12 @@ backfillEvents e args = do
       printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
       exitFailure
     else do
-      printf "[INFO] Beginning event backfill on %d chains.\n" count
+      let numTxs = foldl' (+) 0 missing
+      printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs count
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      race_ (progress counter $ fromIntegral $ foldl' (+) 0 missing)
+      race_ (progress counter $ fromIntegral numTxs)
         $ traverseConcurrently_ strat (f counter) cids
   where
     delay = _backfillArgs_delayMicros args
