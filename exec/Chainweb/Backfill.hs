@@ -3,6 +3,8 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+
 module Chainweb.Backfill
 ( backfill
 , lookupPlan
@@ -34,7 +36,7 @@ import           Data.Text (Text)
 import           Data.Witherable.Class (wither)
 
 import           Database.Beam
-import           Database.Beam.Postgres (Connection, runBeamPostgres)
+import           Database.Beam.Postgres
 
 ---
 
@@ -83,7 +85,43 @@ backfillBlocks e args = do
 
 backfillEvents :: Env -> BackfillArgs -> IO ()
 backfillEvents e args = do
-  putStrLn "WIP...not implemented yet"
+  cutBS <- queryCut e
+  let curHeight = fromIntegral $ cutMaxHeight cutBS
+      cids = atBlockHeight curHeight allCids
+  counter <- newIORef 0
+
+  missing <- countTxMissingEvents pool
+  let count = M.size missing
+  if count /= length cids
+    then do
+      printf "[FAIL] %d chains have tx data, but we expected %d.\n" count (length cids)
+      printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
+      printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
+      exitFailure
+    else do
+      printf "[INFO] Beginning event backfill on %d chains.\n" count
+      let strat = case delay of
+                    Nothing -> Par'
+                    Just _ -> Seq
+      race_ (progress counter $ fromIntegral $ foldl' (+) 0 missing)
+        $ traverseConcurrently_ strat (f counter) cids
+  where
+    delay = _backfillArgs_delayMicros args
+    pool = _env_dbConnPool e
+    allCids = _env_chainsAtHeight e
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+    delayFunc =
+      case delay of
+        Nothing -> pure ()
+        Just d -> threadDelay d
+    f :: IORef Int -> ChainId -> IO ()
+    f count chain = do
+      undefined
+      --maxTxMissingEvents [chain]
+      --headersBetween e range >>= \case
+      --  [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+      --  hs -> traverse_ (writeBlock e pool count) hs
+      --delayFunc
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
@@ -104,8 +142,24 @@ minHeights cids pool = M.fromList <$> wither selectMinHeight cids
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
-minEventHeights :: [ChainId] -> P.Pool Connection -> IO (Map ChainId Text)
-minEventHeights cids pool = M.fromList <$> wither selectMinHeight cids
+countTxMissingEvents :: P.Pool Connection -> IO (Map ChainId Int64)
+countTxMissingEvents pool = do
+    chainCounts <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+      runSelectReturningList $
+      select $
+      aggregate_ agg $ do
+        tx <- all_ (_cddb_transactions database)
+        blk <- all_ (_cddb_blocks database)
+        guard_ (_tx_block tx `references_` blk &&. _tx_numEvents tx ==. val_ Nothing)
+        return (_block_chainId blk, _tx_requestKey tx)
+    return $ M.fromList $ map (\(cid,cnt) -> (ChainId $ fromIntegral cid, cnt)) chainCounts
+  where
+    agg (cid, rk) = (group_ cid, as_ @Int64 $ countOver_ distinctInGroup_ rk)
+
+-- | For all blocks written to the DB, find the shortest (in terms of block
+-- height) for each chain.
+maxTxMissingEvents :: [ChainId] -> P.Pool Connection -> Integer -> IO (Map ChainId Text)
+maxTxMissingEvents cids pool lim = M.fromList <$> wither selectMinHeight cids
   where
     -- | Get the current minimum height of any block on some chain.
     selectMinHeight :: ChainId -> IO (Maybe (ChainId, Text))
@@ -114,7 +168,7 @@ minEventHeights cids pool = M.fromList <$> wither selectMinHeight cids
       $ \c -> runBeamPostgres c
       $ runSelectReturningOne
       $ select
-      $ limit_ 1
+      $ limit_ lim
       $ orderBy_ (desc_ . _tx_creationTime)
-      $ filter_ (\t -> _tx_events t ==. val_ Nothing)
+      $ filter_ (\t -> _tx_numEvents t ==. val_ Nothing)
       $ all_ (_cddb_transactions database)
