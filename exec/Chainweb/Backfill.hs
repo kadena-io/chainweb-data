@@ -23,6 +23,7 @@ import           ChainwebData.Backfill
 import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent (threadDelay)
@@ -32,10 +33,13 @@ import           Control.Scheduler hiding (traverse_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
 
-import           Database.Beam
+import           Database.Beam hiding (insert)
+import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
+import           Database.Beam.Postgres.Full (insert, onConflict)
 
 ---
 
@@ -114,32 +118,18 @@ backfillEvents e args = do
         Just d -> threadDelay d
     f :: IORef Int -> ChainId -> IO ()
     f count chain = do
-      heights <- getTxMissingEvents chain pool 100
-      forChunks heights $ \(h,l) -> do
-        let range = (chain, Low $ fromIntegral l, High $ fromIntegral h)
-        headersBetween e range >>= \case
-          [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-          hs -> traverse_ (writeBlock e pool count) hs
+      blocks <- getTxMissingEvents chain pool 100
+      forM_ blocks $ \(h,ph) -> do
+        payloadWithOutputs e (T2 chain ph) >>= \case
+          Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
+                            (unChainId chain) h (unDbHash ph)
+          Just bpwo -> do
+            P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+              runInsert
+                $ insert (_cddb_events database) (insertValues $ mkBlockEvents bpwo)
+                $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+            atomicModifyIORef' count (\n -> (n+1, ()))
       delayFunc
-
-forChunks :: Monad m => [Int64] -> ((Int64,Int64) -> m ()) -> m ()
-forChunks xs f = do
-  case getConsecutiveDesc xs of
-    Nothing -> return ()
-    Just ((h,l), rest) -> do
-      f (h,l)
-      forChunks rest f
-
-getConsecutiveDesc :: Integral a => [a] -> Maybe ((a,a), [a])
-getConsecutiveDesc [] = Nothing
-getConsecutiveDesc [x] = Just ((x,x),[])
-getConsecutiveDesc (x:xs) = go x 0 xs
-  where
-    go _ _ [] = Nothing
-    go runStart runLen as@(a:rest)
-      | a == runStart - runLen - 1 = go runStart (runLen+1) rest
-      | otherwise = Just ((runStart, runStart - runLen), as)
-
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
@@ -175,20 +165,20 @@ countTxMissingEvents pool = do
     agg (cid, rk) = (group_ cid, as_ @Int64 $ countOver_ distinctInGroup_ rk)
 
 -- | Get the highest lim blocks with transactions that have unfilled events
-getTxMissingEvents :: ChainId -> P.Pool Connection -> Integer -> IO [Int64]
+getTxMissingEvents :: ChainId -> P.Pool Connection -> Integer -> IO [(Int64, DbHash)]
 getTxMissingEvents chain pool lim = do
-    heights <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+    P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
       runSelectReturningList $
       select $
       limit_ lim $
-      orderBy_ desc_ $ do
+      nub_ $
+      orderBy_ (desc_ . fst) $ do
         tx <- all_ (_cddb_transactions database)
         blk <- all_ (_cddb_blocks database)
         guard_ (_tx_block tx `references_` blk &&.
                 _tx_numEvents tx ==. val_ Nothing &&.
                 _block_chainId blk ==. val_ cid)
-        return (_block_height blk)
-    return heights
+        return (_block_height blk, _block_payload blk)
   where
     cid :: Int64
     cid = fromIntegral $ unChainId chain
