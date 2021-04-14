@@ -167,6 +167,7 @@ data Command
 data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
   , _backfillArgs_onlyEvents :: Bool
+  , _backfillArgs_eventChunkSize :: Maybe Integer
   } deriving (Eq,Ord,Show)
 
 data ServerEnv = ServerEnv
@@ -232,6 +233,7 @@ bfArgsP :: Parser BackfillArgs
 bfArgsP = BackfillArgs
   <$> delayP
   <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
+  <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
 
 commands :: Parser Command
 commands = hsubparser

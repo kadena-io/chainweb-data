@@ -118,7 +118,7 @@ backfillEvents e args = do
         Just d -> threadDelay d
     f :: IORef Int -> ChainId -> IO ()
     f count chain = do
-      blocks <- getTxMissingEvents chain pool 100
+      blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       forM_ blocks $ \(h,ph) -> do
         payloadWithOutputs e (T2 chain ph) >>= \case
           Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
