@@ -32,7 +32,6 @@ import           Control.Scheduler hiding (traverse_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import           Data.Text (Text)
 import           Data.Witherable.Class (wither)
 
 import           Database.Beam
@@ -109,19 +108,38 @@ backfillEvents e args = do
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
-    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
     delayFunc =
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
     f :: IORef Int -> ChainId -> IO ()
     f count chain = do
-      undefined
-      --maxTxMissingEvents [chain]
-      --headersBetween e range >>= \case
-      --  [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-      --  hs -> traverse_ (writeBlock e pool count) hs
-      --delayFunc
+      heights <- getTxMissingEvents chain pool 100
+      forChunks heights $ \(h,l) -> do
+        let range = (chain, Low $ fromIntegral l, High $ fromIntegral h)
+        headersBetween e range >>= \case
+          [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+          hs -> traverse_ (writeBlock e pool count) hs
+      delayFunc
+
+forChunks :: Monad m => [Int64] -> ((Int64,Int64) -> m ()) -> m ()
+forChunks xs f = do
+  case getConsecutiveDesc xs of
+    Nothing -> return ()
+    Just ((h,l), rest) -> do
+      f (h,l)
+      forChunks rest f
+
+getConsecutiveDesc :: Integral a => [a] -> Maybe ((a,a), [a])
+getConsecutiveDesc [] = Nothing
+getConsecutiveDesc [x] = Just ((x,x),[])
+getConsecutiveDesc (x:xs) = go x 0 xs
+  where
+    go _ _ [] = Nothing
+    go runStart runLen as@(a:rest)
+      | a == runStart - runLen - 1 = go runStart (runLen+1) rest
+      | otherwise = Just ((runStart, runStart - runLen), as)
+
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
@@ -156,19 +174,21 @@ countTxMissingEvents pool = do
   where
     agg (cid, rk) = (group_ cid, as_ @Int64 $ countOver_ distinctInGroup_ rk)
 
--- | For all blocks written to the DB, find the shortest (in terms of block
--- height) for each chain.
-maxTxMissingEvents :: [ChainId] -> P.Pool Connection -> Integer -> IO (Map ChainId Text)
-maxTxMissingEvents cids pool lim = M.fromList <$> wither selectMinHeight cids
+-- | Get the highest lim blocks with transactions that have unfilled events
+getTxMissingEvents :: ChainId -> P.Pool Connection -> Integer -> IO [Int64]
+getTxMissingEvents chain pool lim = do
+    heights <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+      runSelectReturningList $
+      select $
+      limit_ lim $
+      orderBy_ desc_ $ do
+        tx <- all_ (_cddb_transactions database)
+        blk <- all_ (_cddb_blocks database)
+        guard_ (_tx_block tx `references_` blk &&.
+                _tx_numEvents tx ==. val_ Nothing &&.
+                _block_chainId blk ==. val_ cid)
+        return (_block_height blk)
+    return heights
   where
-    -- | Get the current minimum height of any block on some chain.
-    selectMinHeight :: ChainId -> IO (Maybe (ChainId, Text))
-    selectMinHeight cid_@(ChainId cid) = fmap (fmap (\t -> (cid_, _tx_requestKey t)))
-      $ P.withResource pool
-      $ \c -> runBeamPostgres c
-      $ runSelectReturningOne
-      $ select
-      $ limit_ lim
-      $ orderBy_ (desc_ . _tx_creationTime)
-      $ filter_ (\t -> _tx_numEvents t ==. val_ Nothing)
-      $ all_ (_cddb_transactions database)
+    cid :: Int64
+    cid = fromIntegral $ unChainId chain
