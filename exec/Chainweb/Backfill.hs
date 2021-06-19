@@ -46,8 +46,8 @@ import           Database.Beam.Postgres.Full (insert, onConflict)
 backfill :: Env -> BackfillArgs -> IO ()
 backfill e args = do
   if _backfillArgs_onlyEvents args
-    then backfillBlocks e args
-    else backfillEvents e args
+    then backfillEvents e args
+    else backfillBlocks e args
 
 backfillBlocks :: Env -> BackfillArgs -> IO ()
 backfillBlocks e args = do
