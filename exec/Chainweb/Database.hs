@@ -79,6 +79,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _tx_metadata = "metadata"
     , _tx_continuation = "continuation"
     , _tx_txid = "txid"
+    , _tx_numEvents = "num_events"
     }
   , _cddb_minerkeys = modifyCheckedTable modTableName checkedTableModification
     { _minerKey_block = BlockId "block"

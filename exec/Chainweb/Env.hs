@@ -16,6 +16,7 @@ module Chainweb.Env
   , showUrlScheme
   , ChainwebVersion(..)
   , Command(..)
+  , BackfillArgs(..)
   , envP
   , richListP
   , NodeDbPath(..)
@@ -158,10 +159,16 @@ readNodeDbPath = eitherReader $ \case
 data Command
     = Server ServerEnv
     | Listen
-    | Backfill (Maybe Int)
+    | Backfill BackfillArgs
     | Gaps (Maybe Int)
     | Single ChainId BlockHeight
     deriving (Show)
+
+data BackfillArgs = BackfillArgs
+  { _backfillArgs_delayMicros :: Maybe Int
+  , _backfillArgs_onlyEvents :: Bool
+  , _backfillArgs_eventChunkSize :: Maybe Integer
+  } deriving (Eq,Ord,Show)
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
@@ -222,11 +229,17 @@ serverP = ServerEnv
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help "Number of microseconds to delay between queries to the node")
 
+bfArgsP :: Parser BackfillArgs
+bfArgsP = BackfillArgs
+  <$> delayP
+  <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
+  <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
+
 commands :: Parser Command
 commands = hsubparser
   (  command "listen" (info (pure Listen)
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
-  <> command "backfill" (info (Backfill <$> delayP)
+  <> command "backfill" (info (Backfill <$> bfArgsP)
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
   <> command "gaps" (info (Gaps <$> delayP)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))

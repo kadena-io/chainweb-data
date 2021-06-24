@@ -12,6 +12,7 @@ module Chainweb.Lookups
     -- * Transformations
   , mkBlockTransactions
   , mkBlockEvents
+  , mkCoinbaseEvents
   , bpwoMinerKeys
   ) where
 
@@ -119,7 +120,12 @@ mkBlockTransactions :: Block -> BlockPayloadWithOutputs -> [Transaction]
 mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
 mkBlockEvents :: BlockPayloadWithOutputs -> [Event]
-mkBlockEvents pl = concatMap mkEvents $ _blockPayloadWithOutputs_transactionsWithOutputs pl
+mkBlockEvents pl = concatMap (wrap mkEvents) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
+  where
+    wrap f (a,b) = f (Just a) b
+
+mkCoinbaseEvents :: BlockPayloadWithOutputs -> [Event]
+mkCoinbaseEvents pl = mkEvents Nothing $ coerce $ _blockPayloadWithOutputs_coinbase pl
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -150,6 +156,7 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_metadata = PgJSONB <$> _toutMetaData txo
   , _tx_continuation = PgJSONB <$> _toutContinuation txo
   , _tx_txid = fromIntegral <$> _toutTxId txo
+  , _tx_numEvents = Just $ fromIntegral $ length $ _toutEvents txo
   }
   where
     cmd = CW._transaction_cmd tx
@@ -165,11 +172,13 @@ mkTransaction b (tx,txo) = Transaction
       PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
       PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
 
-mkEvents :: (CW.Transaction, TransactionOutput) -> [Event]
-mkEvents (tx,txo) = zipWith mkEvent (_toutEvents txo) [0..]
+mkEvents :: Maybe CW.Transaction -> TransactionOutput -> [Event]
+mkEvents mtx txo = zipWith mkEvent (_toutEvents txo) [0..]
   where
     mkEvent ev idx = Event
-        { _ev_requestKey = TransactionId $ hashB64U $ CW._transaction_hash tx
+        { _ev_requestKey = maybe (_toutReqKey txo) CW._transaction_hash mtx
+          & hashB64U
+          & TransactionId
         , _ev_idx = idx
         , _ev_name = ename ev
         , _ev_qualName = qname ev
