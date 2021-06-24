@@ -48,9 +48,9 @@ sendCoinQuery env chain = do
   cmd <- mkPactCommand (NetworkId network) (ChainId $ T.pack $ show chain) coinQuery
   eres <- runClientM (pactLocal cmd) cenv
   return $ do
-    cr <- fmapL (const "Network error") eres
+    cr <- fmapL (("Network error: " <>) . show) eres
     let PactResult pr = _crResult cr
-    pv <- fmapL (const "Pact error") pr
+    pv <- fmapL (("Pact error: " <>) . show) pr
     case pv of
       PLiteral l -> note "Unexpected literal" $ l ^? _LDecimal
       _ -> Left "Unexpected pact value"
