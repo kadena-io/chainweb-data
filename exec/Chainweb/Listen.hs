@@ -20,6 +20,7 @@ import           Chainweb.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Types
+import           ChainwebDb.Types.DbHash (DbHash(..))
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Pool as P
 import           Data.Text.Encoding
@@ -58,7 +59,7 @@ insertNewHeader pool ph pl = do
   let !m = _blockPayloadWithOutputs_minerData pl
       !b = asBlock ph m
       !t = mkBlockTransactions b pl
-      !es = mkBlockEvents pl
+      !es = mkBlockEvents (DbHash $ hashB64U $ _blockHeader_parent $ _hwp_header ph) pl
       !k = bpwoMinerKeys pl
   writes pool b k t es
 

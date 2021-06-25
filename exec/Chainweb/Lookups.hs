@@ -119,13 +119,20 @@ cutMaxHeight bs = maximum $ (0:) $ bs ^.. key "hashes" . members . key "height" 
 mkBlockTransactions :: Block -> BlockPayloadWithOutputs -> [Transaction]
 mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
-mkBlockEvents :: BlockPayloadWithOutputs -> [Event]
-mkBlockEvents pl = concatMap (wrap mkEvents) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
-  where
-    wrap f (a,b) = f (Just a) b
+{- ¡ARRIBA!-}
+-- The blockhash is the parent hash of the current block. A Coinbase
+-- transaction's request key is expected to the parent hash of the block it is
+-- found in.
+mkBlockEvents :: DbHash -> BlockPayloadWithOutputs -> [Event]
+mkBlockEvents h pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
+  & concatMap mkTxEvents
+  & mkCoinbaseEvents h pl
 
-mkCoinbaseEvents :: BlockPayloadWithOutputs -> [Event]
-mkCoinbaseEvents pl = mkEvents Nothing $ coerce $ _blockPayloadWithOutputs_coinbase pl
+mkCoinbaseEvents :: DbHash -> BlockPayloadWithOutputs -> ([Event] -> [Event])
+mkCoinbaseEvents (DbHash parent) pl = go $ _blockPayloadWithOutputs_coinbase pl
+  where
+    go (Coinbase txo) = foldr (\a -> (.) (a:)) id
+      $ mkCoinbaseEvents' parent (_toutEvents txo)
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -172,26 +179,34 @@ mkTransaction b (tx,txo) = Transaction
       PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
       PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
 
-mkEvents :: Maybe CW.Transaction -> TransactionOutput -> [Event]
-mkEvents mtx txo = zipWith mkEvent (_toutEvents txo) [0..]
+mkTxEvents :: (CW.Transaction,TransactionOutput) -> [Event]
+mkTxEvents (tx,txo) = zipWith (mkEvent Source_Tx k) (_toutEvents txo) [0..]
   where
-    mkEvent ev idx = Event
-        { _ev_requestKey = maybe (_toutReqKey txo) CW._transaction_hash mtx
-          & hashB64U
-          & TransactionId
-        , _ev_idx = idx
-        , _ev_name = ename ev
-        , _ev_qualName = qname ev
-        , _ev_module = emodule ev
-        , _ev_moduleHash = emoduleHash ev
-        , _ev_paramText = T.decodeUtf8 $ toStrict $ encode $ params ev
-        , _ev_params = PgJSONB $ toList $ params ev
-        }
+    k = hashB64U $ CW._transaction_hash tx
+
+{- idx of coinbase transactions is set to 0.... this value is just a placeholder-}
+mkCoinbaseEvents' :: T.Text -> [Value] -> [Event]
+mkCoinbaseEvents' k = fmap $
+    \ev -> mkEvent Source_Coinbase k ev 0
+
+mkEvent :: SourceType -> T.Text -> Value -> Int64 -> Event
+mkEvent stype k ev idx = Event
+    { _ev_sourceKey = k
+    , _ev_idx = idx
+    , _ev_sourceType = stype
+    , _ev_name = ename ev
+    , _ev_qualName = qname ev
+    , _ev_module = emodule ev
+    , _ev_moduleHash = emoduleHash ev
+    , _ev_paramText = T.decodeUtf8 $ toStrict $ encode $ params ev
+    , _ev_params = PgJSONB $ toList $ params ev
+    }
+  where
     ename = fromMaybe "" . str "name"
     emodule = fromMaybe "" . join . fmap qualm . lkp "module"
-    qname ev = case join $ fmap qualm $ lkp "module" ev of
-      Nothing -> ename ev
-      Just m -> m <> "." <> ename ev
+    qname ev' = case join $ fmap qualm $ lkp "module" ev' of
+      Nothing -> ename ev'
+      Just m -> m <> "." <> ename ev'
     qualm v = case str "namespace" v of
       Nothing -> mn
       Just n -> ((n <> ".") <>) <$> mn
