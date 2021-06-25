@@ -15,3 +15,19 @@ ALTER COLUMN step SET DATA TYPE bigint,
 ALTER COLUMN gas SET DATA TYPE bigint,
 ALTER COLUMN txid SET DATA TYPE bigint;
 ```
+# 2021-06-25 Events schema change
+
+
+```
+ALTER TABLE transactions
+ADD COLUMN num_events SET DATA TYPE bigint;
+
+ALTER TABLE events
+RENAME COLUMN requestkey TO sourcekey,
+ADD COLUMN sourcetype SET DATA TYPE VARCHAR SET NOT NULL,
+DROP CONSTRAINT events_pkey,
+ADD PRIMARY KEY (sourcekey, idx);
+
+UPDATE events SET sourcetype = 'Source_Tx';
+```
+
