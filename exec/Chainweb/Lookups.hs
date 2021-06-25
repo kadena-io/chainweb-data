@@ -120,19 +120,23 @@ mkBlockTransactions :: Block -> BlockPayloadWithOutputs -> [Transaction]
 mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_transactionsWithOutputs pl
 
 {- ¡ARRIBA!-}
--- The blockhash is the parent hash of the current block. A Coinbase
--- transaction's request key is expected to the parent hash of the block it is
--- found in.
+-- The blockhash is the hash of the current block. A Coinbase transaction's
+-- request key is expected to the parent hash of the block it is found in.
+-- However, the source key of the event in chainweb-data database instance is
+-- the current block hash and NOT the parent hash However, the source key of the
+-- event in chainweb-data database instance is the current block hash and NOT
+-- the parent hash.
 mkBlockEvents :: DbHash -> BlockPayloadWithOutputs -> [Event]
-mkBlockEvents h pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
-  & concatMap mkTxEvents
-  & mkCoinbaseEvents h pl
+mkBlockEvents blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
+    & concatMap mkTxEvents
+    & (mkCoinbaseEvents blockhash pl ++)
 
-mkCoinbaseEvents :: DbHash -> BlockPayloadWithOutputs -> ([Event] -> [Event])
-mkCoinbaseEvents (DbHash parent) pl = go $ _blockPayloadWithOutputs_coinbase pl
-  where
-    go (Coinbase txo) = foldr (\a -> (.) (a:)) id
-      $ mkCoinbaseEvents' parent (_toutEvents txo)
+mkCoinbaseEvents :: DbHash -> BlockPayloadWithOutputs -> [Event]
+mkCoinbaseEvents (DbHash blockhash) pl = _blockPayloadWithOutputs_coinbase pl
+    & coerce
+    & _toutEvents
+    {- idx of coinbase transactions is set to 0.... this value is just a placeholder-}
+    <&> \ev -> mkEvent Source_Coinbase blockhash ev 0
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -183,11 +187,6 @@ mkTxEvents :: (CW.Transaction,TransactionOutput) -> [Event]
 mkTxEvents (tx,txo) = zipWith (mkEvent Source_Tx k) (_toutEvents txo) [0..]
   where
     k = hashB64U $ CW._transaction_hash tx
-
-{- idx of coinbase transactions is set to 0.... this value is just a placeholder-}
-mkCoinbaseEvents' :: T.Text -> [Value] -> [Event]
-mkCoinbaseEvents' k = fmap $
-    \ev -> mkEvent Source_Coinbase k ev 0
 
 mkEvent :: SourceType -> T.Text -> Value -> Int64 -> Event
 mkEvent stype k ev idx = Event

@@ -127,14 +127,14 @@ _backfillEvents e args = do
     f :: IORef Int -> ChainId -> IO ()
     f count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
-      forM_ blocks $ \(h,(parent,ph)) -> do
+      forM_ blocks $ \(h,(current_hash,ph)) -> do
         payloadWithOutputs e (T2 chain ph) >>= \case
           Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
                             (unChainId chain) h (unDbHash ph)
           Just bpwo -> do
             P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
               runInsert
-                $ insert (_cddb_events database) (insertValues $ mkBlockEvents parent bpwo)
+                $ insert (_cddb_events database) (insertValues $ mkBlockEvents current_hash bpwo)
                 $ onConflict (conflictingFields primaryKey) onConflictDoNothing
             atomicModifyIORef' count (\n -> (n+1, ()))
       delayFunc
@@ -185,7 +185,7 @@ getTxMissingEvents chain pool lim = do
         guard_ (_tx_block tx `references_` blk &&.
                 _tx_numEvents tx ==. val_ Nothing &&.
                 _block_chainId blk ==. val_ cid)
-        return (_block_height blk, (_block_parent blk, _block_payload blk))
+        return (_block_height blk, (_block_hash blk, _block_payload blk))
   where
     cid :: Int64
     cid = fromIntegral $ unChainId chain
