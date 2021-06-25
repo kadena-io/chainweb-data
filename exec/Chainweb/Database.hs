@@ -86,13 +86,14 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _minerKey_key = "key"
     }
   , _cddb_events = modifyCheckedTable modTableName checkedTableModification
-    { _ev_requestKey = TransactionId "requestkey"
+    { _ev_sourceKey = "sourcekey"
     , _ev_idx = "idx"
+    , _ev_sourceType = "sourcetype"
     , _ev_name = "name"
-    , _ev_qualName = "qualName"
+    , _ev_qualName = "qualname"
     , _ev_module = "module"
-    , _ev_moduleHash = "moduleHash"
-    , _ev_paramText = "paramText"
+    , _ev_moduleHash = "modulehash"
+    , _ev_paramText = "paramtext"
     , _ev_params = "params"
     }
   }

@@ -17,6 +17,7 @@ import           Chainweb.Env
 import           Chainweb.Lookups
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.DbHash (DbHash(..))
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
@@ -75,7 +76,7 @@ writeBlock e pool count bh = do
       let !m = _blockPayloadWithOutputs_minerData pl
           !b = asBlock (asPow bh) m
           !t = mkBlockTransactions b pl
-          !es = mkBlockEvents pl
+          !es = mkBlockEvents (DbHash $ hashB64U $ _blockHeader_parent bh) pl
           !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
       writes pool b k t es
