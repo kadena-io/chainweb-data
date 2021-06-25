@@ -87,11 +87,7 @@ backfillBlocks e args = do
       delayFunc
 
 backfillEvents :: Env -> BackfillArgs -> IO ()
-backfillEvents _ _ =
-  printf "[INFO] Events backfills will soon be supported."
-
-_backfillEvents :: Env -> BackfillArgs -> IO ()
-_backfillEvents e args = do
+backfillEvents e args = do
   cutBS <- queryCut e
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
