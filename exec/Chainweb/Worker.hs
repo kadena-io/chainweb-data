@@ -38,8 +38,8 @@ import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSav
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
 writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> IO ()
-writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $
-  do runBeamPostgres c $ do
+writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $ do
+     runBeamPostgres c $ do
         -- Write Pub Key many-to-many relationships if unique --
         runInsert
           $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
@@ -48,8 +48,8 @@ writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $
         runInsert
           $ insert (_cddb_blocks database) (insertValues [b])
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-     {- We should still be able to write the block & miner keys if writing
-     either the transactions or events somehow fails. -}
+     {- We should still be able to write the block & miner keys data if writing
+     either the transaction or event data somehow fails. -}
      withSavepoint c $ runBeamPostgres c $ do
         -- Write the TXs if unique --
         runInsert
