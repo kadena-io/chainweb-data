@@ -32,34 +32,38 @@ import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
-
+import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 ---
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
 writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> IO ()
-writes pool b ks ts es = P.withResource pool $ \c -> runBeamPostgres c $ do
-  -- Write Pub Key many-to-many relationships if unique --
-  runInsert
-    $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
-    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-  -- Write the Block if unique --
-  runInsert
-    $ insert (_cddb_blocks database) (insertValues [b])
-    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-  -- Write the TXs if unique --
-  runInsert
-    $ insert (_cddb_transactions database) (insertValues ts)
-    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-  -- Write the events if unique --
-  runInsert
-    $ insert (_cddb_events database) (insertValues es)
-    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-  -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
-  --   (_block_chainId b)
-  --   (_block_height b)
-  --   (unDbHash $ _block_hash b)
-  --   (map (const '.') ts)
+writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $
+  do runBeamPostgres c $ do
+        -- Write Pub Key many-to-many relationships if unique --
+        runInsert
+          $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        -- Write the Block if unique --
+        runInsert
+          $ insert (_cddb_blocks database) (insertValues [b])
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+     {- We should still be able to write the block & miner keys if writing
+     either the transactions or events somehow fails. -}
+     withSavepoint c $ runBeamPostgres c $ do
+        -- Write the TXs if unique --
+        runInsert
+          $ insert (_cddb_transactions database) (insertValues ts)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        -- Write the events if unique --
+        runInsert
+          $ insert (_cddb_events database) (insertValues es)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
+        --   (_block_chainId b)
+        --   (_block_height b)
+        --   (unDbHash $ _block_hash b)
+        --   (map (const '.') ts)
 
 asPow :: BlockHeader -> PowHeader
 asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHash bh)
