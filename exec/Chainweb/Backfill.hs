@@ -95,23 +95,19 @@ backfillEvents e args = do
 
   missing <- countTxMissingEvents pool
   if M.null missing
-    then printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
+    then do
+        printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
+        exitSuccess
     else do
       let count = M.size missing
-      if count /= length cids
-        then do
-          printf "[FAIL] %d chains have tx data, but we expected %d.\n" count (length cids)
-          printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
-          printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
-          exitFailure
-        else do
-          let numTxs = foldl' (+) 0 missing
-          printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs count
-          let strat = case delay of
-                        Nothing -> Par'
-                        Just _ -> Seq
-          race_ (progress counter $ fromIntegral numTxs)
-            $ traverseConcurrently_ strat (f counter) cids
+          numTxs = foldl' (+) 0 missing
+
+      printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs count
+      let strat = case delay of
+                    Nothing -> Par'
+                    Just _ -> Seq
+      race_ (progress counter $ fromIntegral numTxs)
+        $ traverseConcurrently_ strat (f counter) cids
   where
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool e
