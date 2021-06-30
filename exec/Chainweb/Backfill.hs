@@ -22,6 +22,7 @@ import           Chainweb.Worker
 import           ChainwebData.Backfill
 import           ChainwebData.Genesis
 import           ChainwebData.Types
+import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
@@ -93,21 +94,26 @@ backfillEvents e args = do
       cids = atBlockHeight curHeight allCids
   counter <- newIORef 0
 
-  missing <- countTxMissingEvents pool
-  if M.null missing
+  missingTxs <- countTxMissingEvents pool
+  -- assume a default value suitable for mainnet... the value 11138000 is the
+  -- height at which events were activated in chainweb-node
+  missingCoinbase <- countCoinbaseTxMissingEvents pool (fromMaybe 1138000 $ _backfillArgs_coinBaseMinHeight args)
+  if M.null missingTxs && M.null missingCoinbase
     then do
-        printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
-        exitSuccess
+      printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
+      exitSuccess
     else do
-      let count = M.size missing
-          numTxs = foldl' (+) 0 missing
+      let numTxs = foldl' (+) 0 missingTxs
+          numCoinbase = foldl' (+) 0 missingCoinbase
 
-      printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs count
+      printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs (M.size missingTxs)
+      printf "[INFO] Also beginning event backfill (of coinbase transactions) of %d txs on %d chains.\n" numCoinbase (M.size missingCoinbase)
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
       race_ (progress counter $ fromIntegral numTxs)
         $ traverseConcurrently_ strat (f counter) cids
+
   where
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool e
@@ -118,6 +124,7 @@ backfillEvents e args = do
         Just d -> threadDelay d
     f :: IORef Int -> ChainId -> IO ()
     f count chain = do
+      {- getTxMissingEvents backfills both events found in "regular" transactions and coinbase transactions -}
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       forM_ blocks $ \(h,(current_hash,ph)) -> do
         payloadWithOutputs e (T2 chain ph) >>= \case
@@ -163,6 +170,21 @@ countTxMissingEvents pool = do
     return $ M.fromList $ map (\(cid,cnt) -> (ChainId $ fromIntegral cid, cnt)) chainCounts
   where
     agg (cid, rk) = (group_ cid, as_ @Int64 $ countOver_ distinctInGroup_ rk)
+
+{- we only need to go back so far to search for events in coinbase transactions -}
+countCoinbaseTxMissingEvents :: P.Pool Connection -> Integer -> IO (Map ChainId Int64)
+countCoinbaseTxMissingEvents pool minheight = do
+    chainCounts <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+      runSelectReturningList $
+      select $
+      aggregate_ agg $ do
+        event <- all_ (_cddb_events database)
+        blk <- all_ (_cddb_blocks database)
+        guard_ (_block_height blk >=. val_ (fromIntegral minheight) &&. _block_hash blk /=. coerce (_ev_sourceKey event))
+        return (_block_chainId blk, _block_hash blk)
+    return $ M.fromList $ map (\(cid,cnt) -> (ChainId $ fromIntegral cid, cnt)) chainCounts
+  where
+    agg (cid, blkhash) = (group_ cid, as_ @Int64 $ countOver_ distinctInGroup_ blkhash)
 
 -- | Get the highest lim blocks with transactions that have unfilled events
 getTxMissingEvents :: ChainId -> P.Pool Connection -> Integer -> IO [(Int64, (DbHash, DbHash))]
