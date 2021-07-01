@@ -168,7 +168,7 @@ data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
   , _backfillArgs_onlyEvents :: Bool
   , _backfillArgs_eventChunkSize :: Maybe Integer
-  , _backfillArgs_coinBaseMinHeight :: Maybe Integer
+  , _backfillArgs_eventsActivationHeight :: Maybe Integer
   } deriving (Eq,Ord,Show)
 
 data ServerEnv = ServerEnv

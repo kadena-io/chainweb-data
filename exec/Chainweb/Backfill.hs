@@ -95,24 +95,25 @@ backfillEvents e args = do
   counter <- newIORef 0
 
   missingTxs <- countTxMissingEvents pool
+
   -- assume a default value suitable for mainnet... the value 11138000 is the
   -- height at which events were activated in chainweb-node
-  missingCoinbase <- countCoinbaseTxMissingEvents pool (fromMaybe 1138000 $ _backfillArgs_coinBaseMinHeight args)
+  missingCoinbase <- countCoinbaseTxMissingEvents pool eventsActivationHeight
   if M.null missingTxs && M.null missingCoinbase
     then do
       printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
       exitSuccess
     else do
       let numTxs = foldl' (+) 0 missingTxs
-          numCoinbase = foldl' (+) 0 missingCoinbase
+          numCoinbase = foldl' (\s h -> s + (h - fromIntegral eventsActivationHeight)) 0 missingCoinbase
 
       printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs (M.size missingTxs)
       printf "[INFO] Also beginning event backfill (of coinbase transactions) of %d txs on %d chains.\n" numCoinbase (M.size missingCoinbase)
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      race_ (progress counter $ fromIntegral numTxs)
-        $ traverseConcurrently_ strat (f counter) cids
+      race_ (progress counter $ fromIntegral (numTxs + numCoinbase))
+        $ traverseConcurrently_ strat (f missingCoinbase counter) cids
 
   where
     delay = _backfillArgs_delayMicros args
@@ -122,9 +123,9 @@ backfillEvents e args = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: IORef Int -> ChainId -> IO ()
-    f count chain = do
-      {- getTxMissingEvents backfills both events found in "regular" transactions and coinbase transactions -}
+    eventsActivationHeight = fromMaybe 1138000 $ _backfillArgs_eventsActivationHeight args
+    f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
+    f missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       forM_ blocks $ \(h,(current_hash,ph)) -> do
         payloadWithOutputs e (T2 chain ph) >>= \case
@@ -136,6 +137,20 @@ backfillEvents e args = do
                 $ insert (_cddb_events database) (insertValues $ mkBlockEvents current_hash bpwo)
                 $ onConflict (conflictingFields primaryKey) onConflictDoNothing
             atomicModifyIORef' count (\n -> (n+1, ()))
+
+      forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
+        coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral eventsActivationHeight) minheight pool
+        forM_ coinbaseBlocks $ \(current_hash, ph) -> do
+          payloadWithOutputs e (T2 chain ph) >>= \case
+            Nothing -> printf "[FAIL] No payload for chain %d, hash %s, ph %s\n"
+                            (unChainId chain) (unDbHash current_hash) (unDbHash ph)
+            Just bpwo -> do
+              P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+                runInsert
+                  $ insert (_cddb_events database) (insertValues $ mkBlockEvents current_hash bpwo)
+                  $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+              atomicModifyIORef' count (\n -> (n+1, ()))
+
       delayFunc
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
@@ -171,7 +186,7 @@ countTxMissingEvents pool = do
   where
     agg (cid, rk) = (group_ cid, as_ @Int64 $ countOver_ distinctInGroup_ rk)
 
-{- we only need to go back so far to search for events in coinbase transactions -}
+{- We only need to go back so far to search for events in coinbase transactions -}
 countCoinbaseTxMissingEvents :: P.Pool Connection -> Integer -> IO (Map ChainId Int64)
 countCoinbaseTxMissingEvents pool minheight = do
     chainCounts <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
@@ -180,11 +195,26 @@ countCoinbaseTxMissingEvents pool minheight = do
       aggregate_ agg $ do
         event <- all_ (_cddb_events database)
         blk <- all_ (_cddb_blocks database)
-        guard_ (_block_height blk >=. val_ (fromIntegral minheight) &&. _block_hash blk /=. coerce (_ev_sourceKey event))
-        return (_block_chainId blk, _block_hash blk)
-    return $ M.fromList $ map (\(cid,cnt) -> (ChainId $ fromIntegral cid, cnt)) chainCounts
+        guard_ (_block_height blk >=. val_ (fromIntegral minheight) &&. _block_hash blk ==. coerce (_ev_sourceKey event))
+        return (_block_chainId blk, _block_height blk)
+    return $ M.mapMaybe id $ M.fromList $ map (first $ ChainId . fromIntegral) chainCounts
   where
-    agg (cid, blkhash) = (group_ cid, as_ @Int64 $ countOver_ distinctInGroup_ blkhash)
+    agg (cid, height) = (group_ cid, as_ @(Maybe Int64) $ min_ height)
+
+getCoinbaseMissingEvents :: ChainId -> Int64 -> Int64 -> P.Pool Connection -> IO [(DbHash, DbHash)]
+getCoinbaseMissingEvents chain eventsActivationHeight minHeight pool =
+    P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+    runSelectReturningList $
+    select $
+    orderBy_ (desc_ . fst) $ nub_ $ do
+      blk <- all_ (_cddb_blocks database)
+      guard_ (_block_height blk >=. val_ eventsActivationHeight &&. _block_height blk <. val_ minHeight &&. _block_chainId blk ==. val_ cid)
+      return $ (_block_payload blk, _block_hash blk)
+  where
+    cid :: Int64
+    cid = fromIntegral $ unChainId chain
+
+
 
 -- | Get the highest lim blocks with transactions that have unfilled events
 getTxMissingEvents :: ChainId -> P.Pool Connection -> Integer -> IO [(Int64, (DbHash, DbHash))]
