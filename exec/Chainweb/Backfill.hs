@@ -209,7 +209,7 @@ getCoinbaseMissingEvents chain eventsActivationHeight minHeight pool =
     orderBy_ (desc_ . fst) $ nub_ $ do
       blk <- all_ (_cddb_blocks database)
       guard_ (_block_height blk >=. val_ eventsActivationHeight &&. _block_height blk <. val_ minHeight &&. _block_chainId blk ==. val_ cid)
-      return $ (_block_payload blk, _block_hash blk)
+      return $ (_block_hash blk, _block_payload blk)
   where
     cid :: Int64
     cid = fromIntegral $ unChainId chain
