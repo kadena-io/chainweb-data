@@ -140,10 +140,10 @@ backfillEvents e args = do
 
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral eventsActivationHeight) minheight pool
-        forM_ coinbaseBlocks $ \(current_hash, ph) -> do
+        forM_ coinbaseBlocks $ \(h, (current_hash, ph)) -> do
           payloadWithOutputs e (T2 chain ph) >>= \case
-            Nothing -> printf "[FAIL] No payload for chain %d, hash %s, ph %s\n"
-                            (unChainId chain) (unDbHash current_hash) (unDbHash ph)
+            Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
+                            (unChainId chain) h (unDbHash ph)
             Just bpwo -> do
               P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
                 runInsert
@@ -201,20 +201,20 @@ countCoinbaseTxMissingEvents pool minheight = do
   where
     agg (cid, height) = (group_ cid, as_ @(Maybe Int64) $ min_ height)
 
-getCoinbaseMissingEvents :: ChainId -> Int64 -> Int64 -> P.Pool Connection -> IO [(DbHash, DbHash)]
+getCoinbaseMissingEvents :: ChainId -> Int64 -> Int64 -> P.Pool Connection -> IO [(Int64, (DbHash, DbHash))]
 getCoinbaseMissingEvents chain eventsActivationHeight minHeight pool =
     P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
     runSelectReturningList $
     select $
     orderBy_ (desc_ . fst) $ nub_ $ do
       blk <- all_ (_cddb_blocks database)
-      guard_ (_block_height blk >=. val_ eventsActivationHeight &&. _block_height blk <. val_ minHeight &&. _block_chainId blk ==. val_ cid)
-      return $ (_block_hash blk, _block_payload blk)
+      guard_ $ _block_height blk >=. val_ eventsActivationHeight
+                &&. _block_height blk <. val_ minHeight
+                &&. _block_chainId blk ==. val_ cid
+      return $ (_block_height blk, (_block_hash blk, _block_payload blk))
   where
     cid :: Int64
     cid = fromIntegral $ unChainId chain
-
-
 
 -- | Get the highest lim blocks with transactions that have unfilled events
 getTxMissingEvents :: ChainId -> P.Pool Connection -> Integer -> IO [(Int64, (DbHash, DbHash))]
