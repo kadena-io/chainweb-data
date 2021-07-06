@@ -124,7 +124,7 @@ backfillEvents e args = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    eventsActivationHeight = fromMaybe 1138000 $ _backfillArgs_eventsActivationHeight args
+    eventsActivationHeight = fromMaybe 1722500 $ _backfillArgs_eventsActivationHeight args
     f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
     f missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
@@ -146,7 +146,7 @@ backfillEvents e args = do
             Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
                             (unChainId chain) h (unDbHash ph)
             Just bpwo -> do
-              P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+              P.withResource pool $ \c -> runBeamPostgres c $
                 runInsert
                   $ insert (_cddb_events database) (insertValues $ mkBlockEvents current_hash bpwo)
                   $ onConflict (conflictingFields primaryKey) onConflictDoNothing
@@ -176,7 +176,7 @@ minHeights cids pool = M.fromList <$> wither selectMinHeight cids
 -- height) for each chain.
 countTxMissingEvents :: P.Pool Connection -> IO (Map ChainId Int64)
 countTxMissingEvents pool = do
-    chainCounts <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+    chainCounts <- P.withResource pool $ \c -> runBeamPostgres c $
       runSelectReturningList $
       select $
       aggregate_ agg $ do
@@ -191,7 +191,7 @@ countTxMissingEvents pool = do
 {- We only need to go back so far to search for events in coinbase transactions -}
 countCoinbaseTxMissingEvents :: P.Pool Connection -> Integer -> IO (Map ChainId Int64)
 countCoinbaseTxMissingEvents pool minheight = do
-    chainCounts <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+    chainCounts <- P.withResource pool $ \c -> runBeamPostgres c $
       runSelectReturningList $
       select $
       aggregate_ agg $ do
