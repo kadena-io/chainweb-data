@@ -133,7 +133,7 @@ backfillEvents e args = do
           Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
                             (unChainId chain) h (unDbHash ph)
           Just bpwo -> do
-            P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+            P.withResource pool $ \c -> runBeamPostgres c $
               runInsert
                 $ insert (_cddb_events database) (insertValues $ mkBlockEvents current_hash bpwo)
                 $ onConflict (conflictingFields primaryKey) onConflictDoNothing
