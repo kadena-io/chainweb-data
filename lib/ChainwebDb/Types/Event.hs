@@ -23,9 +23,27 @@ import Database.Beam.Backend.SQL
 import Database.Beam.Backend.Types
 import Database.Beam.Migrate
 import Database.Beam.Postgres (PgJSONB)
+import Text.Read
+import Text.Read.Lex (Lexeme(Ident))
 ------------------------------------------------------------------------------
 
-data SourceType = Source_Coinbase | Source_Tx deriving (Show, Eq, Ord, Generic, Enum, Bounded, Read)
+data SourceType = Source_Coinbase | Source_Tx deriving (Eq, Ord, Generic, Enum, Bounded)
+
+instance Show SourceType where
+  show c = case c of
+    Source_Coinbase -> "coinbase"
+    Source_Tx -> "tx"
+
+instance Read SourceType where
+  readPrec =
+    parens $
+      do Ident s <- lexP
+         case s of
+           "coinbase" -> return Source_Coinbase
+           "tx" -> return Source_Tx
+           _ -> pfail
+  readListPrec = readListPrecDefault
+  readList = readListDefault
 
 instance ToJSON SourceType where
   toEncoding = genericToEncoding defaultOptions
