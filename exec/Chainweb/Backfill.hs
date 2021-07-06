@@ -123,7 +123,7 @@ backfillEvents e args = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    coinbaseEventsActivationHeight = case T.toLower $ _backfillArgs_chainwebVersion args of
+    coinbaseEventsActivationHeight = case T.toLower $ getCWVersion $ _backfillArgs_chainwebVersion args of
       "mainnet" -> 1722500
       "mainnet01" -> 1722500
       "testnet" -> 1261000

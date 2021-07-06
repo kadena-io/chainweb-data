@@ -145,8 +145,8 @@ urlSchemeParser prefix defaultPort = UrlScheme
   <$> schemeParser prefix
   <*> urlParser prefix defaultPort
 
-newtype ChainwebVersion = ChainwebVersion Text
-  deriving newtype (IsString)
+newtype ChainwebVersion = ChainwebVersion { getCWVersion :: Text }
+  deriving newtype (IsString, Eq, Show, Ord, Read)
 
 newtype NodeDbPath = NodeDbPath { getNodeDbPath :: Maybe FilePath }
   deriving (Eq, Show)
@@ -168,7 +168,7 @@ data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
   , _backfillArgs_onlyEvents :: Bool
   , _backfillArgs_eventChunkSize :: Maybe Integer
-  , _backfillArgs_chainwebVersion :: Text
+  , _backfillArgs_chainwebVersion :: ChainwebVersion
   , _backfillArgs_coinbaseDelayMicros :: Maybe Int
   } deriving (Eq,Ord,Show)
 
@@ -243,7 +243,7 @@ bfArgsP = BackfillArgs
   <$> delayP ""
   <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
-  <*> option auto (long "chainweb-version" <> metavar "CHAINWEB_VERSION" <> help "Version of the chainweb node")
+  <*> (ChainwebVersion <$> option auto (long "chainweb-version" <> metavar "CHAINWEB_VERSION" <> help "Version of the chainweb node"))
   <*> delayP "coinbase"
 
 commands :: Parser Command
