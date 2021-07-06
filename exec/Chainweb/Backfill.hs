@@ -205,7 +205,7 @@ countCoinbaseTxMissingEvents pool minheight = do
 
 getCoinbaseMissingEvents :: ChainId -> Int64 -> Int64 -> P.Pool Connection -> IO [(Int64, (DbHash, DbHash))]
 getCoinbaseMissingEvents chain eventsActivationHeight minHeight pool =
-    P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+    P.withResource pool $ \c -> runBeamPostgres c $
     runSelectReturningList $
     select $
     orderBy_ (desc_ . fst) $ nub_ $ do
