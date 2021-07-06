@@ -168,7 +168,7 @@ data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
   , _backfillArgs_onlyEvents :: Bool
   , _backfillArgs_eventChunkSize :: Maybe Integer
-  , _backfillArgs_eventsActivationHeight :: Maybe Integer
+  , _backfillArgs_chainwebVersion :: Text
   , _backfillArgs_coinbaseDelayMicros :: Maybe Int
   } deriving (Eq,Ord,Show)
 
@@ -243,7 +243,7 @@ bfArgsP = BackfillArgs
   <$> delayP ""
   <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
-  <*> optional (option auto (long "coinbase-limit" <> metavar "MIN_HEIGHT" <> help "Height when coinbase events began to appear"))
+  <*> option auto (long "chainweb-version" <> metavar "CHAINWEB_VERSION" <> help "Version of the chainweb node")
   <*> delayP "coinbase"
 
 commands :: Parser Command

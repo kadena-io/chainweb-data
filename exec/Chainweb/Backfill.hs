@@ -34,6 +34,7 @@ import           Control.Scheduler hiding (traverse_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import qualified Data.Text as T
 import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
 
@@ -96,16 +97,14 @@ backfillEvents e args = do
 
   missingTxs <- countTxMissingEvents pool
 
-  -- assume a default value suitable for mainnet... the value 11138000 is the
-  -- height at which events were activated in chainweb-node
-  missingCoinbase <- countCoinbaseTxMissingEvents pool eventsActivationHeight
+  missingCoinbase <- countCoinbaseTxMissingEvents pool coinbaseEventsActivationHeight
   if M.null missingTxs && M.null missingCoinbase
     then do
       printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
       exitSuccess
     else do
       let numTxs = foldl' (+) 0 missingTxs
-          numCoinbase = foldl' (\s h -> s + (h - fromIntegral eventsActivationHeight)) 0 missingCoinbase
+          numCoinbase = foldl' (\s h -> s + (h - fromIntegral coinbaseEventsActivationHeight)) 0 missingCoinbase
 
       printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs (M.size missingTxs)
       printf "[INFO] Also beginning event backfill (of coinbase transactions) of %d txs on %d chains.\n" numCoinbase (M.size missingCoinbase)
@@ -124,7 +123,12 @@ backfillEvents e args = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    eventsActivationHeight = fromMaybe 1722500 $ _backfillArgs_eventsActivationHeight args
+    coinbaseEventsActivationHeight = case T.toLower $ _backfillArgs_chainwebVersion args of
+      "mainnet" -> 1722500
+      "mainnet01" -> 1722500
+      "testnet" -> 1261000
+      "testnet04" -> 1261000
+      _ -> error "Chainweb version: Unknown"
     f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
     f missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
@@ -140,7 +144,7 @@ backfillEvents e args = do
             atomicModifyIORef' count (\n -> (n+1, ()))
 
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
-        coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral eventsActivationHeight) minheight pool
+        coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
         forM_ coinbaseBlocks $ \(h, (current_hash, ph)) -> do
           payloadWithOutputs e (T2 chain ph) >>= \case
             Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
