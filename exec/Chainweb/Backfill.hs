@@ -116,7 +116,6 @@ backfillEvents e args = do
 
   where
     delay = _backfillArgs_delayMicros args
-    coinbaseDelay = _backfillArgs_coinbaseDelayMicros args
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
     delayFunc =
@@ -155,7 +154,7 @@ backfillEvents e args = do
                   $ insert (_cddb_events database) (insertValues $ mkBlockEvents current_hash bpwo)
                   $ onConflict (conflictingFields primaryKey) onConflictDoNothing
               atomicModifyIORef' count (\n -> (n+1, ()))
-          forM_ coinbaseDelay threadDelay
+          forM_ delay threadDelay
 
       delayFunc
 

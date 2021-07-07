@@ -169,7 +169,6 @@ data BackfillArgs = BackfillArgs
   , _backfillArgs_onlyEvents :: Bool
   , _backfillArgs_eventChunkSize :: Maybe Integer
   , _backfillArgs_chainwebVersion :: ChainwebVersion
-  , _backfillArgs_coinbaseDelayMicros :: Maybe Int
   } deriving (Eq,Ord,Show)
 
 data ServerEnv = ServerEnv
@@ -228,23 +227,15 @@ serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> switch (short 'v' <> help "Verbose mode that shows when headers come in")
 
-delayP :: String -> Parser (Maybe Int)
-delayP msg = optional $ option auto (long longMsg <> metavar "DELAY_MICROS" <> help helpMsg)
-  where
-    longMsg = case msg of
-      [] -> "delay"
-      _ -> printf "%s-delay" msg
-    helpMsg = case msg of
-      [] -> "Number of microseconds to delay between queries to the node"
-      _ -> printf "Number of microseconds to delay between %s queries to the node" msg
+delayP :: Parser (Maybe Int)
+delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
 
 bfArgsP :: Parser BackfillArgs
 bfArgsP = BackfillArgs
-  <$> delayP ""
+  <$> delayP
   <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
   <*> (ChainwebVersion <$> option auto (long "chainweb-version" <> metavar "CHAINWEB_VERSION" <> help "Version of the chainweb node"))
-  <*> delayP "coinbase"
 
 commands :: Parser Command
 commands = hsubparser
@@ -252,7 +243,7 @@ commands = hsubparser
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
   <> command "backfill" (info (Backfill <$> bfArgsP)
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
-  <> command "gaps" (info (Gaps <$> delayP "")
+  <> command "gaps" (info (Gaps <$> delayP)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
