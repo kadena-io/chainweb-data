@@ -24,6 +24,7 @@ import           Control.Error
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.ByteString.Lazy (ByteString)
+import           Data.Coerce
 import           Data.Foldable
 import           Data.Int
 import           Data.IORef
@@ -296,8 +297,7 @@ txHandler printLog pool (Just rk) =
       return (tx,blk)
     evs <- runSelectReturningList $ select $ do
        ev <- all_ (_cddb_events database)
-       guard_ (_ev_sourceType ev ==. val_ Source_Tx)
-       guard_ (_ev_sourceKey ev ==. val_ rk)
+       guard_ (_ev_requestkey ev ==. val_ (Just $ DbHash rk))
        return ev
     return $ (`fmap` r) $ \(tx,blk) -> TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx
@@ -355,8 +355,7 @@ evHandler printLog pool limit offset qParam qReqKey qName qIdx =
           blk <- all_ (_cddb_blocks database)
           ev <- all_ (_cddb_events database)
           guard_ (_tx_block tx `references_` blk)
-          guard_ (_ev_sourceType ev ==. val_ Source_Tx)
-          guard_ (TransactionId (_ev_sourceKey ev) `references_` tx)
+          guard_ (TransactionId (coerce $ _ev_requestkey ev) `references_` tx)
           whenArg qReqKey $ \rk -> guard_ (_tx_requestKey tx ==. val_ rk)
           whenArg qName $ \n -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
           whenArg qParam $ \p -> guard_ (_ev_paramText ev `like_` val_ (searchString p))

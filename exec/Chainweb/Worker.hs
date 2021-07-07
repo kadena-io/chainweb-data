@@ -80,7 +80,7 @@ writeBlock e pool count bh = do
       let !m = _blockPayloadWithOutputs_minerData pl
           !b = asBlock (asPow bh) m
           !t = mkBlockTransactions b pl
-          !es = mkBlockEvents (DbHash $ hashB64U $ _blockHeader_parent bh) pl
+          !es = mkBlockEvents (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh) pl
           !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
       writes pool b k t es

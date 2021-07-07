@@ -138,7 +138,7 @@ backfillEvents e args = do
           Just bpwo -> do
             P.withResource pool $ \c -> runBeamPostgres c $
               runInsert
-                $ insert (_cddb_events database) (insertValues $ mkBlockEvents current_hash bpwo)
+                $ insert (_cddb_events database) (insertValues $ mkBlockEvents chain current_hash bpwo)
                 $ onConflict (conflictingFields primaryKey) onConflictDoNothing
             atomicModifyIORef' count (\n -> (n+1, ()))
 
@@ -151,7 +151,7 @@ backfillEvents e args = do
             Just bpwo -> do
               P.withResource pool $ \c -> runBeamPostgres c $
                 runInsert
-                  $ insert (_cddb_events database) (insertValues $ mkBlockEvents current_hash bpwo)
+                  $ insert (_cddb_events database) (insertValues $ mkBlockEvents chain current_hash bpwo)
                   $ onConflict (conflictingFields primaryKey) onConflictDoNothing
               atomicModifyIORef' count (\n -> (n+1, ()))
           forM_ delay threadDelay
@@ -200,7 +200,7 @@ countCoinbaseTxMissingEvents pool minheight = do
       aggregate_ agg $ do
         event <- all_ (_cddb_events database)
         blk <- all_ (_cddb_blocks database)
-        guard_ (_block_height blk >=. val_ (fromIntegral minheight) &&. _block_hash blk ==. coerce (_ev_sourceKey event))
+        guard_ (_block_height blk >=. val_ (fromIntegral minheight) &&. _block_hash blk ==. coerce (_ev_block event))
         return (_block_chainId blk, _block_height blk)
     return $ M.mapMaybe id $ M.fromList $ map (first $ ChainId . fromIntegral) chainCounts
   where

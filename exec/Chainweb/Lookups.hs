@@ -126,17 +126,17 @@ mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_tran
 -- the current block hash and NOT the parent hash However, the source key of the
 -- event in chainweb-data database instance is the current block hash and NOT
 -- the parent hash.
-mkBlockEvents :: DbHash -> BlockPayloadWithOutputs -> [Event]
-mkBlockEvents blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
-    & concatMap mkTxEvents
-    & (mkCoinbaseEvents blockhash pl ++)
+mkBlockEvents :: ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
+mkBlockEvents cid blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
+    & concatMap (mkTxEvents cid)
+    & (mkCoinbaseEvents cid blockhash pl ++)
 
-mkCoinbaseEvents :: DbHash -> BlockPayloadWithOutputs -> [Event]
-mkCoinbaseEvents (DbHash blockhash) pl = _blockPayloadWithOutputs_coinbase pl
+mkCoinbaseEvents :: ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
+mkCoinbaseEvents cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
     & coerce
     & _toutEvents
     {- idx of coinbase transactions is set to 0.... this value is just a placeholder-}
-    <&> \ev -> mkEvent Source_Coinbase blockhash ev 0
+    <&> \ev -> mkEvent cid (Right blockhash) ev 0
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -183,16 +183,17 @@ mkTransaction b (tx,txo) = Transaction
       PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
       PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
 
-mkTxEvents :: (CW.Transaction,TransactionOutput) -> [Event]
-mkTxEvents (tx,txo) = zipWith (mkEvent Source_Tx k) (_toutEvents txo) [0..]
+mkTxEvents :: ChainId -> (CW.Transaction,TransactionOutput) -> [Event]
+mkTxEvents cid (tx,txo) = zipWith (mkEvent cid (Left k)) (_toutEvents txo) [0..]
   where
-    k = hashB64U $ CW._transaction_hash tx
+    k = DbHash $ hashB64U $ CW._transaction_hash tx
 
-mkEvent :: SourceType -> T.Text -> Value -> Int64 -> Event
-mkEvent stype k ev idx = Event
-    { _ev_sourceKey = k
+mkEvent :: ChainId -> Either DbHash DbHash -> Value -> Int64 -> Event
+mkEvent (ChainId chainid) requestkeyOrBlock ev idx = Event
+    { _ev_requestkey = requestkey
+    , _ev_block = block
+    , _ev_chainid = fromIntegral chainid
     , _ev_idx = idx
-    , _ev_sourceType = stype
     , _ev_name = ename ev
     , _ev_qualName = qname ev
     , _ev_module = emodule ev
@@ -201,6 +202,8 @@ mkEvent stype k ev idx = Event
     , _ev_params = PgJSONB $ toList $ params ev
     }
   where
+    requestkey = either Just (const Nothing) requestkeyOrBlock
+    block = either (const Nothing) Just requestkeyOrBlock
     ename = fromMaybe "" . str "name"
     emodule = fromMaybe "" . join . fmap qualm . lkp "module"
     qname ev' = case join $ fmap qualm $ lkp "module" ev' of

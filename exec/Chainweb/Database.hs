@@ -86,9 +86,10 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _minerKey_key = "key"
     }
   , _cddb_events = modifyCheckedTable modTableName checkedTableModification
-    { _ev_sourceKey = "sourcekey"
+    { _ev_requestkey = "requestkey"
+    , _ev_block = "block"
+    , _ev_chainid = "chainid"
     , _ev_idx = "idx"
-    , _ev_sourceType = "sourcetype"
     , _ev_name = "name"
     , _ev_qualName = "qualname"
     , _ev_module = "module"
