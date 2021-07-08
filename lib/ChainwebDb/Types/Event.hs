@@ -60,4 +60,10 @@ instance Table EventT where
   data PrimaryKey EventT f = EventId (C f Int64) (C f Int64) (C f Int64)
     deriving stock (Generic)
     deriving anyclass (Beamable)
+{-
+In the development of this table's schema, we had considered not attaching a
+primary key. Unfortunately, even in beam version 0.9.1.0, this ORM still seems
+to demad that any tables declared in Haskell have their own respective primary
+keys. If this is not included, migrations may fail with cryptic errors.
+-}
   primaryKey = EventId <$> _ev_chainid <*> _ev_height <*> _ev_idx
