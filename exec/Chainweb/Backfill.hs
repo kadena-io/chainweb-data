@@ -31,6 +31,7 @@ import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 
+import           Control.Lens (iforM_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
@@ -42,6 +43,7 @@ import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
+import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 
 ---
 
@@ -125,8 +127,8 @@ backfillEvents e args = do
     coinbaseEventsActivationHeight = case T.toLower $ getCWVersion $ _backfillArgs_chainwebVersion args of
       "mainnet" -> 1722500
       "mainnet01" -> 1722500
-      "testnet" -> 1261000
-      "testnet04" -> 1261000
+      "testnet" -> 1261001
+      "testnet04" -> 1261001
       _ -> error "Chainweb version: Unknown"
     f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
     f missingCoinbase count chain = do
@@ -136,10 +138,23 @@ backfillEvents e args = do
           Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
                             (unChainId chain) h (unDbHash ph)
           Just bpwo -> do
-            P.withResource pool $ \c -> runBeamPostgres c $
-              runInsert
-                $ insert (_cddb_events database) (insertValues $ mkBlockEvents h chain current_hash bpwo)
-                $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+            let allTxsEvents = snd $ mkBlockEvents' h chain current_hash bpwo
+                rqKeyEventsMap = allTxsEvents
+                  & mapMaybe (\ev -> fmap (flip (,) [ev]) (_ev_requestkey ev))
+                  & M.fromListWith (<>)
+
+            P.withResource pool $ \c ->
+              withTransaction c $ do
+                runBeamPostgres c $ do
+                  runInsert
+                    $ insert (_cddb_events database) (insertValues allTxsEvents)
+                    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+                withSavepoint c $ runBeamPostgres c $
+                  iforM_ rqKeyEventsMap $ \reqKey events ->
+                    runUpdate
+                      $ update (_cddb_transactions database)
+                          (\tx -> _tx_numEvents tx <-. val_ (Just (fromIntegral $ length events)))
+                          (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
             atomicModifyIORef' count (\n -> (n+1, ()))
 
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
@@ -151,7 +166,7 @@ backfillEvents e args = do
             Just bpwo -> do
               P.withResource pool $ \c -> runBeamPostgres c $
                 runInsert
-                  $ insert (_cddb_events database) (insertValues $ mkBlockEvents h chain current_hash bpwo)
+                  $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain current_hash bpwo)
                   $ onConflict (conflictingFields primaryKey) onConflictDoNothing
               atomicModifyIORef' count (\n -> (n+1, ()))
           forM_ delay threadDelay

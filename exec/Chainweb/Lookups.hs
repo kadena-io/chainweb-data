@@ -12,6 +12,7 @@ module Chainweb.Lookups
     -- * Transformations
   , mkBlockTransactions
   , mkBlockEvents
+  , mkBlockEvents'
   , mkCoinbaseEvents
   , bpwoMinerKeys
   ) where
@@ -126,10 +127,13 @@ mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_tran
 -- the current block hash and NOT the parent hash However, the source key of the
 -- event in chainweb-data database instance is the current block hash and NOT
 -- the parent hash.
-mkBlockEvents :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
-mkBlockEvents height cid blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
+mkBlockEvents' :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> ([Event], [Event])
+mkBlockEvents' height cid blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
     & concatMap (mkTxEvents height cid)
-    & (mkCoinbaseEvents height cid blockhash pl ++)
+    & ((,) (mkCoinbaseEvents height cid blockhash pl))
+
+mkBlockEvents :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
+mkBlockEvents height cid blockhash pl = uncurry (++) (mkBlockEvents' height cid blockhash pl)
 
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
