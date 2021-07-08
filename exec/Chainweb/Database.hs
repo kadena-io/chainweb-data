@@ -89,6 +89,7 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     { _ev_requestkey = "requestkey"
     , _ev_block = "block"
     , _ev_chainid = "chainid"
+    , _ev_height = "height"
     , _ev_idx = "idx"
     , _ev_name = "name"
     , _ev_qualName = "qualname"

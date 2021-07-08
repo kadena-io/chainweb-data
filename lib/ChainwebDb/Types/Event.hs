@@ -63,7 +63,13 @@ instance Table EventT where
 {-
 In the development of this table's schema, we had considered not attaching a
 primary key. Unfortunately, even in beam version 0.9.1.0, this ORM still seems
-to demad that any tables declared in Haskell have their own respective primary
-keys. If this is not included, migrations may fail with cryptic errors.
+to demand that any tables declared in Haskell have their own respective primary
+keys. If this is not included, migrations may fail with cryptic errors. Such as
+below:
+
+chainweb-data: internal error: Unable to commit 1048576 bytes of memory
+    (GHC version 8.6.5 for x86_64_unknown_linux)
+    Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug
+Killed
 -}
   primaryKey = EventId <$> _ev_chainid <*> _ev_height <*> _ev_idx
