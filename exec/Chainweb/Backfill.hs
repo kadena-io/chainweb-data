@@ -138,7 +138,7 @@ backfillEvents e args = do
           Just bpwo -> do
             P.withResource pool $ \c -> runBeamPostgres c $
               runInsert
-                $ insert (_cddb_events database) (insertValues $ mkBlockEvents chain current_hash bpwo)
+                $ insert (_cddb_events database) (insertValues $ mkBlockEvents h chain current_hash bpwo)
                 $ onConflict (conflictingFields primaryKey) onConflictDoNothing
             atomicModifyIORef' count (\n -> (n+1, ()))
 
@@ -151,7 +151,7 @@ backfillEvents e args = do
             Just bpwo -> do
               P.withResource pool $ \c -> runBeamPostgres c $
                 runInsert
-                  $ insert (_cddb_events database) (insertValues $ mkBlockEvents chain current_hash bpwo)
+                  $ insert (_cddb_events database) (insertValues $ mkBlockEvents h chain current_hash bpwo)
                   $ onConflict (conflictingFields primaryKey) onConflictDoNothing
               atomicModifyIORef' count (\n -> (n+1, ()))
           forM_ delay threadDelay

@@ -27,6 +27,7 @@ data EventT f = Event
   { _ev_requestkey :: C f (Maybe DbHash)
   , _ev_block :: C f (Maybe DbHash)
   , _ev_chainid :: C f Int64
+  , _ev_height :: C f Int64
   , _ev_idx :: C f Int64
   , _ev_qualName :: C f Text
   , _ev_name :: C f Text
@@ -42,6 +43,7 @@ Event
   (LensFor ev_requestkey)
   (LensFor ev_block)
   (LensFor ev_chainid)
+  (LensFor ev_height)
   (LensFor ev_idx)
   (LensFor ev_name)
   (LensFor ev_qualName)
@@ -55,7 +57,7 @@ type Event = EventT Identity
 type EventId = PrimaryKey EventT Identity
 
 instance Table EventT where
-  data PrimaryKey EventT f = EventNoId
+  data PrimaryKey EventT f = EventId (C f Int64) (C f Int64) (C f Int64)
     deriving stock (Generic)
     deriving anyclass (Beamable)
-  primaryKey _ = EventNoId
+  primaryKey = EventId <$> _ev_chainid <*> _ev_height <*> _ev_idx

@@ -126,17 +126,17 @@ mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_tran
 -- the current block hash and NOT the parent hash However, the source key of the
 -- event in chainweb-data database instance is the current block hash and NOT
 -- the parent hash.
-mkBlockEvents :: ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
-mkBlockEvents cid blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
-    & concatMap (mkTxEvents cid)
-    & (mkCoinbaseEvents cid blockhash pl ++)
+mkBlockEvents :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
+mkBlockEvents height cid blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
+    & concatMap (mkTxEvents height cid)
+    & (mkCoinbaseEvents height cid blockhash pl ++)
 
-mkCoinbaseEvents :: ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
-mkCoinbaseEvents cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
+mkCoinbaseEvents :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
+mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
     & coerce
     & _toutEvents
     {- idx of coinbase transactions is set to 0.... this value is just a placeholder-}
-    <&> \ev -> mkEvent cid (Right blockhash) ev 0
+    <&> \ev -> mkEvent cid height (Right blockhash) ev 0
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -183,16 +183,17 @@ mkTransaction b (tx,txo) = Transaction
       PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
       PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
 
-mkTxEvents :: ChainId -> (CW.Transaction,TransactionOutput) -> [Event]
-mkTxEvents cid (tx,txo) = zipWith (mkEvent cid (Left k)) (_toutEvents txo) [0..]
+mkTxEvents :: Int64 -> ChainId -> (CW.Transaction,TransactionOutput) -> [Event]
+mkTxEvents height cid (tx,txo) = zipWith (mkEvent cid height (Left k)) (_toutEvents txo) [0..]
   where
     k = DbHash $ hashB64U $ CW._transaction_hash tx
 
-mkEvent :: ChainId -> Either DbHash DbHash -> Value -> Int64 -> Event
-mkEvent (ChainId chainid) requestkeyOrBlock ev idx = Event
+mkEvent :: ChainId -> Int64 -> Either DbHash DbHash -> Value -> Int64 -> Event
+mkEvent (ChainId chainid) height requestkeyOrBlock ev idx = Event
     { _ev_requestkey = requestkey
     , _ev_block = block
     , _ev_chainid = fromIntegral chainid
+    , _ev_height = height
     , _ev_idx = idx
     , _ev_name = ename ev
     , _ev_qualName = qname ev
