@@ -193,15 +193,14 @@ countTxMissingEvents pool = do
 
 {- We only need to go back so far to search for events in coinbase transactions -}
 countCoinbaseTxMissingEvents :: P.Pool Connection -> Integer -> IO (Map ChainId Int64)
-countCoinbaseTxMissingEvents pool minheight = do
+countCoinbaseTxMissingEvents pool eventsActivationHeight = do
     chainCounts <- P.withResource pool $ \c -> runBeamPostgres c $
       runSelectReturningList $
       select $
       aggregate_ agg $ do
         event <- all_ (_cddb_events database)
-        blk <- all_ (_cddb_blocks database)
-        guard_ (_block_height blk >=. val_ (fromIntegral minheight) &&. _block_hash blk ==. coerce (_ev_block event))
-        return (_block_chainId blk, _block_height blk)
+        guard_ (_ev_height event >=. val_ (fromIntegral eventsActivationHeight))
+        return (_ev_chainid event, _ev_height event)
     return $ M.mapMaybe id $ M.fromList $ map (first $ ChainId . fromIntegral) chainCounts
   where
     agg (cid, height) = (group_ cid, as_ @(Maybe Int64) $ min_ height)
