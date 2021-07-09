@@ -168,7 +168,6 @@ data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
   , _backfillArgs_onlyEvents :: Bool
   , _backfillArgs_eventChunkSize :: Maybe Integer
-  , _backfillArgs_chainwebVersion :: ChainwebVersion
   } deriving (Eq,Ord,Show)
 
 data ServerEnv = ServerEnv
@@ -235,7 +234,6 @@ bfArgsP = BackfillArgs
   <$> delayP
   <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
-  <*> (ChainwebVersion <$> strOption (long "chainweb-version" <> metavar "CHAINWEB_VERSION" <> help "Version of the chainweb node"))
 
 commands :: Parser Command
 commands = hsubparser

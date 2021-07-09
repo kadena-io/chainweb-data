@@ -35,7 +35,6 @@ import           Control.Lens (iforM_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import qualified Data.Text as T
 import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
 
@@ -124,10 +123,8 @@ backfillEvents e args = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    coinbaseEventsActivationHeight = case T.toLower $ getCWVersion $ _backfillArgs_chainwebVersion args of
-      "mainnet" -> 1722500
+    coinbaseEventsActivationHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo e of
       "mainnet01" -> 1722500
-      "testnet" -> 1261001
       "testnet04" -> 1261001
       _ -> error "Chainweb version: Unknown"
     f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
