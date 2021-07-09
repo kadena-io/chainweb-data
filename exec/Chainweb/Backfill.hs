@@ -140,8 +140,8 @@ backfillEvents e args = do
           Just bpwo -> do
             let allTxsEvents = snd $ mkBlockEvents' h chain current_hash bpwo
                 rqKeyEventsMap = allTxsEvents
-                  & mapMaybe (\ev -> fmap (flip (,) [ev]) (_ev_requestkey ev))
-                  & M.fromListWith (<>)
+                  & mapMaybe (\ev -> fmap (flip (,) 1) (_ev_requestkey ev))
+                  & M.fromListWith (+)
 
             P.withResource pool $ \c ->
               withTransaction c $ do
@@ -150,10 +150,10 @@ backfillEvents e args = do
                     $ insert (_cddb_events database) (insertValues allTxsEvents)
                     $ onConflict (conflictingFields primaryKey) onConflictDoNothing
                 withSavepoint c $ runBeamPostgres c $
-                  iforM_ rqKeyEventsMap $ \reqKey events ->
+                  iforM_ rqKeyEventsMap $ \reqKey num_events ->
                     runUpdate
                       $ update (_cddb_transactions database)
-                          (\tx -> _tx_numEvents tx <-. val_ (Just (fromIntegral $ length events)))
+                          (\tx -> _tx_numEvents tx <-. val_ (Just num_events))
                           (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
             atomicModifyIORef' count (\n -> (n+1, ()))
 
@@ -238,7 +238,7 @@ getCoinbaseMissingEvents chain eventsActivationHeight minHeight pool =
 -- | Get the highest lim blocks with transactions that have unfilled events
 getTxMissingEvents :: ChainId -> P.Pool Connection -> Integer -> IO [(Int64, (DbHash, DbHash))]
 getTxMissingEvents chain pool lim = do
-    P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+    P.withResource pool $ \c -> runBeamPostgres c $
       runSelectReturningList $
       select $
       limit_ lim $
