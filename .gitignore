@@ -7,3 +7,5 @@ dist*
 result
 .nd
 cwdb-pgdata
+/TAGS
+/stack.yaml.lock

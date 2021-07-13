@@ -62,10 +62,17 @@ main = do
                 let !env = Env m pool us u ni cids
                 case c of
                   Listen -> listen env
-                  Backfill rateLimit -> backfill env rateLimit
+                  Backfill as -> backfill env as
                   Gaps rateLimit -> gaps env rateLimit
                   Single cid h -> single env cid h
                   Server serverEnv -> apiServer env serverEnv
   where
     opts = info ((richListP <|> envP) <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
+
+
+{-
+λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
+λ> :main single --chain 0 --height 1494311 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
+λ> :main server --port 9999 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
+-}

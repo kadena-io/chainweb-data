@@ -2,6 +2,7 @@
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
@@ -21,6 +22,9 @@ import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
+import           Data.Aeson
+import           Data.ByteString.Lazy (ByteString)
+import           Data.Coerce
 import           Data.Foldable
 import           Data.Int
 import           Data.IORef
@@ -56,11 +60,14 @@ import           Chainweb.Lookups
 import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
+import           ChainwebData.EventDetail
 import           ChainwebData.Pagination
+import           ChainwebData.TxDetail
 import           ChainwebData.TxSummary
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Event
 ------------------------------------------------------------------------------
 
 setCors :: Middleware
@@ -107,7 +114,24 @@ ssCirculatingCoins = lens _ssCirculatingCoins setter
   where
     setter sc v = sc { _ssCirculatingCoins = v }
 
-type TheApi = ChainwebDataApi :<|> ("richlist.csv" :> Get '[PlainText] Text)
+type RichlistEndpoint = "richlist.csv" :> Get '[PlainText] Text
+
+type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
+
+type EventEndpoint = "events"
+    :> LimitParam
+    :> OffsetParam
+    :> QueryParam "param" Text
+    :> QueryParam "requestkey" Text
+    :> QueryParam "name" Text
+    :> QueryParam "idx" Int
+    :> Get '[JSON] [EventDetail]
+
+type TheApi =
+  ChainwebDataApi
+  :<|> RichlistEndpoint
+  :<|> TxEndpoint
+  :<|> EventEndpoint
 theApi :: Proxy TheApi
 theApi = Proxy
 
@@ -129,7 +153,9 @@ apiServer env senv = do
     searchTxs (logFunc senv) pool) :<|>
     statsHandler ssRef :<|>
     coinsHandler ssRef) :<|>
-    richlistHandler
+    richlistHandler :<|>
+    txHandler (logFunc senv) pool :<|>
+    evHandler (logFunc senv) pool
 
 scheduledUpdates
   :: Env
@@ -221,8 +247,7 @@ searchTxs
   -> Maybe Offset
   -> Maybe Text
   -> Handler [TxSummary]
-searchTxs _ _ _ _ Nothing = do
-    throwError $ err404 { errBody = "You must specify a search string" }
+searchTxs _ _ _ _ Nothing = throw404 "You must specify a search string"
 searchTxs printLog pool limit offset (Just search) = do
     liftIO $ putStrLn $ "Transaction search: " <> T.unpack search
     liftIO $ P.withResource pool $ \c -> do
@@ -251,6 +276,112 @@ searchTxs printLog pool limit offset (Just search) = do
     getHeight (_,a,_,_,_,_,_) = a
     mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
     searchString = "%" <> search <> "%"
+
+throw404 :: MonadError ServerError m => ByteString -> m a
+throw404 msg = throwError $ err404 { errBody = msg }
+
+txHandler
+  :: (String -> IO ())
+  -> P.Pool Connection
+  -> Maybe Text
+  -> Handler TxDetail
+txHandler _ _ Nothing = throw404 "You must specify a search string"
+txHandler printLog pool (Just rk) =
+  may404 $ liftIO $ P.withResource pool $ \c ->
+  runBeamPostgresDebug printLog c $ do
+    r <- runSelectReturningOne $ select $ do
+      tx <- all_ (_cddb_transactions database)
+      blk <- all_ (_cddb_blocks database)
+      guard_ (_tx_block tx `references_` blk)
+      guard_ (_tx_requestKey tx ==. val_ rk)
+      return (tx,blk)
+    evs <- runSelectReturningList $ select $ do
+       ev <- all_ (_cddb_events database)
+       guard_ (_ev_requestkey ev ==. val_ (Just $ DbHash rk))
+       return ev
+    return $ (`fmap` r) $ \(tx,blk) -> TxDetail
+        { _txDetail_ttl = fromIntegral $ _tx_ttl tx
+        , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
+        , _txDetail_gasPrice = _tx_gasPrice tx
+        , _txDetail_nonce = _tx_nonce tx
+        , _txDetail_pactId = _tx_pactId tx
+        , _txDetail_rollback = _tx_rollback tx
+        , _txDetail_step = fromIntegral <$> _tx_step tx
+        , _txDetail_data = unMaybeValue $ _tx_data tx
+        , _txDetail_proof = _tx_proof tx
+        , _txDetail_gas = fromIntegral $ _tx_gas tx
+        , _txDetail_result =
+          maybe (unMaybeValue $ _tx_badResult tx) unPgJsonb $
+          _tx_goodResult tx
+        , _txDetail_logs = fromMaybe "" $ _tx_logs tx
+        , _txDetail_metadata = unMaybeValue $ _tx_metadata tx
+        , _txDetail_continuation = unPgJsonb <$> _tx_continuation tx
+        , _txDetail_txid = maybe 0 fromIntegral $ _tx_txid tx
+        , _txDetail_chain = fromIntegral $ _tx_chainId tx
+        , _txDetail_height = fromIntegral $ _block_height blk
+        , _txDetail_blockTime = _block_creationTime blk
+        , _txDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
+        , _txDetail_creationTime = _tx_creationTime tx
+        , _txDetail_requestKey = _tx_requestKey tx
+        , _txDetail_sender = _tx_sender tx
+        , _txDetail_code = _tx_code tx
+        , _txDetail_success =
+          maybe False (const True) $ _tx_goodResult tx
+        , _txDetail_events = map toTxEvent evs
+        }
+
+  where
+    unMaybeValue = maybe Null unPgJsonb
+    toTxEvent ev =
+      TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
+    may404 a = a >>= maybe (throw404 "Tx not found") return
+
+evHandler
+  :: (String -> IO ())
+  -> P.Pool Connection
+  -> Maybe Limit
+  -> Maybe Offset
+  -> Maybe Text
+  -> Maybe Text
+  -> Maybe Text
+  -> Maybe Int
+  -> Handler [EventDetail]
+evHandler printLog pool limit offset qParam qReqKey qName qIdx =
+  liftIO $ P.withResource pool $ \c -> do
+    r <- runBeamPostgresDebug printLog c $
+      runSelectReturningList $ select $
+        limit_ lim $ offset_ off $ orderBy_ getOrder $ do
+          tx <- all_ (_cddb_transactions database)
+          blk <- all_ (_cddb_blocks database)
+          ev <- all_ (_cddb_events database)
+          guard_ (_tx_block tx `references_` blk)
+          guard_ (TransactionId (coerce $ _ev_requestkey ev) `references_` tx)
+          whenArg qReqKey $ \rk -> guard_ (_tx_requestKey tx ==. val_ rk)
+          whenArg qName $ \n -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
+          whenArg qParam $ \p -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
+          whenArg qIdx $ \i -> guard_ (_ev_idx ev ==. val_ (fromIntegral i))
+          return (tx,blk,ev)
+    return $ (`map` r) $ \(tx,blk,ev) -> EventDetail
+      { _evDetail_name = _ev_qualName ev
+      , _evDetail_params = unPgJsonb $ _ev_params ev
+      , _evDetail_moduleHash = _ev_moduleHash ev
+      , _evDetail_chain = fromIntegral $ _tx_chainId tx
+      , _evDetail_height = fromIntegral $ _block_height blk
+      , _evDetail_blockTime = _block_creationTime blk
+      , _evDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
+      , _evDetail_requestKey = _tx_requestKey tx
+      , _evDetail_idx = fromIntegral $ _ev_idx ev
+      }
+  where
+    whenArg p a = maybe (return ()) a p
+    lim = maybe 10 (min 100 . unLimit) limit
+    off = maybe 0 unOffset offset
+    getOrder (tx,blk,ev) =
+      (desc_ $ _block_height blk
+      ,asc_ $ _tx_chainId tx
+      ,desc_ $ _tx_txid tx
+      ,asc_ $ _ev_idx ev)
+    searchString search = "%" <> search <> "%"
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
 infixr 3 :.
@@ -309,4 +440,3 @@ logFunc e s = if _serverEnv_verbose e then putStrLn s else return ()
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v
-
