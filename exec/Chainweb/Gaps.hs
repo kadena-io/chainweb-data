@@ -22,14 +22,18 @@ import           Database.PostgreSQL.Simple
 
 gaps :: Env -> Maybe Int -> IO ()
 gaps e delay = do
-  count <- newIORef 0
+  blockCount <- newIORef 0
+  gapCount <- newIORef (0 :: Int)
   withGaps pool $ \(cid,lo,hi) -> do
       let strat = case delay of
             Nothing -> Par'
             Just _ -> Seq
-      traverseConcurrently_ strat (f count cid) [lo + 1, lo + 2 .. hi - 1]
-  final <- readIORef count
-  printf "[INFO] Filled in %d missing blocks.\n" final
+      traverseConcurrently_ strat (f blockCount cid) [lo + 1, lo + 2 .. hi - 1]
+      modifyIORef' gapCount succ
+  finalBlockCount <- readIORef blockCount
+  finalGapCount <- readIORef gapCount
+  printf "[INFO] Filled in %d missing gaps.\n" finalGapCount
+  printf "[INFO] Filled in %d missing blocks.\n" finalBlockCount
   where
     pool = _env_dbConnPool e
     f :: IORef Int -> Int -> BlockHeight -> IO ()
