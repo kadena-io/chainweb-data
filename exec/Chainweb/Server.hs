@@ -118,20 +118,10 @@ type RichlistEndpoint = "richlist.csv" :> Get '[PlainText] Text
 
 type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
 
-type EventEndpoint = "events"
-    :> LimitParam
-    :> OffsetParam
-    :> QueryParam "param" Text
-    :> QueryParam "requestkey" Text
-    :> QueryParam "name" Text
-    :> QueryParam "idx" Int
-    :> Get '[JSON] [EventDetail]
-
 type TheApi =
   ChainwebDataApi
   :<|> RichlistEndpoint
   :<|> TxEndpoint
-  :<|> EventEndpoint
 theApi :: Proxy TheApi
 theApi = Proxy
 
@@ -149,13 +139,15 @@ apiServer env senv = do
   _ <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve theApi $
-    ((recentTxsHandler ssRef :<|>
-    searchTxs (logFunc senv) pool) :<|>
-    statsHandler ssRef :<|>
-    coinsHandler ssRef) :<|>
-    richlistHandler :<|>
-    txHandler (logFunc senv) pool :<|>
-    evHandler (logFunc senv) pool
+    ( ( recentTxsHandler ssRef
+        :<|> searchTxs (logFunc senv) pool
+        :<|> evHandler (logFunc senv) pool
+      )
+      :<|> statsHandler ssRef
+      :<|> coinsHandler ssRef
+    )
+    :<|> richlistHandler
+    :<|> txHandler (logFunc senv) pool
 
 scheduledUpdates
   :: Env
