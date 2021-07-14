@@ -32,6 +32,7 @@ import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 
 import           Control.Lens (iforM_)
+import           Data.List.Split (chunksOf)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
@@ -156,16 +157,18 @@ backfillEvents e args = do
 
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
-        forM_ coinbaseBlocks $ \(h, (current_hash, ph)) -> do
-          payloadWithOutputs e (T2 chain ph) >>= \case
-            Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
-                            (unChainId chain) h (unDbHash ph)
-            Just bpwo -> do
-              P.withResource pool $ \c -> runBeamPostgres c $
-                runInsert
-                  $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain current_hash bpwo)
-                  $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-              atomicModifyIORef' count (\n -> (n+1, ()))
+        -- TODO: Make chunk size configurable
+        forM_ (chunksOf 100 coinbaseBlocks) $ \chunk -> do
+          payloadWithOutputsBatch e chain (snd . snd <$> chunk) >>= \case
+            Nothing -> printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
+            Just bpwos -> do
+                let writePayload (h, (current_hash,_)) bpwo = do
+                      P.withResource pool $ \c -> runBeamPostgres c $
+                        runInsert
+                          $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain current_hash bpwo)
+                          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+                      atomicModifyIORef' count (\n -> (n+1, ()))
+                zipWithM_ writePayload coinbaseBlocks bpwos
           forM_ delay threadDelay
 
       delayFunc

@@ -6,6 +6,7 @@ module Chainweb.Lookups
   ( -- * Endpoints
     headersBetween
   , payloadWithOutputs
+  , payloadWithOutputsBatch
   , getNodeInfo
   , queryCut
   , cutMaxHeight
@@ -46,11 +47,13 @@ import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
+import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Control.Lens
 import           Data.Aeson.Lens
 import           Network.HTTP.Client hiding (Proxy)
+import           Network.HTTP.Client (Manager)
 
 --------------------------------------------------------------------------------
 -- Endpoints
@@ -70,6 +73,27 @@ headersBetween env (cid, Low low, High up) = do
 
     f :: T.Text -> Maybe BlockHeader
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
+
+payloadWithOutputsBatch :: Env -> ChainId -> [DbHash] -> IO (Maybe [BlockPayloadWithOutputs])
+payloadWithOutputsBatch env (ChainId cid) hshes' = do
+    initReq <- parseRequest url
+    let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
+    res <- httpLbs req (_env_httpManager env)
+    let body = responseBody res
+    case eitherDecode' body of
+      Left e -> do
+        putStrLn "Decoding error in payloadWithOutputs (batch mode):"
+        putStrLn e
+        T.putStrLn $ T.decodeUtf8 $ B.toStrict body
+        pure Nothing
+      Right as -> pure $ Just as
+  where
+    hshes = String . unDbHash <$> hshes'
+    url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> query
+    query = printf "/chainweb/0.0/testnet04/chain/%d/payload/outputs/batch" cid
+    encoding = [("content-type", "application/json")]
+    requestObject = Array $ V.fromList hshes
+
 
 payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
 payloadWithOutputs env (T2 cid0 hsh0) = do
