@@ -31,7 +31,7 @@ lookupPlan gi = M.foldrWithKey go []
             -- and genesis height
             --
             ranges = map (Low . last &&& High . head) $
-              groupsOf 100 [cmin - 1, cmin - 2 .. genesis]
+              groupsOf 360 [cmin - 1, cmin - 2 .. genesis]
 
             -- calculate high water entry against minimum block height for cid
             --
