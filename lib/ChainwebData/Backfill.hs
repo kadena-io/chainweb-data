@@ -63,7 +63,7 @@ oldLookupPlan mins = concatMap (\pair -> mapMaybe (g pair) asList) ranges
     asList = map (second (\n -> High . max 0 $ n - 1)) $ M.toList mins
 
     ranges :: [(Low, High)]
-    ranges = map (Low . last &&& High . head) $ groupsOf 100 [maxi, maxi-1 .. 0]
+    ranges = map (Low . last &&& High . head) $ groupsOf 360 [maxi, maxi-1 .. 0]
 
     g :: (Low, High) -> (ChainId, High) -> Maybe (ChainId, Low, High)
     g (l@(Low l'), u) (cid, mx@(High mx'))
