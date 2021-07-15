@@ -1,12 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
 
-import           BasePrelude
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
@@ -17,21 +15,39 @@ import           Chainweb.Worker (writeBlock)
 import           ChainwebDb.Types.Block
 import           ChainwebData.Genesis
 import           ChainwebData.Types
+import           Control.Arrow
+import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
+import           Data.ByteString.Lazy (ByteString)
+import           Data.Foldable
+import           Data.IORef
+import           Data.Int
 import qualified Data.IntSet as S
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
+import           Data.Maybe
 import qualified Data.Pool as P
+import           Data.Semigroup
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
+import           Text.Printf
 
 ---
 
 gaps :: Env -> Maybe Int -> IO ()
-gaps e delay = do
-  cutBS <- queryCut e
+gaps env delay = do
+  ecut <- queryCut env
+  case ecut of
+    Left e -> do
+      putStrLn "[FAIL] Error querying cut"
+      print e
+    Right cutBS -> gapsCut env delay cutBS
+
+gapsCut :: Env -> Maybe Int -> ByteString -> IO ()
+gapsCut env delay cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
-      cids = atBlockHeight curHeight $ _env_chainsAtHeight e
+      cids = atBlockHeight curHeight $ _env_chainsAtHeight env
   work genesisInfo cids pool >>= \case
     Nothing -> printf "[INFO] No gaps detected.\n"
     Just bs -> do
@@ -46,15 +62,19 @@ gaps e delay = do
       final <- readIORef count
       printf "[INFO] Filled in %d missing blocks.\n" final
   where
-    pool = _env_dbConnPool e
-    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+    pool = _env_dbConnPool env
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo env
     delayFunc =
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
     f :: IORef Int -> (BlockHeight, Int) -> IO ()
     f count (h, cid) = do
-      headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
+      let range = (ChainId cid, Low h, High h)
+      headersBetween env range >>= \case
+        Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
+        Right [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+        Right hs -> traverse_ (writeBlock env pool count) hs
       delayFunc
 
 --queryGaps :: Env -> IO (BlockHeight, Int, Int)

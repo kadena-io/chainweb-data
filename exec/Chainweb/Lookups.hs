@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Lookups
@@ -15,9 +15,12 @@ module Chainweb.Lookups
   , mkBlockEvents'
   , mkCoinbaseEvents
   , bpwoMinerKeys
+
+  , ErrorType(..)
+  , ApiError(..)
+  , handleRequest
   ) where
 
-import           BasePrelude
 import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -34,33 +37,63 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
+import           Control.Applicative
 import           Control.Error.Util (hush)
+import           Control.Lens
+import           Control.Monad
 import           Data.Aeson
+import           Data.Aeson.Lens
 import           Data.ByteString.Lazy (ByteString,toStrict)
-import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Base64.URL as B64
+import           Data.Coerce
 import qualified Data.HashMap.Strict as HM
+import           Data.Foldable
+import           Data.Int
+import           Data.Maybe
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import           Control.Lens
-import           Data.Aeson.Lens
 import           Network.HTTP.Client hiding (Proxy)
+import           Network.HTTP.Types
+import           Text.Printf
+
+data ErrorType = RateLimiting | ClientError | ServerError | OtherError T.Text
+  deriving (Eq,Ord,Show)
+
+data ApiError = ApiError
+  { apiError_type :: ErrorType
+  , apiError_status :: Status
+  , apiError_body :: ByteString
+  } deriving (Eq,Ord,Show)
+
+handleRequest :: Request -> Manager -> IO (Either ApiError (Response ByteString))
+handleRequest req mgr = do
+  res <- httpLbs req mgr
+  let mkErr t = ApiError t (responseStatus res) (responseBody res)
+      checkErr s
+        | statusCode s == 429 || statusCode s == 403 = Left $ mkErr RateLimiting
+        | statusIsClientError s = Left $ mkErr ClientError
+        | statusIsServerError s = Left $ mkErr ServerError
+        | statusIsSuccessful s = Right res
+        | otherwise = Left $ mkErr $ OtherError "unknown error"
+  pure $ checkErr (responseStatus res)
 
 --------------------------------------------------------------------------------
 -- Endpoints
 
-headersBetween :: Env -> (ChainId, Low, High) -> IO [BlockHeader]
+headersBetween
+  :: Env
+  -> (ChainId, Low, High)
+  -> IO (Either ApiError [BlockHeader])
 headersBetween env (cid, Low low, High up) = do
   req <- parseRequest url
-  res <- httpLbs (req { requestHeaders = requestHeaders req <> encoding })
-                 (_env_httpManager env)
-  pure . (^.. key "items" . values . _String . to f . _Just) $ responseBody res
+  eresp <- handleRequest (req { requestHeaders = requestHeaders req <> encoding })
+                     (_env_httpManager env)
+  pure $ (^.. key "items" . values . _String . to f . _Just) . responseBody <$> eresp
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> query
@@ -71,19 +104,20 @@ headersBetween env (cid, Low low, High up) = do
     f :: T.Text -> Maybe BlockHeader
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
 
-payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
+payloadWithOutputs
+  :: Env
+  -> T2 ChainId DbHash
+  -> IO (Either ApiError BlockPayloadWithOutputs)
 payloadWithOutputs env (T2 cid0 hsh0) = do
   req <- parseRequest url
-  res <- httpLbs req (_env_httpManager env)
-  let body = responseBody res
-  case eitherDecode' body of
-    Left e -> do
-      putStrLn "Decoding error in payloadWithOutputs:"
-      putStrLn e
-      putStrLn "Received response:"
-      T.putStrLn $ T.decodeUtf8 $ B.toStrict body
-      pure Nothing
-    Right a -> pure $ Just a
+  eresp <- handleRequest req (_env_httpManager env)
+  let res = do
+        resp <- eresp
+        case eitherDecode' (responseBody resp) of
+          Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputs: " <> T.pack e)
+                                    (responseStatus resp) (responseBody resp)
+          Right a -> Right a
+  pure res
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
@@ -99,15 +133,15 @@ getNodeInfo m us = do
   res <- httpLbs req m
   pure $ eitherDecode' (responseBody res)
 
-queryCut :: Env -> IO ByteString
+queryCut :: Env -> IO (Either ApiError ByteString)
 queryCut e = do
   let v = _nodeInfo_chainwebVer $ _env_nodeInfo e
       m = _env_httpManager e
       u = _env_p2pUrl e
       url = printf "%s/chainweb/0.0/%s/cut" (showUrlScheme $ UrlScheme Https u) (T.unpack v)
   req <- parseRequest url
-  res <- httpLbs req m
-  pure $ responseBody res
+  res <- handleRequest req m
+  pure $ responseBody <$> res
 
 cutMaxHeight :: ByteString -> Integer
 cutMaxHeight bs = maximum $ (0:) $ bs ^.. key "hashes" . members . key "height" . _Integer

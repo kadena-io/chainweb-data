@@ -127,7 +127,15 @@ theApi = Proxy
 
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
-  cutBS <- queryCut env
+  ecut <- queryCut env
+  case ecut of
+    Left e -> do
+      putStrLn "[FAIL] Error querying cut"
+      print e
+    Right cutBS -> apiServerCut env senv cutBS
+
+apiServerCut :: Env -> ServerEnv -> ByteString -> IO ()
+apiServerCut env senv cutBS = do
   let curHeight = cutMaxHeight cutBS
   circulatingCoins <- queryCirculatingCoins env (fromIntegral curHeight)
   putStrLn $ "Total coins in circulation: " <> show circulatingCoins
@@ -207,9 +215,11 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
   let height = _blockHeader_height h
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
   payloadWithOutputs env pair >>= \case
-    Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
-      (hashB64U $ _blockHeader_hash h)
-    Just pl -> do
+    Left e -> do
+      printf "[FAIL] Couldn't fetch parent for: %s\n"
+        (hashB64U $ _blockHeader_hash h)
+      print e
+    Right pl -> do
       let hash = _blockHeader_hash h
           tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
           ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos

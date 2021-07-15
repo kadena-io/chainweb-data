@@ -32,6 +32,7 @@ import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 
 import           Control.Lens (iforM_)
+import           Data.ByteString.Lazy (ByteString)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
@@ -47,14 +48,19 @@ import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSav
 ---
 
 backfill :: Env -> BackfillArgs -> IO ()
-backfill e args = do
-  if _backfillArgs_onlyEvents args
-    then backfillEvents e args
-    else backfillBlocks e args
+backfill env args = do
+  ecut <- queryCut env
+  case ecut of
+    Left e -> do
+      putStrLn "[FAIL] Error querying cut"
+      print e
+    Right cutBS ->
+      if _backfillArgs_onlyEvents args
+        then backfillEventsCut env args cutBS
+        else backfillBlocksCut env args cutBS
 
-backfillBlocks :: Env -> BackfillArgs -> IO ()
-backfillBlocks e args = do
-  cutBS <- queryCut e
+backfillBlocksCut :: Env -> BackfillArgs -> ByteString -> IO ()
+backfillBlocksCut env args cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
   counter <- newIORef 0
@@ -75,23 +81,23 @@ backfillBlocks e args = do
         $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
   where
     delay = _backfillArgs_delayMicros args
-    pool = _env_dbConnPool e
-    allCids = _env_chainsAtHeight e
-    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+    pool = _env_dbConnPool env
+    allCids = _env_chainsAtHeight env
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo env
     delayFunc =
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = do
-      headersBetween e range >>= \case
-        [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-        hs -> traverse_ (writeBlock e pool count) hs
+      headersBetween env range >>= \case
+        Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
+        Right [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+        Right hs -> traverse_ (writeBlock env pool count) hs
       delayFunc
 
-backfillEvents :: Env -> BackfillArgs -> IO ()
-backfillEvents e args = do
-  cutBS <- queryCut e
+backfillEventsCut :: Env -> BackfillArgs -> ByteString -> IO ()
+backfillEventsCut env args cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
   counter <- newIORef 0
@@ -117,13 +123,13 @@ backfillEvents e args = do
 
   where
     delay = _backfillArgs_delayMicros args
-    pool = _env_dbConnPool e
-    allCids = _env_chainsAtHeight e
+    pool = _env_dbConnPool env
+    allCids = _env_chainsAtHeight env
     delayFunc =
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    coinbaseEventsActivationHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo e of
+    coinbaseEventsActivationHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo env of
       "mainnet01" -> 1722500
       "testnet04" -> 1261001
       _ -> error "Chainweb version: Unknown"
@@ -131,10 +137,12 @@ backfillEvents e args = do
     f missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       forM_ blocks $ \(h,(current_hash,ph)) -> do
-        payloadWithOutputs e (T2 chain ph) >>= \case
-          Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
-                            (unChainId chain) h (unDbHash ph)
-          Just bpwo -> do
+        payloadWithOutputs env (T2 chain ph) >>= \case
+          Left e -> do
+            printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
+                   (unChainId chain) h (unDbHash current_hash)
+            print e
+          Right bpwo -> do
             let allTxsEvents = snd $ mkBlockEvents' h chain current_hash bpwo
                 rqKeyEventsMap = allTxsEvents
                   & mapMaybe (\ev -> fmap (flip (,) 1) (_ev_requestkey ev))
@@ -157,10 +165,12 @@ backfillEvents e args = do
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
         forM_ coinbaseBlocks $ \(h, (current_hash, ph)) -> do
-          payloadWithOutputs e (T2 chain ph) >>= \case
-            Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
-                            (unChainId chain) h (unDbHash ph)
-            Just bpwo -> do
+          payloadWithOutputs env (T2 chain ph) >>= \case
+            Left e -> do
+              printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
+                     (unChainId chain) h (unDbHash current_hash)
+              print e
+            Right bpwo -> do
               P.withResource pool $ \c -> runBeamPostgres c $
                 runInsert
                   $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain current_hash bpwo)
