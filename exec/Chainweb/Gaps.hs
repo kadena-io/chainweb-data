@@ -13,7 +13,7 @@ import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
-import           Chainweb.Worker (writeBlock)
+import           Chainweb.Worker (writeBlocks)
 import           ChainwebDb.Types.Block
 import           ChainwebData.Genesis
 import           ChainwebData.Types
@@ -48,14 +48,10 @@ gaps e delay = do
   where
     pool = _env_dbConnPool e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
-    delayFunc =
-      case delay of
-        Nothing -> pure ()
-        Just d -> threadDelay d
     f :: IORef Int -> (BlockHeight, Int) -> IO ()
     f count (h, cid) = do
-      headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
-      delayFunc
+      headersBetween e (ChainId cid, Low h, High h) >>= writeBlocks e pool count
+      forM_ delay threadDelay
 
 --queryGaps :: Env -> IO (BlockHeight, Int, Int)
 --queryGaps e = P.withResource pool $ \c -> runBeamPostgres c $ do

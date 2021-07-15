@@ -6,11 +6,13 @@
 module Chainweb.Worker
   ( writes
   , writeBlock
+  , writeBlocks
   ) where
 
 import           BasePrelude hiding (delete, insert)
 import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BlockPayloadWithOutputs
+import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
 import           Chainweb.Database
 import           Chainweb.Env
@@ -21,9 +23,11 @@ import           ChainwebDb.Types.DbHash (DbHash(..))
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
+import           Control.Lens (iforM_)
 import           Control.Retry
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.Map as M
 import qualified Data.Pool as P
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -85,6 +89,33 @@ writeBlock e pool count bh = do
       atomicModifyIORef' count (\n -> (n+1, ()))
       writes pool b k t es
   where
+    policy :: RetryPolicyM IO
+    policy = exponentialBackoff 250_000 <> limitRetries 3
+
+    check :: RetryStatus -> Maybe a -> IO Bool
+    check _ = pure . isNothing
+
+writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [BlockHeader] -> IO ()
+writeBlocks e pool count bhs = do
+    iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
+      retrying policy check (const $ payloadWithOutputsBatch e chain (toDbhash . _blockHeader_payloadHash <$> bhs')) >>= \case
+        Nothing -> printf "[FAIL] Couldn't fetch payload batch for chain: %d" (unChainId chain)
+        Just pls -> do
+          let !ms = _blockPayloadWithOutputs_minerData <$!> pls
+              !bs = (\bh -> asBlock (asPow bh)) <$!> bhs' <*> ms
+              !ts = mkBlockTransactions <$!> bs <*> pls
+              !ess = (\bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh)) <$!> bhs' <*> pls
+              !ks = bpwoMinerKeys <$!> pls
+          atomicModifyIORef' count (\n -> (n + numWrites, ()))
+          sequence_ $ (\b k t es -> writes pool b k t es) <$!> bs <*> ks <*> ts <*> ess
+  where
+    toDbhash = DbHash . hashB64U
+
+    blocksByChainId =
+      M.fromListWith mappend
+        $ bhs
+        <&> \bh -> (_blockHeader_chainId bh, (Sum 1, [bh]))
+
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
 

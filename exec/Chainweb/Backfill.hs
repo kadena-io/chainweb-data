@@ -78,16 +78,12 @@ backfillBlocks e args = do
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
-    delayFunc =
-      case delay of
-        Nothing -> pure ()
-        Just d -> threadDelay d
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = do
       headersBetween e range >>= \case
         [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-        hs -> traverse_ (writeBlock e pool count) hs
-      delayFunc
+        hs -> writeBlocks e pool count hs
+      forM_ delay threadDelay
 
 backfillEvents :: Env -> BackfillArgs -> IO ()
 backfillEvents e args = do
@@ -119,10 +115,6 @@ backfillEvents e args = do
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
-    delayFunc =
-      case delay of
-        Nothing -> pure ()
-        Just d -> threadDelay d
     coinbaseEventsActivationHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo e of
       "mainnet01" -> 1722500
       "testnet04" -> 1261001
@@ -172,7 +164,7 @@ backfillEvents e args = do
                 zipWithM_ writePayload coinbaseBlocks bpwos
           forM_ delay threadDelay
 
-      delayFunc
+      forM_ delay threadDelay
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
