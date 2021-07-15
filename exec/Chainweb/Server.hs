@@ -121,7 +121,6 @@ type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
 type TheApi =
   ChainwebDataApi
   :<|> RichlistEndpoint
-  :<|> TxEndpoint
 theApi :: Proxy TheApi
 theApi = Proxy
 
@@ -142,13 +141,12 @@ apiServer env senv = do
     ( ( recentTxsHandler ssRef
         :<|> searchTxs (logFunc senv) pool
         :<|> evHandler (logFunc senv) pool
-        :<|> undefined
+        :<|> txHandler (logFunc senv) pool
       )
       :<|> statsHandler ssRef
       :<|> coinsHandler ssRef
     )
     :<|> richlistHandler
-    :<|> txHandler (logFunc senv) pool
 
 scheduledUpdates
   :: Env
@@ -276,10 +274,10 @@ throw404 msg = throwError $ err404 { errBody = msg }
 txHandler
   :: (String -> IO ())
   -> P.Pool Connection
-  -> Maybe Text
+  -> Maybe RequestKey
   -> Handler TxDetail
 txHandler _ _ Nothing = throw404 "You must specify a search string"
-txHandler printLog pool (Just rk) =
+txHandler printLog pool (Just (RequestKey rk)) =
   may404 $ liftIO $ P.withResource pool $ \c ->
   runBeamPostgresDebug printLog c $ do
     r <- runSelectReturningOne $ select $ do
