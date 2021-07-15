@@ -69,6 +69,28 @@ writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $ do
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
+batchWrites :: P.Pool Connection -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> IO ()
+batchWrites pool bs kss tss ess = P.withResource pool $ \c -> withTransaction c $ do
+  runBeamPostgres c $ do
+    -- Write Pub Key many-to-many relationships if unique --
+    runInsert
+      $ insert (_cddb_minerkeys database) (insertValues $ concat $ liftA2 (\b ks -> map (MinerKey (pk b)) ks) bs kss)
+      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+    -- Write the Blocks if unique
+    runInsert
+      $ insert (_cddb_blocks database) (insertValues bs)
+      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+
+  withSavepoint c $ runBeamPostgres c $ do
+    -- Write the TXs if unique
+    runInsert
+      $ insert (_cddb_transactions database) (insertValues $ concat tss)
+      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+
+    runInsert
+      $ insert (_cddb_events database) (insertValues $ concat ess)
+      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+
 asPow :: BlockHeader -> PowHeader
 asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHash bh)
 
@@ -103,18 +125,18 @@ writeBlocks e pool count bhs = do
         Just pls -> do
           let !ms = _blockPayloadWithOutputs_minerData <$!> pls
               !bs = (\bh -> asBlock (asPow bh)) <$!> bhs' <*> ms
-              !ts = mkBlockTransactions <$!> bs <*> pls
+              !tss = mkBlockTransactions <$!> bs <*> pls
               !ess = (\bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh)) <$!> bhs' <*> pls
-              !ks = bpwoMinerKeys <$!> pls
+              !kss = bpwoMinerKeys <$!> pls
+          batchWrites pool bs kss tss ess
           atomicModifyIORef' count (\n -> (n + numWrites, ()))
-          sequence_ $ (\b k t es -> writes pool b k t es) <$!> bs <*> ks <*> ts <*> ess
   where
     toDbhash = DbHash . hashB64U
 
     blocksByChainId =
       M.fromListWith mappend
         $ bhs
-        <&> \bh -> (_blockHeader_chainId bh, (Sum 1, [bh]))
+        <&> \bh -> (_blockHeader_chainId bh, (Sum (1 :: Int), [bh]))
 
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
