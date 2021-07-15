@@ -142,6 +142,7 @@ apiServer env senv = do
     ( ( recentTxsHandler ssRef
         :<|> searchTxs (logFunc senv) pool
         :<|> evHandler (logFunc senv) pool
+        :<|> undefined
       )
       :<|> statsHandler ssRef
       :<|> coinsHandler ssRef
@@ -333,12 +334,11 @@ evHandler
   -> P.Pool Connection
   -> Maybe Limit
   -> Maybe Offset
-  -> Maybe Text
-  -> Maybe Text
-  -> Maybe Text
-  -> Maybe Int
+  -> Maybe Text -- ^ fulltext search
+  -> Maybe EventParam
+  -> Maybe EventName
   -> Handler [EventDetail]
-evHandler printLog pool limit offset qParam qReqKey qName qIdx =
+evHandler printLog pool limit offset qSearch qParam qName =
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug printLog c $
       runSelectReturningList $ select $
@@ -348,10 +348,12 @@ evHandler printLog pool limit offset qParam qReqKey qName qIdx =
           ev <- all_ (_cddb_events database)
           guard_ (_tx_block tx `references_` blk)
           guard_ (TransactionId (coerce $ _ev_requestkey ev) `references_` tx)
-          whenArg qReqKey $ \rk -> guard_ (_tx_requestKey tx ==. val_ rk)
-          whenArg qName $ \n -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
-          whenArg qParam $ \p -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
-          whenArg qIdx $ \i -> guard_ (_ev_idx ev ==. val_ (fromIntegral i))
+          whenArg qSearch $ \s -> guard_
+            ((_ev_qualName ev `like_` val_ (searchString s)) ||.
+             (_ev_paramText ev `like_` val_ (searchString s))
+            )
+          whenArg qName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
+          whenArg qParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
           return (tx,blk,ev)
     return $ (`map` r) $ \(tx,blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
