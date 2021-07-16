@@ -345,7 +345,7 @@ evHandler printLog pool limit offset qSearch qParam qName =
           blk <- all_ (_cddb_blocks database)
           ev <- all_ (_cddb_events database)
           guard_ (_tx_block tx `references_` blk)
-          guard_ (TransactionId (coerce $ _ev_requestkey ev) `references_` tx)
+          guard_ (TransactionId (coerce $ _ev_requestkey ev) (_tx_block tx) `references_` tx)
           whenArg qSearch $ \s -> guard_
             ((_ev_qualName ev `like_` val_ (searchString s)) ||.
              (_ev_paramText ev `like_` val_ (searchString s))
