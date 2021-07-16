@@ -63,7 +63,7 @@ asBlock (PowHeader bh ph) m = Block
   , _block_miner_pred   = _minerData_predicate m }
 
 -- | Convert to the "pretty" hash representation that URLs, etc., expect.
-hashToDbHash :: Hash -> DbHash
+hashToDbHash :: Hash -> DbHash t
 hashToDbHash = DbHash . hashB64U
 
 -- | Break a list into groups of @n@ elements. The last item in the result is

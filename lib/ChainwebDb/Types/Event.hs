@@ -24,8 +24,8 @@ import Database.Beam.Postgres (PgJSONB)
 import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 data EventT f = Event
-  { _ev_requestkey :: C f (Maybe DbHash)
-  , _ev_block :: C f (Maybe DbHash)
+  { _ev_requestkey :: C f (Maybe (DbHash PayloadHash))
+  , _ev_block :: C f (Maybe (DbHash BlockHash))
   , _ev_chainid :: C f Int64
   , _ev_height :: C f Int64
   , _ev_idx :: C f Int64
