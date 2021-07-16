@@ -1,8 +1,11 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Database
   ( ChainwebDataDb(..)
@@ -10,18 +13,20 @@ module Chainweb.Database
   , initializeTables
   ) where
 
-import           BasePrelude
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
+import qualified Control.Monad.Fail as Fail
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Database.Beam
 import           Database.Beam.Migrate
+import           Database.Beam.Migrate.Backend
 import           Database.Beam.Migrate.Simple
-import           Database.Beam.Postgres (Connection, Postgres, runBeamPostgres)
+import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Migrate (migrationBackend)
+import           Database.Beam.Postgres.Syntax
 
 ---
 
@@ -105,11 +110,61 @@ database = unCheckDatabase migratableDb
 
 -- | Create the DB tables if necessary.
 initializeTables :: Connection -> IO ()
-initializeTables conn = runBeamPostgres conn $
+initializeTables conn = runBeamPostgresDebug putStrLn conn $ do
   liftIO $ putStrLn "Verifying schema..."
   verifySchema migrationBackend migratableDb >>= \case
-    VerificationFailed _ -> do
-      liftIO $ putStrLn "Migrating schema..."
-      autoMigrate migrationBackend migratableDb
+    VerificationFailed ps -> do
+      liftIO $ do
+        putStrLn "The following schema predicates need to be satisfied:"
+        mapM_ print ps
+        putStrLn "Migrating schema..."
+      ourMigrate migrationBackend migratableDb
       liftIO $ putStrLn "Finished migration."
     VerificationSucceeded -> liftIO $ putStrLn "Schema verified."
+
+ourMigrate
+  :: forall db m.
+     (Database Postgres db,
+      Fail.MonadFail m,
+      MonadIO m)
+  => BeamMigrationBackend Postgres m
+  -> CheckedDatabaseSettings Postgres db
+  -> m ()
+ourMigrate BeamMigrationBackend { backendActionProvider = actions
+                                 , backendGetDbConstraints = getCs }
+           db = do
+    liftIO $ putStrLn "Calling getCs"
+    actual <- getCs
+    liftIO $ putStrLn "Collecting checks"
+    let expected = collectChecks db
+    liftIO $ putStrLn "Running heuristic solver"
+    let !solver = heuristicSolver actions actual expected
+    case solver of
+      ProvideSolution _ -> liftIO $ putStrLn "hueristicSolver returned ProvideSolution"
+      SearchFailed _ -> liftIO $ putStrLn "hueristicSolver returned SearchFailed"
+      ChooseActions _ mkac fs _ -> liftIO $ do
+        putStrLn "hueristicSolver returned ChooseActions"
+        mapM_ (putStrLn . T.unpack . actionEnglish . mkac) fs
+    liftIO $ putStrLn "Calculationg final solution"
+    case finalSolution solver of
+      Candidates {} -> Fail.fail "autoMigrate: Could not determine migration"
+      Solved cmds -> do
+        -- Check if any of the commands are irreversible
+        liftIO $ putStrLn "Folding over migration commands"
+        case foldMap migrationCommandDataLossPossible cmds of
+          MigrationKeepsData -> do
+            liftIO $ do
+              putStrLn "Will run the following migration steps:"
+              mapM_ (print . fromPgCommand . migrationCommand) cmds
+            mapM_ doStep cmds
+          _ -> Fail.fail "autoMigrate: Not performing automatic migration due to data loss"
+  where
+    doStep :: MigrationCommand Postgres -> m ()
+    --doStep c = runNoReturn (migrationCommand c)
+    doStep c = do
+      let s = migrationCommand c
+      liftIO $ do
+        putStrLn "Executing step:"
+        print $ fromPgCommand s
+      runNoReturn s
+
