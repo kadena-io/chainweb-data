@@ -106,6 +106,10 @@ database = unCheckDatabase migratableDb
 -- | Create the DB tables if necessary.
 initializeTables :: Connection -> IO ()
 initializeTables conn = runBeamPostgres conn $
+  liftIO $ putStrLn "Verifying schema..."
   verifySchema migrationBackend migratableDb >>= \case
-    VerificationFailed _ -> autoMigrate migrationBackend migratableDb
-    VerificationSucceeded -> pure ()
+    VerificationFailed _ -> do
+      liftIO $ putStrLn "Migrating schema..."
+      autoMigrate migrationBackend migratableDb
+      liftIO $ putStrLn "Finished migration."
+    VerificationSucceeded -> liftIO $ putStrLn "Schema verified."
