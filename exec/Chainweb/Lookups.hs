@@ -89,8 +89,9 @@ payloadWithOutputsBatch env (ChainId cid) hshes' = do
       Right as -> pure $ Just as
   where
     hshes = String . unDbHash <$> hshes'
-    url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> query
-    query = printf "/chainweb/0.0/testnet04/chain/%d/payload/outputs/batch" cid
+    url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
+    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
+    query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
     encoding = [("content-type", "application/json")]
     requestObject = Array $ V.fromList hshes
 
