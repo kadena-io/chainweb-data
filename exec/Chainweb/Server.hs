@@ -121,7 +121,6 @@ type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
 type TheApi =
   ChainwebDataApi
   :<|> RichlistEndpoint
-  :<|> TxEndpoint
 theApi :: Proxy TheApi
 theApi = Proxy
 
@@ -150,12 +149,12 @@ apiServerCut env senv cutBS = do
     ( ( recentTxsHandler ssRef
         :<|> searchTxs (logFunc senv) pool
         :<|> evHandler (logFunc senv) pool
+        :<|> txHandler (logFunc senv) pool
       )
       :<|> statsHandler ssRef
       :<|> coinsHandler ssRef
     )
     :<|> richlistHandler
-    :<|> txHandler (logFunc senv) pool
 
 scheduledUpdates
   :: Env
@@ -285,10 +284,10 @@ throw404 msg = throwError $ err404 { errBody = msg }
 txHandler
   :: (String -> IO ())
   -> P.Pool Connection
-  -> Maybe Text
+  -> Maybe RequestKey
   -> Handler TxDetail
 txHandler _ _ Nothing = throw404 "You must specify a search string"
-txHandler printLog pool (Just rk) =
+txHandler printLog pool (Just (RequestKey rk)) =
   may404 $ liftIO $ P.withResource pool $ \c ->
   runBeamPostgresDebug printLog c $ do
     r <- runSelectReturningOne $ select $ do
@@ -343,12 +342,11 @@ evHandler
   -> P.Pool Connection
   -> Maybe Limit
   -> Maybe Offset
-  -> Maybe Text
-  -> Maybe Text
-  -> Maybe Text
-  -> Maybe Int
+  -> Maybe Text -- ^ fulltext search
+  -> Maybe EventParam
+  -> Maybe EventName
   -> Handler [EventDetail]
-evHandler printLog pool limit offset qParam qReqKey qName qIdx =
+evHandler printLog pool limit offset qSearch qParam qName =
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug printLog c $
       runSelectReturningList $ select $
@@ -357,11 +355,13 @@ evHandler printLog pool limit offset qParam qReqKey qName qIdx =
           blk <- all_ (_cddb_blocks database)
           ev <- all_ (_cddb_events database)
           guard_ (_tx_block tx `references_` blk)
-          guard_ (TransactionId (coerce $ _ev_requestkey ev) `references_` tx)
-          whenArg qReqKey $ \rk -> guard_ (_tx_requestKey tx ==. val_ rk)
-          whenArg qName $ \n -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
-          whenArg qParam $ \p -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
-          whenArg qIdx $ \i -> guard_ (_ev_idx ev ==. val_ (fromIntegral i))
+          guard_ (TransactionId (coerce $ _ev_requestkey ev) (_tx_block tx) `references_` tx)
+          whenArg qSearch $ \s -> guard_
+            ((_ev_qualName ev `like_` val_ (searchString s)) ||.
+             (_ev_paramText ev `like_` val_ (searchString s))
+            )
+          whenArg qName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
+          whenArg qParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
           return (tx,blk,ev)
     return $ (`map` r) $ \(tx,blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
