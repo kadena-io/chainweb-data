@@ -35,8 +35,12 @@ import           Control.Lens (iforM_)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import           Data.Text (Text)
 import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
+
+
+import           System.Logger.Types hiding (logg)
 
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
@@ -62,19 +66,20 @@ backfillBlocks e args = do
   let count = M.size mins
   if count /= length cids
     then do
-      printf "[FAIL] %d chains have block data, but we expected %d.\n" count (length cids)
-      printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
-      printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
+      logg Error $ fromString $ printf "[FAIL] %d chains have block data, but we expected %d.\n" count (length cids)
+      logg Error $ fromString $ printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
+      logg Error $ fromString $ printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
       exitFailure
     else do
-      printf "[INFO] Beginning backfill on %d chains.\n" count
+      logg Info $ fromString $ printf "[INFO] Beginning backfill on %d chains.\n" count
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
       race_ (progress counter $ foldl' (+) 0 mins)
-        $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
+        $ traverseConcurrently_ strat (f logg counter) $ lookupPlan genesisInfo mins
   where
     delay = _backfillArgs_delayMicros args
+    logg = _env_logger e
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
@@ -82,10 +87,10 @@ backfillBlocks e args = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: IORef Int -> (ChainId, Low, High) -> IO ()
-    f count range = do
+    f :: LogFunctionIO Text -> IORef Int -> (ChainId, Low, High) -> IO ()
+    f logger count range = do
       headersBetween e range >>= \case
-        [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+        [] -> logger Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show range
         hs -> traverse_ (writeBlock e pool count) hs
       delayFunc
 
@@ -101,22 +106,23 @@ backfillEvents e args = do
   missingCoinbase <- countCoinbaseTxMissingEvents pool coinbaseEventsActivationHeight
   if M.null missingTxs && M.null missingCoinbase
     then do
-      printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
+      logg Info $ fromString $ printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
       exitSuccess
     else do
       let numTxs = foldl' (+) 0 missingTxs
           numCoinbase = foldl' (\s h -> s + (h - fromIntegral coinbaseEventsActivationHeight)) 0 missingCoinbase
 
-      printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs (M.size missingTxs)
-      printf "[INFO] Also beginning event backfill (of coinbase transactions) of %d txs on %d chains.\n" numCoinbase (M.size missingCoinbase)
+      logg Info $ fromString $ printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs (M.size missingTxs)
+      logg Info $ fromString $ printf "[INFO] Also beginning event backfill (of coinbase transactions) of %d txs on %d chains.\n" numCoinbase (M.size missingCoinbase)
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
       race_ (progress counter $ fromIntegral (numTxs + numCoinbase))
-        $ traverseConcurrently_ strat (f missingCoinbase counter) cids
+        $ traverseConcurrently_ strat (f logg missingCoinbase counter) cids
 
   where
     delay = _backfillArgs_delayMicros args
+    logg = _env_logger e
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
     delayFunc =
@@ -127,12 +133,12 @@ backfillEvents e args = do
       "mainnet01" -> 1722500
       "testnet04" -> 1261001
       _ -> error "Chainweb version: Unknown"
-    f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
-    f missingCoinbase count chain = do
+    f :: LogFunctionIO Text -> Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
+    f logger missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       forM_ blocks $ \(h,(current_hash,ph)) -> do
         payloadWithOutputs e (T2 chain ph) >>= \case
-          Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
+          Nothing -> logger Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
                             (unChainId chain) h (unDbHash ph)
           Just bpwo -> do
             let allTxsEvents = snd $ mkBlockEvents' h chain current_hash bpwo
@@ -158,7 +164,7 @@ backfillEvents e args = do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
         forM_ coinbaseBlocks $ \(h, (current_hash, ph)) -> do
           payloadWithOutputs e (T2 chain ph) >>= \case
-            Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
+            Nothing -> logger Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
                             (unChainId chain) h (unDbHash ph)
             Just bpwo -> do
               P.withResource pool $ \c -> runBeamPostgres c $

@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -42,7 +43,6 @@ import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.HashMap.Strict as HM
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
-import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
@@ -51,6 +51,7 @@ import           Database.Beam.Postgres
 import           Control.Lens
 import           Data.Aeson.Lens
 import           Network.HTTP.Client hiding (Proxy)
+import           System.Logger.Types hiding (logg)
 
 --------------------------------------------------------------------------------
 -- Endpoints
@@ -78,14 +79,15 @@ payloadWithOutputs env (T2 cid0 hsh0) = do
   let body = responseBody res
   case eitherDecode' body of
     Left e -> do
-      putStrLn "Decoding error in payloadWithOutputs:"
-      putStrLn e
-      putStrLn "Received response:"
-      T.putStrLn $ T.decodeUtf8 $ B.toStrict body
+      logg Warn "Decoding error in payloadWithOutputs:"
+      logg Warn $ fromString $ show  e
+      logg Warn $ "Received response:"
+      logg Warn $ T.decodeUtf8 $ B.toStrict body
       pure Nothing
     Right a -> pure $ Just a
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
+    logg = _env_logger env
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
     cid = T.pack $ show cid0

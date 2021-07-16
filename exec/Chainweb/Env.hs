@@ -50,6 +50,7 @@ import           Network.HTTP.Client (Manager)
 import           Options.Applicative
 import qualified Servant.Client as S
 import           System.IO
+import           System.Logger.Types
 import           Text.Printf
 
 ---
@@ -69,6 +70,7 @@ data Env = Env
   , _env_p2pUrl :: Url
   , _env_nodeInfo :: NodeInfo
   , _env_chainsAtHeight :: [(BlockHeight, [ChainId])]
+  , _env_logger :: LogFunctionIO Text
   }
 
 chainStartHeights :: [(BlockHeight, [ChainId])] -> Map ChainId BlockHeight

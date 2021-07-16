@@ -16,16 +16,18 @@ import qualified Data.Csv as Csv
 import Data.Foldable (traverse_)
 import Data.List (sortOn, isPrefixOf, sort)
 import qualified Data.Map.Strict as M
+import           Data.Text (Text)
 import Data.Ord (Down(..))
 import qualified Data.Vector as V
 
 import System.Directory
 import System.FilePath
 import System.Process
+import System.Logger.Types
 
 
-richList :: FilePath -> IO ()
-richList fp = do
+richList :: LogFunctionIO Text -> FilePath -> IO ()
+richList logger fp = do
     --
     -- Steps:
     --   1. Check whether specified top-level db path is reachable
@@ -41,14 +43,14 @@ richList fp = do
         $ "Chainweb-node top-level db directory does not exist: "
         <> fp
 
-    putStrLn "[INFO] Aggregating richlist.csv..."
+    logger Info $ "[INFO] Aggregating richlist.csv..."
     let cmd = proc "/bin/sh" ["scripts/richlist.sh", show chains]
     void $! readCreateProcess cmd []
 
-    putStrLn "[INFO] Filtering top 100 richest accounts..."
+    logger Info $ "[INFO] Filtering top 100 richest accounts..."
     void $! pruneRichList
 
-    putStrLn "[INFO] Finished."
+    logger Info $ "[INFO] Finished."
   where
     pruneRichList = do
       csv <- LBS.readFile "richlist.csv"
