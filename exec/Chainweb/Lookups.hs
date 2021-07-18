@@ -74,7 +74,7 @@ headersBetween env (cid, Low low, High up) = do
     f :: T.Text -> Maybe BlockHeader
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
 
-payloadWithOutputsBatch :: Env -> ChainId -> [DbHash] -> IO (Maybe [BlockPayloadWithOutputs])
+payloadWithOutputsBatch :: Env -> ChainId -> [DbHash PayloadHash] -> IO (Maybe [BlockPayloadWithOutputs])
 payloadWithOutputsBatch env (ChainId cid) hshes' = do
     initReq <- parseRequest url
     let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
@@ -96,7 +96,7 @@ payloadWithOutputsBatch env (ChainId cid) hshes' = do
     requestObject = Array $ V.fromList hshes
 
 
-payloadWithOutputs :: Env -> T2 ChainId DbHash -> IO (Maybe BlockPayloadWithOutputs)
+payloadWithOutputs :: Env -> T2 ChainId (DbHash PayloadHash) -> IO (Maybe BlockPayloadWithOutputs)
 payloadWithOutputs env (T2 cid0 hsh0) = do
   req <- parseRequest url
   res <- httpLbs req (_env_httpManager env)
@@ -152,15 +152,15 @@ mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_tran
 -- the current block hash and NOT the parent hash However, the source key of the
 -- event in chainweb-data database instance is the current block hash and NOT
 -- the parent hash.
-mkBlockEvents' :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> ([Event], [Event])
+mkBlockEvents' :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ([Event], [Event])
 mkBlockEvents' height cid blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
     & concatMap (mkTxEvents height cid)
     & ((,) (mkCoinbaseEvents height cid blockhash pl))
 
-mkBlockEvents :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
+mkBlockEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkBlockEvents height cid blockhash pl = uncurry (++) (mkBlockEvents' height cid blockhash pl)
 
-mkCoinbaseEvents :: Int64 -> ChainId -> DbHash -> BlockPayloadWithOutputs -> [Event]
+mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
     & coerce
     & _toutEvents
@@ -217,7 +217,7 @@ mkTxEvents height cid (tx,txo) = zipWith (mkEvent cid height (Left k)) (_toutEve
   where
     k = DbHash $ hashB64U $ CW._transaction_hash tx
 
-mkEvent :: ChainId -> Int64 -> Either DbHash DbHash -> Value -> Int64 -> Event
+mkEvent :: ChainId -> Int64 -> Either (DbHash PayloadHash) (DbHash BlockHash) -> Value -> Int64 -> Event
 mkEvent (ChainId chainid) height requestkeyOrBlock ev idx = Event
     { _ev_requestkey = requestkey
     , _ev_block = block

@@ -31,3 +31,11 @@ ADD PRIMARY KEY (sourcekey, idx);
 UPDATE events SET sourcetype = 'Source_Tx';
 ```
 
+# 2021-07-16 Expand transactions primary key
+
+```
+BEGIN;
+ALTER TABLE transactions DROP CONSTRAINT transactions_pkey;
+ALTER TABLE transactions ADD PRIMARY KEY (requestkey, block);
+COMMIT;
+```

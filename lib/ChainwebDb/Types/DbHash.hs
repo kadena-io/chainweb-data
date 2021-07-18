@@ -17,14 +17,19 @@ import Database.Beam.Query (HasSqlEqualityCheck)
 import GHC.Generics
 ------------------------------------------------------------------------------
 
+
+data PayloadHash = PayloadHash
+data PowHash = PowHash
+data BlockHash = BlockHash
+
 -- | DB hashes stored as Base64Url encoded text for more convenient querying.
-newtype DbHash = DbHash { unDbHash :: Text }
+newtype DbHash t = DbHash { unDbHash :: Text }
   deriving stock (Eq, Ord, Show, Generic)
   deriving newtype (HasSqlValueSyntax PgValueSyntax, HasDefaultSqlDataType Postgres)
   deriving newtype (FromBackendRow Postgres, HasSqlEqualityCheck Postgres)
 
-instance ToJSON DbHash where
+instance ToJSON (DbHash t) where
     toJSON = toJSON . unDbHash
 
-instance FromJSON DbHash where
+instance FromJSON (DbHash t) where
     parseJSON = withText "DbHash" $ \v -> pure $ DbHash v
