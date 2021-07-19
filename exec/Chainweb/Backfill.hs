@@ -32,10 +32,10 @@ import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 
 import           Control.Lens (iforM_)
+import           Data.List.Split (chunksOf)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
 
 import           Database.Beam hiding (insert)
@@ -78,16 +78,12 @@ backfillBlocks e args = do
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
     genesisInfo = mkGenesisInfo $ _env_nodeInfo e
-    delayFunc =
-      case delay of
-        Nothing -> pure ()
-        Just d -> threadDelay d
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = do
       headersBetween e range >>= \case
         [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-        hs -> traverse_ (writeBlock e pool count) hs
-      delayFunc
+        hs -> writeBlocks e pool count hs
+      forM_ delay threadDelay
 
 backfillEvents :: Env -> BackfillArgs -> IO ()
 backfillEvents e args = do
@@ -119,10 +115,6 @@ backfillEvents e args = do
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool e
     allCids = _env_chainsAtHeight e
-    delayFunc =
-      case delay of
-        Nothing -> pure ()
-        Just d -> threadDelay d
     coinbaseEventsActivationHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo e of
       "mainnet01" -> 1722500
       "testnet04" -> 1261001
@@ -130,45 +122,49 @@ backfillEvents e args = do
     f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
     f missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
-      forM_ blocks $ \(h,(current_hash,ph)) -> do
-        payloadWithOutputs e (T2 chain ph) >>= \case
-          Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
-                            (unChainId chain) h (unDbHash ph)
-          Just bpwo -> do
-            let allTxsEvents = snd $ mkBlockEvents' h chain current_hash bpwo
-                rqKeyEventsMap = allTxsEvents
-                  & mapMaybe (\ev -> fmap (flip (,) 1) (_ev_requestkey ev))
-                  & M.fromListWith (+)
+      -- TODO: Make chunk size configurable
+      forM_ (chunksOf 100 blocks) $ \chunk -> do
+        payloadWithOutputsBatch e chain (snd . snd <$> chunk) >>= \case
+          Nothing -> printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
+          Just bpwos -> do
+                let writePayload (h, (current_hash,_)) bpwo = do
+                      let allTxsEvents = snd $ mkBlockEvents' h chain current_hash bpwo
+                          rqKeyEventsMap = allTxsEvents
+                            & mapMaybe (\ev -> fmap (flip (,) 1) (_ev_requestkey ev))
+                            & M.fromListWith (+)
 
-            P.withResource pool $ \c ->
-              withTransaction c $ do
-                runBeamPostgres c $ do
-                  runInsert
-                    $ insert (_cddb_events database) (insertValues allTxsEvents)
-                    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-                withSavepoint c $ runBeamPostgres c $
-                  iforM_ rqKeyEventsMap $ \reqKey num_events ->
-                    runUpdate
-                      $ update (_cddb_transactions database)
-                          (\tx -> _tx_numEvents tx <-. val_ (Just num_events))
-                          (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
-            atomicModifyIORef' count (\n -> (n+1, ()))
+                      P.withResource pool $ \c ->
+                        withTransaction c $ do
+                          runBeamPostgres c $ do
+                            runInsert
+                              $ insert (_cddb_events database) (insertValues allTxsEvents)
+                              $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+                          withSavepoint c $ runBeamPostgres c $
+                            iforM_ rqKeyEventsMap $ \reqKey num_events ->
+                              runUpdate
+                                $ update (_cddb_transactions database)
+                                    (\tx -> _tx_numEvents tx <-. val_ (Just num_events))
+                                    (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
+                      atomicModifyIORef' count (\n -> (n+1, ()))
+                zipWithM_ writePayload blocks bpwos
 
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
-        forM_ coinbaseBlocks $ \(h, (current_hash, ph)) -> do
-          payloadWithOutputs e (T2 chain ph) >>= \case
-            Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
-                            (unChainId chain) h (unDbHash ph)
-            Just bpwo -> do
-              P.withResource pool $ \c -> runBeamPostgres c $
-                runInsert
-                  $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain current_hash bpwo)
-                  $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-              atomicModifyIORef' count (\n -> (n+1, ()))
+        -- TODO: Make chunk size configurable
+        forM_ (chunksOf 100 coinbaseBlocks) $ \chunk -> do
+          payloadWithOutputsBatch e chain (snd . snd <$> chunk) >>= \case
+            Nothing -> printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
+            Just bpwos -> do
+                let writePayload (h, (current_hash,_)) bpwo = do
+                      P.withResource pool $ \c -> runBeamPostgres c $
+                        runInsert
+                          $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain current_hash bpwo)
+                          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+                      atomicModifyIORef' count (\n -> (n+1, ()))
+                zipWithM_ writePayload coinbaseBlocks bpwos
           forM_ delay threadDelay
 
-      delayFunc
+      forM_ delay threadDelay
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
 -- height) for each chain.
