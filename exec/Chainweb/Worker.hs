@@ -74,7 +74,7 @@ batchWrites pool bs kss tss ess = P.withResource pool $ \c -> withTransaction c 
   runBeamPostgres c $ do
     -- Write Pub Key many-to-many relationships if unique --
     runInsert
-      $ insert (_cddb_minerkeys database) (insertValues $ concat $ liftA2 (\b ks -> map (MinerKey (pk b)) ks) bs kss)
+      $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
       $ onConflict (conflictingFields primaryKey) onConflictDoNothing
     -- Write the Blocks if unique
     runInsert
