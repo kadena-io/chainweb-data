@@ -21,6 +21,7 @@ module Chainweb.Env
   , richListP
   , NodeDbPath(..)
   , progress
+  , EventType(..)
   ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -162,11 +163,11 @@ data Command
     | Backfill BackfillArgs
     | Gaps (Maybe Int)
     | Single ChainId BlockHeight
+    | FillEvents BackfillArgs EventType
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
-  , _backfillArgs_onlyEvents :: Bool
   , _backfillArgs_eventChunkSize :: Maybe Integer
   } deriving (Eq,Ord,Show)
 
@@ -232,8 +233,14 @@ delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help 
 bfArgsP :: Parser BackfillArgs
 bfArgsP = BackfillArgs
   <$> delayP
-  <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
+
+data EventType = CoinbaseAndTx | OnlyTx
+  deriving (Eq,Ord,Show,Read,Enum,Bounded)
+
+eventTypeP :: Parser EventType
+eventTypeP =
+  flag CoinbaseAndTx OnlyTx (long "only-tx" <> help "Only fill missing events associated with transactions")
 
 commands :: Parser Command
 commands = hsubparser
@@ -247,6 +254,8 @@ commands = hsubparser
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   <> command "server" (info (Server <$> serverP)
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
+  <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
+       (progDesc "Event Worker - Fills missing events"))
   )
 
 progress :: IORef Int -> Int -> IO a

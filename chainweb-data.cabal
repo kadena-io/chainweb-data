@@ -122,6 +122,7 @@ executable chainweb-data
     Chainweb.Coins
     Chainweb.Database
     Chainweb.Env
+    Chainweb.FillEvents
     Chainweb.Gaps
     Chainweb.Listen
     Chainweb.Lookups
