@@ -45,7 +45,6 @@ main = do
               h <- getHomeDirectory
               let h' = h </> ".local/share"
               logg Info $ "[INFO] Constructing rich list using default db-path: " <> fromString h'
-              -- putStrLn $ "[INFO] Constructing rich list using default db-path: " <> h'
               return h'
             Just fp -> do
               logg Info $ "[INFO] Constructing rich list using given db-path: " <> fromString fp
@@ -56,7 +55,7 @@ main = do
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
           withPool pgc $ \pool -> do
-            P.withResource pool initializeTables
+            P.withResource pool (initializeTables logg)
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings

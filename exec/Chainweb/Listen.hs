@@ -53,7 +53,7 @@ getOutputsAndInsert env ph@(PowHeader h _) = do
     Left e -> do
       logg Error $ fromString $ printf "[FAIL] Couldn't fetch parent for: %s\n"
              (hashB64U $ _blockHeader_hash h)
-      print e
+      logg Info $ fromString $ show e
     Right pl -> do
       insertNewHeader (_env_dbConnPool env) ph pl
       logg Info (fromString $ printf "%d" (unChainId $ _blockHeader_chainId h)) >> hFlush stdout

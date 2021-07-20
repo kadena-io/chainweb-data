@@ -43,8 +43,9 @@ gaps env delay = do
   ecut <- queryCut env
   case ecut of
     Left e -> do
-      putStrLn "[FAIL] Error querying cut"
-      print e
+      let logg = _env_logger env
+      logg Error "[FAIL] Error querying cut"
+      logg Info $ fromString $ show e
     Right cutBS -> gapsCut env delay cutBS
 
 gapsCut :: Env -> Maybe Int -> ByteString -> IO ()

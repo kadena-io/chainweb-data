@@ -58,7 +58,6 @@ import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Network.HTTP.Client hiding (Proxy)
-import           System.Logger.Types hiding (logg)
 import           Network.HTTP.Types
 import           Text.Printf
 
@@ -121,7 +120,6 @@ payloadWithOutputs env (T2 cid0 hsh0) = do
   pure res
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
-    logg = _env_logger env
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
     cid = T.pack $ show cid0

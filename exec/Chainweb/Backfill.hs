@@ -56,8 +56,9 @@ backfill env args = do
   ecut <- queryCut env
   case ecut of
     Left e -> do
-      putStrLn "[FAIL] Error querying cut"
-      print e
+      let logg = _env_logger env
+      logg Error "[FAIL] Error querying cut"
+      logg Info $ fromString $ show e
     Right cutBS ->
       if _backfillArgs_onlyEvents args
         then backfillEventsCut env args cutBS
@@ -107,10 +108,10 @@ backfillEventsCut env args cutBS = do
       cids = atBlockHeight (fromIntegral curHeight) allCids
   counter <- newIORef 0
 
-  printf "[INFO] Backfilling events (curHeight = %d)\n" curHeight
+  logg Info $ fromString $ printf "[INFO] Backfilling events (curHeight = %d)\n" curHeight
   missingTxs <- countTxMissingEvents pool
 
-  missingCoinbase <- countCoinbaseTxMissingEvents pool coinbaseEventsActivationHeight
+  missingCoinbase <- countCoinbaseTxMissingEvents pool logg coinbaseEventsActivationHeight
   if M.null missingTxs && M.null missingCoinbase
     then do
       logg Info $ fromString $ printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
@@ -160,7 +161,7 @@ backfillEventsCut env args cutBS = do
               else do
                 logger Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
                        (unChainId chain) height (unDbHash blockHash)
-                print e
+                logger Info $ fromString $ show e
           Right bpwo -> do
             let allTxsEvents = snd $ mkBlockEvents' height chain blockHash bpwo
                 rqKeyEventsMap = allTxsEvents
@@ -190,7 +191,7 @@ backfillEventsCut env args cutBS = do
               unless (apiError_type e == ClientError && curHeight - height > 120) $ do
                 logger Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
                        (unChainId chain) height (unDbHash blockHash)
-                print e
+                logger Info $ fromString $ show e
             Right bpwo -> do
               P.withResource pool $ \c -> runBeamPostgres c $
                 runInsert
@@ -235,9 +236,9 @@ countTxMissingEvents pool = do
     agg (cid, rk) = (group_ cid, as_ @Int64 $ countOver_ distinctInGroup_ rk)
 
 {- We only need to go back so far to search for events in coinbase transactions -}
-countCoinbaseTxMissingEvents :: P.Pool Connection -> Integer -> IO (Map ChainId Int64)
-countCoinbaseTxMissingEvents pool eventsActivationHeight = do
-    chainCounts <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
+countCoinbaseTxMissingEvents :: P.Pool Connection -> LogFunctionIO Text -> Integer -> IO (Map ChainId Int64)
+countCoinbaseTxMissingEvents pool logger eventsActivationHeight = do
+    chainCounts <- P.withResource pool $ \c -> runBeamPostgresDebug (logger Debug . fromString) c $
       runSelectReturningList $
       select $
       aggregate_ agg $ do
