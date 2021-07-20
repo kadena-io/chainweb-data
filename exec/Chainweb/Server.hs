@@ -22,7 +22,7 @@ import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
-import           Data.Aeson
+import           Data.Aeson hiding (Error)
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Coerce
 import           Data.Foldable
@@ -32,6 +32,7 @@ import qualified Data.Pool as P
 import           Data.Proxy
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as S
+import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -48,6 +49,7 @@ import           Servant.API
 import           Servant.Server
 import           System.Directory
 import           System.FilePath
+import           System.Logger.Types hiding (logg)
 import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.BlockPayloadWithOutputs
@@ -127,34 +129,36 @@ theApi = Proxy
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
   ecut <- queryCut env
+  let logg = _env_logger env
   case ecut of
     Left e -> do
-      putStrLn "[FAIL] Error querying cut"
-      print e
+       logg Error "[FAIL] Error querying cut"
+       logg Info $ fromString $ show e
     Right cutBS -> apiServerCut env senv cutBS
 
 apiServerCut :: Env -> ServerEnv -> ByteString -> IO ()
 apiServerCut env senv cutBS = do
   let curHeight = cutMaxHeight cutBS
+      logg = _env_logger env
   circulatingCoins <- queryCirculatingCoins env (fromIntegral curHeight)
-  putStrLn $ "Total coins in circulation: " <> show circulatingCoins
+  logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv) pool
-  numTxs <- getTransactionCount (logFunc senv) pool
+  recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv env) pool
+  numTxs <- getTransactionCount (logFunc senv env) pool
   ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
   _ <- forkIO $ scheduledUpdates env senv pool ssRef
   _ <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve theApi $
     ( ( recentTxsHandler ssRef
-        :<|> searchTxs (logFunc senv) pool
-        :<|> evHandler (logFunc senv) pool
-        :<|> txHandler (logFunc senv) pool
+        :<|> searchTxs (logFunc senv env) pool
+        :<|> evHandler (logFunc senv env) pool
+        :<|> txHandler (logFunc senv env) pool
       )
-      :<|> statsHandler ssRef
-      :<|> coinsHandler ssRef
-    )
-    :<|> richlistHandler
+        :<|> statsHandler ssRef
+        :<|> coinsHandler ssRef
+      )
+      :<|> richlistHandler
 
 scheduledUpdates
   :: Env
@@ -166,24 +170,25 @@ scheduledUpdates env senv pool ssRef = forever $ do
     threadDelay (60 * 60 * 24 * micros)
 
     now <- getCurrentTime
-    print now
-    putStrLn "Recalculating coins in circulation:"
+    logg Info $ fromString $ show now
+    logg Info "Recalculating coins in circulation:"
     height <- _ssHighestBlockHeight <$> readIORef ssRef
     circulatingCoins <- queryCirculatingCoins env height
-    print circulatingCoins
+    logg Info $ fromString $ show circulatingCoins
     let f ss = (ss & ssCirculatingCoins %~ (hush circulatingCoins <|>), ())
     atomicModifyIORef' ssRef f
 
-    numTxs <- getTransactionCount (logFunc senv) pool
-    putStrLn $ "Updated number of transactions: " <> show numTxs
+    numTxs <- getTransactionCount (logFunc senv env) pool
+    logg Info $ fromString $ "Updated number of transactions: " <> show numTxs
     let g ss = (ss & ssTransactionCount %~ (numTxs <|>), ())
     atomicModifyIORef' ssRef g
 
     h <- getHomeDirectory
-    richList (h </> ".local/share")
-    putStrLn $ "Updated rich list"
+    richList logg (h </> ".local/share")
+    logg Info "Updated rich list"
   where
     micros = 1000000
+    logg = _env_logger env
 
 richlistHandler :: Handler Text
 richlistHandler = do
@@ -213,11 +218,12 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
   let chain = _blockHeader_chainId h
   let height = _blockHeader_height h
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
+  let logg = _env_logger env
   payloadWithOutputs env pair >>= \case
     Left e -> do
-      printf "[FAIL] Couldn't fetch parent for: %s\n"
+      logg Error $ fromString $ printf "[FAIL] Couldn't fetch parent for: %s\n"
         (hashB64U $ _blockHeader_hash h)
-      print e
+      logg Info $ fromString $ show e
     Right pl -> do
       let hash = _blockHeader_hash h
           tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
@@ -231,8 +237,8 @@ serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
                        then ""
                        else printf " with %d transactions" (S.length ts)
       when verbose $ do
-        putStrLn (msg <> addendum)
-        mapM_ print tos
+        logg Info (fromString $ msg <> addendum)
+        mapM_ (logg Info . fromString . show) tos
 
       atomicModifyIORef' ssRef f
       insertNewHeader pool ph pl
@@ -242,17 +248,17 @@ instance BeamSqlBackendIsString Postgres (Maybe Text)
 instance BeamSqlBackendIsString Postgres (Maybe String)
 
 searchTxs
-  :: (String -> IO ())
+  :: (LogLevel -> String -> IO ())
   -> P.Pool Connection
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text
   -> Handler [TxSummary]
 searchTxs _ _ _ _ Nothing = throw404 "You must specify a search string"
-searchTxs printLog pool limit offset (Just search) = do
-    liftIO $ putStrLn $ "Transaction search: " <> T.unpack search
+searchTxs logger pool limit offset (Just search) = do
+    liftIO $ logger Info $ "Transaction search: " <> T.unpack search
     liftIO $ P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug printLog c $
+      res <- runBeamPostgresDebug (logger Debug . fromString) c $
         runSelectReturningList $ select $ do
         limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
@@ -282,14 +288,14 @@ throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
 
 txHandler
-  :: (String -> IO ())
+  :: (LogLevel -> String -> IO ())
   -> P.Pool Connection
   -> Maybe RequestKey
   -> Handler TxDetail
 txHandler _ _ Nothing = throw404 "You must specify a search string"
-txHandler printLog pool (Just (RequestKey rk)) =
+txHandler logger pool (Just (RequestKey rk)) =
   may404 $ liftIO $ P.withResource pool $ \c ->
-  runBeamPostgresDebug printLog c $ do
+  runBeamPostgresDebug (logger Debug) c $ do
     r <- runSelectReturningOne $ select $ do
       tx <- all_ (_cddb_transactions database)
       blk <- all_ (_cddb_blocks database)
@@ -338,7 +344,7 @@ txHandler printLog pool (Just (RequestKey rk)) =
     may404 a = a >>= maybe (throw404 "Tx not found") return
 
 evHandler
-  :: (String -> IO ())
+  :: (LogLevel -> String -> IO ())
   -> P.Pool Connection
   -> Maybe Limit
   -> Maybe Offset
@@ -346,9 +352,9 @@ evHandler
   -> Maybe EventParam
   -> Maybe EventName
   -> Handler [EventDetail]
-evHandler printLog pool limit offset qSearch qParam qName =
+evHandler logger pool limit offset qSearch qParam qName =
   liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug printLog c $
+    r <- runBeamPostgresDebug (logger Debug) c $
       runSelectReturningList $ select $
         limit_ lim $ offset_ off $ orderBy_ getOrder $ do
           tx <- all_ (_cddb_transactions database)
@@ -392,11 +398,11 @@ type instance QExprToIdentity (a :. b) = (QExprToIdentity a) :. (QExprToIdentity
 type instance QExprToField (a :. b) = (QExprToField a) :. (QExprToField b)
 
 
-queryRecentTxs :: (String -> IO ()) -> P.Pool Connection -> IO [TxSummary]
-queryRecentTxs printLog pool = do
-    liftIO $ putStrLn "Getting recent transactions"
+queryRecentTxs :: (LogLevel -> String -> IO ()) -> P.Pool Connection -> IO [TxSummary]
+queryRecentTxs logger pool = do
+    liftIO $ logger Info "Getting recent transactions"
     P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug printLog c $
+      res <- runBeamPostgresDebug (logger Debug) c $
         runSelectReturningList $ select $ do
         limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
@@ -418,10 +424,10 @@ queryRecentTxs printLog pool = do
     getHeight (_,a,_,_,_,_,_) = a
     mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
 
-getTransactionCount :: (String -> IO ()) -> P.Pool Connection -> IO (Maybe Int64)
-getTransactionCount printLog pool = do
+getTransactionCount :: (LogLevel -> String -> IO ()) -> P.Pool Connection -> IO (Maybe Int64)
+getTransactionCount logger pool = do
     P.withResource pool $ \c -> do
-      runBeamPostgresDebug printLog c $ runSelectReturningOne $ select $
+      runBeamPostgresDebug (logger Debug) c $ runSelectReturningOne $ select $
         aggregate_ (\_ -> as_ @Int64 countAll_) (all_ (_cddb_transactions database))
 
 data RecentTxs = RecentTxs
@@ -437,8 +443,8 @@ addNewTransactions txs (RecentTxs s1) = RecentTxs s2
     maxTransactions = 10
     s2 = S.take maxTransactions $ txs <> s1
 
-logFunc :: ServerEnv -> String -> IO ()
-logFunc e s = if _serverEnv_verbose e then putStrLn s else return ()
+logFunc :: ServerEnv -> Env -> LogLevel -> String -> IO ()
+logFunc serverEnv env level s = if _serverEnv_verbose serverEnv then (_env_logger env) level (fromString s) else return ()
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v

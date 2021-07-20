@@ -30,6 +30,7 @@ import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
 import           System.IO (hFlush, stdout)
+import           System.Logger.Types hiding (logg)
 
 ---
 
@@ -47,14 +48,15 @@ listenWithHandler env handler =
 getOutputsAndInsert :: Env -> PowHeader -> IO ()
 getOutputsAndInsert env ph@(PowHeader h _) = do
   let !pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
+      logg = _env_logger env
   payloadWithOutputs env pair >>= \case
     Left e -> do
-      printf "[FAIL] Couldn't fetch parent for: %s\n"
+      logg Error $ fromString $ printf "[FAIL] Couldn't fetch parent for: %s\n"
              (hashB64U $ _blockHeader_hash h)
-      print e
+      logg Info $ fromString $ show e
     Right pl -> do
       insertNewHeader (_env_dbConnPool env) ph pl
-      printf "%d" (unChainId $ _blockHeader_chainId h) >> hFlush stdout
+      logg Info (fromString $ printf "%d" (unChainId $ _blockHeader_chainId h)) >> hFlush stdout
 
 insertNewHeader :: P.Pool Connection -> PowHeader -> BlockPayloadWithOutputs -> IO ()
 insertNewHeader pool ph pl = do
