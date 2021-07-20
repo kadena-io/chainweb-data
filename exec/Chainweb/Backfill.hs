@@ -242,7 +242,7 @@ countCoinbaseTxMissingEvents pool eventsActivationHeight = do
   where
     agg (cid, height) = (group_ cid, as_ @(Maybe Int64) $ min_ height)
 
-getCoinbaseMissingEvents :: ChainId -> Int64 -> Int64 -> P.Pool Connection -> IO [(Int64, (DbHash, DbHash))]
+getCoinbaseMissingEvents :: ChainId -> Int64 -> Int64 -> P.Pool Connection -> IO [(Int64, (DbHash BlockHash, DbHash PayloadHash))]
 getCoinbaseMissingEvents chain eventsActivationHeight minHeight pool =
     P.withResource pool $ \c -> runBeamPostgres c $
     runSelectReturningList $
@@ -262,7 +262,7 @@ getTxMissingEvents
   :: ChainId
   -> P.Pool Connection
   -> Integer
-  -> IO [(Int64, (DbHash, DbHash))]
+  -> IO [(Int64, (DbHash BlockHash, DbHash PayloadHash))]
   -- ^ block height, block hash, payload hash
 getTxMissingEvents chain pool lim = do
     P.withResource pool $ \c -> runBeamPostgres c $
