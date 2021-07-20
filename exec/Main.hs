@@ -16,6 +16,7 @@ import           Chainweb.Server (apiServer)
 import           Chainweb.Lookups (getNodeInfo)
 import           Chainweb.RichList (richList)
 import           Chainweb.Single (single)
+import           Control.Lens
 import           Data.Bifunctor
 import qualified Data.Pool as P
 import           Data.String
@@ -35,10 +36,10 @@ main :: IO ()
 main = do
   args <- execParser opts
   withHandleBackend backendConfig $ \backend ->
-    withLogger config backend $ \logger -> do
+    withLogger (config (getLevel args)) backend $ \logger -> do
       let logg = loggerFunIO logger
       case args of
-        RichListArgs (NodeDbPath mfp) -> do
+        RichListArgs (NodeDbPath mfp) _ -> do
           fp <- case mfp of
             Nothing -> do
               h <- getHomeDirectory
@@ -50,7 +51,7 @@ main = do
               logg Info $ "[INFO] Constructing rich list using given db-path: " <> fromString fp
               return fp
           richList logg fp
-        Args c pgc us u -> do
+        Args c pgc us u _ -> do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
@@ -76,8 +77,12 @@ main = do
   where
     opts = info ((richListP <|> envP) <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
-    config = defaultLoggerConfig
+    config level = defaultLoggerConfig
+      & loggerConfigThreshold .~ level
     backendConfig = defaultHandleBackendConfig
+    getLevel = \case
+      Args _ _ _ _ level -> level
+      RichListArgs _ level -> level
 
 
 {-
