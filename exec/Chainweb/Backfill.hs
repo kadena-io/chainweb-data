@@ -124,44 +124,56 @@ backfillEvents e args = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       -- TODO: Make chunk size configurable
       forM_ (chunksOf 100 blocks) $ \chunk -> do
-        payloadWithOutputsBatch e chain (snd . snd <$> chunk) >>= \case
+        let m = M.fromList $ map (swap . first (either (error hashMsg) id . dbHashToHash) . snd) chunk
+            hashMsg = "error converting DbHash to Hash"
+        payloadWithOutputsBatch e chain m >>= \case
           Nothing -> printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
           Just bpwos -> do
-                let writePayload (h, (current_hash,_)) bpwo = do
-                      let allTxsEvents = snd $ mkBlockEvents' h chain current_hash bpwo
-                          rqKeyEventsMap = allTxsEvents
-                            & mapMaybe (\ev -> fmap (flip (,) 1) (_ev_requestkey ev))
-                            & M.fromListWith (+)
+                let writePayload current_hash bpwo = do
+                      let mh = find (\(_,(c,_)) -> c == hashToDbHash current_hash) blocks
+                      case mh of
+                        Nothing -> pure ()
+                        Just (h,_) -> do
+                          let allTxsEvents = snd $ mkBlockEvents' h chain (hashToDbHash current_hash) bpwo
+                              rqKeyEventsMap = allTxsEvents
+                                & mapMaybe (\ev -> fmap (flip (,) 1) (_ev_requestkey ev))
+                                & M.fromListWith (+)
 
-                      P.withResource pool $ \c ->
-                        withTransaction c $ do
-                          runBeamPostgres c $ do
-                            runInsert
-                              $ insert (_cddb_events database) (insertValues allTxsEvents)
-                              $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-                          withSavepoint c $ runBeamPostgres c $
-                            iforM_ rqKeyEventsMap $ \reqKey num_events ->
-                              runUpdate
-                                $ update (_cddb_transactions database)
-                                    (\tx -> _tx_numEvents tx <-. val_ (Just num_events))
-                                    (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
-                      atomicModifyIORef' count (\n -> (n+1, ()))
-                zipWithM_ writePayload blocks bpwos
+                          P.withResource pool $ \c ->
+                            withTransaction c $ do
+                              runBeamPostgres c $ do
+                                runInsert
+                                  $ insert (_cddb_events database) (insertValues allTxsEvents)
+                                  $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+                              withSavepoint c $ runBeamPostgres c $
+                                iforM_ rqKeyEventsMap $ \reqKey num_events ->
+                                  runUpdate
+                                    $ update (_cddb_transactions database)
+                                        (\tx -> _tx_numEvents tx <-. val_ (Just num_events))
+                                        (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
+                          atomicModifyIORef' count (\n -> (n+1, ()))
+                iforM_ bpwos writePayload
 
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
         -- TODO: Make chunk size configurable
         forM_ (chunksOf 100 coinbaseBlocks) $ \chunk -> do
-          payloadWithOutputsBatch e chain (snd . snd <$> chunk) >>= \case
+          let m = M.fromList $ map (swap . first (either (error hashMsg) id . dbHashToHash) . snd) chunk
+              hashMsg = "error converting DbHash to Hash"
+          payloadWithOutputsBatch e chain m >>= \case
             Nothing -> printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
             Just bpwos -> do
-                let writePayload (h, (current_hash,_)) bpwo = do
-                      P.withResource pool $ \c -> runBeamPostgres c $
-                        runInsert
-                          $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain current_hash bpwo)
-                          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-                      atomicModifyIORef' count (\n -> (n+1, ()))
-                zipWithM_ writePayload coinbaseBlocks bpwos
+                let writePayload current_hash bpwo = do
+                      let mh = find (\(_,(c,_)) -> c == hashToDbHash current_hash) coinbaseBlocks
+                      case mh of
+                        Nothing -> pure ()
+                        Just (h,_) -> do
+                          P.withResource pool $ \c -> runBeamPostgres c $
+                            runInsert
+                              $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain (hashToDbHash current_hash) bpwo)
+                              $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+                          atomicModifyIORef' count (\n -> (n+1, ()))
+                iforM_ bpwos writePayload
           forM_ delay threadDelay
 
       forM_ delay threadDelay

@@ -19,7 +19,7 @@ import           Chainweb.Env
 import           Chainweb.Lookups
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
-import           ChainwebDb.Types.DbHash (DbHash(..))
+import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
@@ -120,18 +120,23 @@ writeBlock e pool count bh = do
 writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [BlockHeader] -> IO ()
 writeBlocks e pool count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
-      retrying policy check (const $ payloadWithOutputsBatch e chain (toDbhash . _blockHeader_payloadHash <$> bhs')) >>= \case
+      let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
+      retrying policy check (const $ payloadWithOutputsBatch e chain (M.fromList (ff <$> bhs'))) >>= \case
         Nothing -> printf "[FAIL] Couldn't fetch payload batch for chain: %d" (unChainId chain)
         Just pls -> do
-          let !ms = _blockPayloadWithOutputs_minerData <$!> pls
-              !bs = (\bh -> asBlock (asPow bh)) <$!> bhs' <*> ms
-              !tss = mkBlockTransactions <$!> bs <*> pls
-              !ess = (\bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh)) <$!> bhs' <*> pls
-              !kss = bpwoMinerKeys <$!> pls
-          batchWrites pool bs kss tss ess
+          let !ms = _blockPayloadWithOutputs_minerData <$> pls
+              !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
+              !tss = M.intersectionWith (flip mkBlockTransactions) pls bs
+              !ess = M.intersectionWith
+                  (\pl bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh) pl)
+                  pls
+                  (makeBlockMap bhs')
+              !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
+          batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
           atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
-    toDbhash = DbHash . hashB64U
+
+    makeBlockMap = M.fromList . fmap (\bh -> (_blockHeader_hash bh, bh))
 
     blocksByChainId =
       M.fromListWith mappend
