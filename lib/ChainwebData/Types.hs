@@ -14,6 +14,7 @@ module ChainwebData.Types
 
     -- * Utils
   , groupsOf
+  , rangeToDescGroupsOf
   ) where
 
 import           BasePrelude
@@ -83,6 +84,16 @@ newtype Low = Low Int
 
 newtype High = High Int
   deriving newtype (Eq, Ord, Show, Num)
+
+-- | Divides a range [low,high] (inclusive) into a list of ranges with at most
+-- n elements.  The returned list of ranges is ordered descending with the
+-- highest range at the front.
+rangeToDescGroupsOf :: Int -> Low -> High -> [(Low, High)]
+rangeToDescGroupsOf n l@(Low low) h@(High high)
+  | high - low <= n = [(l, High high)]
+  | otherwise =
+    let nextHigh = high - n
+     in (Low $ nextHigh + 1, h) : rangeToDescGroupsOf n l (High nextHigh)
 
 --------------------------------------------------------------------------------
 -- Orphans

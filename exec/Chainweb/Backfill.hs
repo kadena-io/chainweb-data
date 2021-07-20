@@ -22,10 +22,8 @@ import           Chainweb.Worker
 import           ChainwebData.Backfill
 import           ChainwebData.Genesis
 import           ChainwebData.Types
-import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
-import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
@@ -36,14 +34,10 @@ import           Data.ByteString.Lazy (ByteString)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
 
 import           Database.Beam hiding (insert)
-import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
-import           Database.Beam.Postgres.Full (insert, onConflict)
-import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 
 ---
 

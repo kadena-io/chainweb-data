@@ -9,11 +9,12 @@ import           Chainweb.Api.NodeInfo
 import           Chainweb.Backfill (backfill)
 import           Chainweb.Database (initializeTables)
 import           Chainweb.Env
+import           Chainweb.FillEvents (fillEvents)
 import           Chainweb.Gaps (gaps)
 import           Chainweb.Listen (listen)
-import           Chainweb.Server (apiServer)
 import           Chainweb.Lookups (getNodeInfo)
 import           Chainweb.RichList (richList)
+import           Chainweb.Server (apiServer)
 import           Chainweb.Single (single)
 import           Data.Bifunctor
 import qualified Data.Pool as P
@@ -65,6 +66,7 @@ main = do
                   Backfill as -> backfill env as
                   Gaps rateLimit -> gaps env rateLimit
                   Single cid h -> single env cid h
+                  FillEvents as et -> fillEvents env as et
                   Server serverEnv -> apiServer env serverEnv
   where
     opts = info ((richListP <|> envP) <**> helper)
