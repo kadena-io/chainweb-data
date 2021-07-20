@@ -6,6 +6,7 @@ module Chainweb.Lookups
   ( -- * Endpoints
     headersBetween
   , payloadWithOutputs
+  , payloadWithOutputsBatch
   , getNodeInfo
   , queryCut
   , cutMaxHeight
@@ -55,6 +56,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
+import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Network.HTTP.Client hiding (Proxy)
@@ -85,6 +87,7 @@ handleRequest req mgr = do
 --------------------------------------------------------------------------------
 -- Endpoints
 
+-- | Returns headers in the range [low, high] (inclusive).
 headersBetween
   :: Env
   -> (ChainId, Low, High)
@@ -103,6 +106,30 @@ headersBetween env (cid, Low low, High up) = do
 
     f :: T.Text -> Maybe BlockHeader
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
+
+payloadWithOutputsBatch
+  :: Env
+  -> ChainId
+  -> [DbHash PayloadHash]
+  -> IO (Either ApiError [BlockPayloadWithOutputs])
+payloadWithOutputsBatch env (ChainId cid) hshes' = do
+    initReq <- parseRequest url
+    let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
+    eresp <- handleRequest req (_env_httpManager env)
+    let res = do
+          resp <- eresp
+          case eitherDecode' (responseBody resp) of
+            Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e)
+                                      (responseStatus resp) (responseBody resp)
+            Right a -> Right a
+    pure res
+  where
+    hshes = String . unDbHash <$> hshes'
+    url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
+    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
+    query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
+    encoding = [("content-type", "application/json")]
+    requestObject = Array $ V.fromList hshes
 
 payloadWithOutputs
   :: Env

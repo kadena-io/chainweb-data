@@ -23,6 +23,7 @@ import           ChainwebData.Backfill
 import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.DbHash
 
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
