@@ -46,10 +46,10 @@ data BlockT f = Block
   { _block_creationTime :: C f UTCTime
   , _block_chainId :: C f Int64
   , _block_height :: C f Int64
-  , _block_hash :: C f DbHash
-  , _block_parent :: C f DbHash
-  , _block_powHash :: C f DbHash
-  , _block_payload :: C f DbHash
+  , _block_hash :: C f (DbHash BlockHash)
+  , _block_parent :: C f (DbHash BlockHash)
+  , _block_powHash :: C f (DbHash PowHash)
+  , _block_payload :: C f (DbHash PayloadHash)
   , _block_target :: C f HashAsNum
   , _block_weight :: C f HashAsNum
   , _block_epochStart :: C f UTCTime
@@ -111,7 +111,7 @@ type BlockId = PrimaryKey BlockT Identity
 -- instance FromJSON (BlockT Maybe)
 
 instance Table BlockT where
-  data PrimaryKey BlockT f = BlockId (C f DbHash)
+  data PrimaryKey BlockT f = BlockId (C f (DbHash BlockHash))
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = BlockId . _block_hash

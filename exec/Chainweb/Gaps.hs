@@ -1,12 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
 
-import           BasePrelude
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
@@ -17,22 +15,42 @@ import           Chainweb.Worker (writeBlock)
 import           ChainwebDb.Types.Block
 import           ChainwebData.Genesis
 import           ChainwebData.Types
+import           Control.Arrow
+import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
+import           Data.ByteString.Lazy (ByteString)
+import           Data.Foldable
+import           Data.IORef
+import           Data.Int
 import qualified Data.IntSet as S
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NEL
+import           Data.Maybe
 import qualified Data.Pool as P
+import           Data.Semigroup
+import           Data.String
+import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           System.Logger hiding (logg)
+import           Text.Printf
 
 ---
 
 gaps :: Env -> Maybe Int -> IO ()
-gaps e delay = do
-  cutBS <- queryCut e
+gaps env delay = do
+  ecut <- queryCut env
+  case ecut of
+    Left e -> do
+      putStrLn "[FAIL] Error querying cut"
+      print e
+    Right cutBS -> gapsCut env delay cutBS
+
+gapsCut :: Env -> Maybe Int -> ByteString -> IO ()
+gapsCut env delay cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
-      cids = atBlockHeight curHeight $ _env_chainsAtHeight e
+      cids = atBlockHeight curHeight $ _env_chainsAtHeight env
   work genesisInfo cids pool >>= \case
     Nothing -> logg Info $ fromString $ printf "[INFO] No gaps detected.\n"
     Just bs -> do
@@ -43,20 +61,24 @@ gaps e delay = do
           total = length bs
       logg Info $ fromString $ printf "[INFO] Filling %d gaps\n" total
       race_ (progress count total) $
-        traverseConcurrently_ strat (f count) bs
+        traverseConcurrently_ strat (f logg count) bs
       final <- readIORef count
       logg Info $ fromString $ printf "[INFO] Filled in %d missing blocks.\n" final
   where
-    pool = _env_dbConnPool e
-    logg = _env_logger e
-    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+    pool = _env_dbConnPool env
+    logg = _env_logger env
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo env
     delayFunc =
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: IORef Int -> (BlockHeight, Int) -> IO ()
-    f count (h, cid) = do
-      headersBetween e (ChainId cid, Low h, High h) >>= traverse_ (writeBlock e pool count)
+    f :: LogFunctionIO Text -> IORef Int -> (BlockHeight, Int) -> IO ()
+    f logger count (h, cid) = do
+      let range = (ChainId cid, Low h, High h)
+      headersBetween env range >>= \case
+        Left e -> logger Error $ fromString $ printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
+        Right [] -> logger Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show range
+        Right hs -> traverse_ (writeBlock env pool count) hs
       delayFunc
 
 --queryGaps :: Env -> IO (BlockHeight, Int, Int)

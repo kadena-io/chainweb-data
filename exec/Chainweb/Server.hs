@@ -128,29 +128,37 @@ theApi = Proxy
 
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
-    cutBS <- queryCut env
-    let curHeight = cutMaxHeight cutBS
-    circulatingCoins <- queryCirculatingCoins env (fromIntegral curHeight)
-    logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
-    let pool = _env_dbConnPool env
-    recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv) pool
-    numTxs <- getTransactionCount (logFunc senv) pool
-    ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
-    _ <- forkIO $ scheduledUpdates env senv pool ssRef
-    _ <- forkIO $ listenWithHandler env $
-      serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
-    Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve theApi $
-      ( ( recentTxsHandler ssRef
-          :<|> searchTxs (logFunc senv) pool
-          :<|> evHandler (logFunc senv) pool
-          :<|> txHandler (logFunc senv) pool
-        )
+  ecut <- queryCut env
+  let logg = _env_logger env
+  case ecut of
+    Left e -> do
+       logg Error "[FAIL] Error querying cut"
+       print e
+    Right cutBS -> apiServerCut env senv cutBS
+
+apiServerCut :: Env -> ServerEnv -> ByteString -> IO ()
+apiServerCut env senv cutBS = do
+  let curHeight = cutMaxHeight cutBS
+      logg = _env_logger env
+  circulatingCoins <- queryCirculatingCoins env (fromIntegral curHeight)
+  logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
+  let pool = _env_dbConnPool env
+  recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv) pool
+  numTxs <- getTransactionCount (logFunc senv) pool
+  ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
+  _ <- forkIO $ scheduledUpdates env senv pool ssRef
+  _ <- forkIO $ listenWithHandler env $
+    serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
+  Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve theApi $
+    ( ( recentTxsHandler ssRef
+        :<|> searchTxs (logFunc senv) pool
+        :<|> evHandler (logFunc senv) pool
+        :<|> txHandler (logFunc senv) pool
+      )
         :<|> statsHandler ssRef
         :<|> coinsHandler ssRef
       )
       :<|> richlistHandler
-  where
-    logg = _env_logger env
 
 scheduledUpdates
   :: Env
@@ -207,32 +215,33 @@ recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ r
 
 serverHeaderHandler :: Env -> Bool -> P.Pool Connection -> IORef ServerState -> PowHeader -> IO ()
 serverHeaderHandler env verbose pool ssRef ph@(PowHeader h _) = do
-    let chain = _blockHeader_chainId h
-    let height = _blockHeader_height h
-    let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
-    payloadWithOutputs env pair >>= \case
-      Nothing -> logg Error $ fromString $ printf "[FAIL] Couldn't fetch parent for: %s\n"
+  let chain = _blockHeader_chainId h
+  let height = _blockHeader_height h
+  let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
+  let logg = _env_logger env
+  payloadWithOutputs env pair >>= \case
+    Left e -> do
+      logg Error $ fromString $ printf "[FAIL] Couldn't fetch parent for: %s\n"
         (hashB64U $ _blockHeader_hash h)
-      Just pl -> do
-        let hash = _blockHeader_hash h
-            tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
-            ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
-            f ss = (ss & ssRecentTxs %~ addNewTransactions ts
-                      & ssHighestBlockHeight %~ max height
-                      & (ssTransactionCount . _Just) +~ (fromIntegral $ S.length ts), ())
+      print e
+    Right pl -> do
+      let hash = _blockHeader_hash h
+          tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
+          ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
+          f ss = (ss & ssRecentTxs %~ addNewTransactions ts
+                     & ssHighestBlockHeight %~ max height
+                     & (ssTransactionCount . _Just) +~ (fromIntegral $ S.length ts), ())
 
-        let msg = printf "Got new header on chain %d height %d" (unChainId chain) height
-            addendum = if S.length ts == 0
-                        then ""
-                        else printf " with %d transactions" (S.length ts)
-        when verbose $ do
-          logg Info $ fromString $ (msg <> addendum)
-          mapM_ print tos
+      let msg = printf "Got new header on chain %d height %d" (unChainId chain) height
+          addendum = if S.length ts == 0
+                       then ""
+                       else printf " with %d transactions" (S.length ts)
+      when verbose $ do
+        logg Info (fromString $ msg <> addendum)
+        mapM_ print tos
 
-        atomicModifyIORef' ssRef f
-        insertNewHeader pool ph pl
-  where
-    logg = _env_logger env
+      atomicModifyIORef' ssRef f
+      insertNewHeader pool ph pl
 
 
 instance BeamSqlBackendIsString Postgres (Maybe Text)
@@ -352,7 +361,7 @@ evHandler printLog pool limit offset qSearch qParam qName =
           blk <- all_ (_cddb_blocks database)
           ev <- all_ (_cddb_events database)
           guard_ (_tx_block tx `references_` blk)
-          guard_ (TransactionId (coerce $ _ev_requestkey ev) `references_` tx)
+          guard_ (TransactionId (coerce $ _ev_requestkey ev) (_tx_block tx) `references_` tx)
           whenArg qSearch $ \s -> guard_
             ((_ev_qualName ev `like_` val_ (searchString s)) ||.
              (_ev_paramText ev `like_` val_ (searchString s))
