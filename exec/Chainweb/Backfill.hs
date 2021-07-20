@@ -83,7 +83,7 @@ backfillBlocksCut env args cutBS = do
                     Nothing -> Par'
                     Just _ -> Seq
       race_ (progress counter $ foldl' (+) 0 mins)
-        $ traverseConcurrently_ strat (f logg counter) $ lookupPlan genesisInfo mins
+        $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
   where
     delay = _backfillArgs_delayMicros args
     logg = _env_logger env
@@ -94,11 +94,11 @@ backfillBlocksCut env args cutBS = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: LogFunctionIO Text -> IORef Int -> (ChainId, Low, High) -> IO ()
-    f logger count range = do
+    f :: IORef Int -> (ChainId, Low, High) -> IO ()
+    f count range = do
       headersBetween env range >>= \case
-        Left e -> logger Error $ fromString $ printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
-        Right [] -> logger Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show range
+        Left e -> logg Error $ fromString $ printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
+        Right [] -> logg Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show range
         Right hs -> traverse_ (writeBlock env pool count) hs
       delayFunc
 
@@ -126,7 +126,7 @@ backfillEventsCut env args cutBS = do
                     Nothing -> Par'
                     Just _ -> Seq
       race_ (progress counter $ fromIntegral (numTxs + numCoinbase))
-        $ traverseConcurrently_ strat (f logg (fromIntegral curHeight) missingCoinbase counter) cids
+        $ traverseConcurrently_ strat (f (fromIntegral curHeight) missingCoinbase counter) cids
 
   where
     delay = _backfillArgs_delayMicros args
@@ -141,17 +141,17 @@ backfillEventsCut env args cutBS = do
       "mainnet01" -> 1722500
       "testnet04" -> 1261001
       _ -> error "Chainweb version: Unknown"
-    f :: LogFunctionIO Text -> Int64 -> Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
-    f logger curHeight missingCoinbase count chain = do
+    f :: Int64 -> Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
+    f curHeight missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
-      logger Debug "[DEBUG] Backfilling tx events"
+      logg Debug "[DEBUG] Backfilling tx events"
       forM_ blocks $ \(height,(blockHash,payloadHash)) -> do
         payloadWithOutputs env (T2 chain payloadHash) >>= \case
           Left e -> do
             -- TODO Possibly also check for "key not found" message
             if apiError_type e == ClientError && curHeight - height > 120
               then do
-                logger Debug $ fromString $ printf "[DEBUG] Setting numEvents to 0 for all transactions with block hash %s\n" (unDbHash blockHash)
+                logg Debug $ fromString $ printf "[DEBUG] Setting numEvents to 0 for all transactions with block hash %s\n" (unDbHash blockHash)
                 P.withResource pool $ \c ->
                   withTransaction c $ runBeamPostgres c $
                     runUpdate
@@ -159,9 +159,9 @@ backfillEventsCut env args cutBS = do
                           (\tx -> _tx_numEvents tx <-. val_ (Just 0))
                           (\tx -> _tx_block tx ==. val_ (BlockId blockHash))
               else do
-                logger Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
+                logg Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
                        (unChainId chain) height (unDbHash blockHash)
-                logger Info $ fromString $ show e
+                logg Info $ fromString $ show e
           Right bpwo -> do
             let allTxsEvents = snd $ mkBlockEvents' height chain blockHash bpwo
                 rqKeyEventsMap = allTxsEvents
@@ -182,16 +182,16 @@ backfillEventsCut env args cutBS = do
                           (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
         atomicModifyIORef' count (\n -> (n+1, ()))
 
-      logger Debug $ "[DEBUG] Backfilling coinbase events"
+      logg Debug $ "[DEBUG] Backfilling coinbase events"
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
         forM_ coinbaseBlocks $ \(height, (blockHash, payloadHash)) -> do
           payloadWithOutputs env (T2 chain payloadHash) >>= \case
             Left e -> do
               unless (apiError_type e == ClientError && curHeight - height > 120) $ do
-                logger Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
+                logg Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
                        (unChainId chain) height (unDbHash blockHash)
-                logger Info $ fromString $ show e
+                logg Info $ fromString $ show e
             Right bpwo -> do
               P.withResource pool $ \c -> runBeamPostgres c $
                 runInsert
