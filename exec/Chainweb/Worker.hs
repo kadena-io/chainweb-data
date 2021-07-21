@@ -123,8 +123,9 @@ writeBlocks e pool count bhs = do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch e chain (M.fromList (ff <$> bhs'))) >>= \case
         Nothing -> printf "[FAIL] Couldn't fetch payload batch for chain: %d" (unChainId chain)
-        Just pls -> do
-          let !ms = _blockPayloadWithOutputs_minerData <$> pls
+        Just pls' -> do
+          let !pls = M.fromList pls'
+              !ms = _blockPayloadWithOutputs_minerData <$> pls
               !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
               !tss = M.intersectionWith (flip mkBlockTransactions) pls bs
               !ess = M.intersectionWith

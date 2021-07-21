@@ -14,6 +14,7 @@ module Chainweb.Backfill
 import           BasePrelude hiding (insert, range, second)
 
 import           Chainweb.Api.ChainId (ChainId(..))
+import           Chainweb.Api.Hash
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
@@ -32,7 +33,6 @@ import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 
 import           Control.Lens (iforM_)
-import           Data.List.Split (chunksOf)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
@@ -123,8 +123,8 @@ backfillEvents e args = do
     f missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       -- TODO: Make chunk size configurable
-      forM_ (chunksOf 100 blocks) $ \chunk -> do
-        let m = M.fromList $ map (swap . first (either (error hashMsg) id . dbHashToHash) . snd) chunk
+      forM_ (groupsOf 100 blocks) $ \chunk -> do
+        let m = M.fromList $ map (swap . first (either (error hashMsg) id . dbHashToHash) . snd) chunk :: M.Map (DbHash PayloadHash) Hash
             hashMsg = "error converting DbHash to Hash"
         payloadWithOutputsBatch e chain m >>= \case
           Nothing -> printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
@@ -152,12 +152,12 @@ backfillEvents e args = do
                                         (\tx -> _tx_numEvents tx <-. val_ (Just num_events))
                                         (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
                           atomicModifyIORef' count (\n -> (n+1, ()))
-                iforM_ bpwos writePayload
+                forM_ bpwos (uncurry writePayload)
 
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
         -- TODO: Make chunk size configurable
-        forM_ (chunksOf 100 coinbaseBlocks) $ \chunk -> do
+        forM_ (groupsOf 100 coinbaseBlocks) $ \chunk -> do
           let m = M.fromList $ map (swap . first (either (error hashMsg) id . dbHashToHash) . snd) chunk
               hashMsg = "error converting DbHash to Hash"
           payloadWithOutputsBatch e chain m >>= \case
@@ -173,7 +173,7 @@ backfillEvents e args = do
                               $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain (hashToDbHash current_hash) bpwo)
                               $ onConflict (conflictingFields primaryKey) onConflictDoNothing
                           atomicModifyIORef' count (\n -> (n+1, ()))
-                iforM_ bpwos writePayload
+                forM_ bpwos (uncurry writePayload)
           forM_ delay threadDelay
 
       forM_ delay threadDelay

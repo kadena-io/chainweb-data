@@ -106,7 +106,6 @@ executable chainweb-data
     , servant-client
     , servant-client-core
     , servant-server
-    , split
     , streaming                ^>=0.2
     , streaming-events
     , strict-tuple             ^>=0.1

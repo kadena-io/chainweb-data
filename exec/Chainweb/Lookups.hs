@@ -76,7 +76,7 @@ headersBetween env (cid, Low low, High up) = do
     f :: T.Text -> Maybe BlockHeader
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
 
-payloadWithOutputsBatch :: Env -> ChainId -> M.Map (DbHash PayloadHash) Hash -> IO (Maybe (M.Map Hash BlockPayloadWithOutputs))
+payloadWithOutputsBatch :: Env -> ChainId -> M.Map (DbHash PayloadHash) a -> IO (Maybe [(a, BlockPayloadWithOutputs)])
 payloadWithOutputsBatch env (ChainId cid) m = do
     initReq <- parseRequest url
     let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
@@ -88,19 +88,17 @@ payloadWithOutputsBatch env (ChainId cid) m = do
         putStrLn e
         T.putStrLn $ T.decodeUtf8 $ B.toStrict body
         pure Nothing
-      Right (as :: [BlockPayloadWithOutputs]) -> pure $ Just $ foldr (go m) mempty as
+      Right (as :: [BlockPayloadWithOutputs]) -> pure $ Just $ foldr go [] as
   where
-    hshes = String . unDbHash <$> M.keys m
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
     encoding = [("content-type", "application/json")]
-    requestObject = Array $ V.fromList $ hshes
-    go :: M.Map (DbHash PayloadHash) Hash -> BlockPayloadWithOutputs -> M.Map Hash BlockPayloadWithOutputs -> M.Map Hash BlockPayloadWithOutputs
-    go mPhToHash bpwo = case M.lookup (hashToDbHash $ _blockPayloadWithOutputs_payloadHash bpwo) mPhToHash of
-      Nothing -> id
-      Just bh -> M.insert bh bpwo
-
+    requestObject = Array $ V.fromList $ String . unDbHash <$> M.keys m
+    go bpwo =
+      case M.lookup (hashToDbHash $ _blockPayloadWithOutputs_payloadHash bpwo) m of
+        Nothing -> id
+        Just vv -> ((vv,bpwo) :)
 
 payloadWithOutputs :: Env -> T2 ChainId (DbHash PayloadHash) -> IO (Maybe BlockPayloadWithOutputs)
 payloadWithOutputs env (T2 cid0 hsh0) = do
