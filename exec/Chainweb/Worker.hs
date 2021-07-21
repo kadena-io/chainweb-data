@@ -97,12 +97,14 @@ asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHas
 -- | Given a single `BlockHeader`, look up its payload and write everything to
 -- the database.
 writeBlock :: Env -> P.Pool Connection -> IORef Int -> BlockHeader -> IO ()
-writeBlock e pool count bh = do
+writeBlock env pool count bh = do
   let !pair = T2 (_blockHeader_chainId bh) (hashToDbHash $ _blockHeader_payloadHash bh)
-  retrying policy check (const $ payloadWithOutputs e pair) >>= \case
-    Nothing -> printf "[FAIL] Couldn't fetch parent for: %s\n"
-      (hashB64U $ _blockHeader_hash bh)
-    Just pl -> do
+  retrying policy check (const $ payloadWithOutputs env pair) >>= \case
+    Left e -> do
+      printf "[FAIL] Couldn't fetch parent for: %s\n"
+        (hashB64U $ _blockHeader_hash bh)
+      print e
+    Right pl -> do
       let !m = _blockPayloadWithOutputs_minerData pl
           !b = asBlock (asPow bh) m
           !t = mkBlockTransactions b pl
@@ -114,16 +116,21 @@ writeBlock e pool count bh = do
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
 
-    check :: RetryStatus -> Maybe a -> IO Bool
-    check _ = pure . isNothing
+check :: RetryStatus -> Either ApiError a -> IO Bool
+check _ ev = pure $
+  case ev of
+    Left e -> apiError_type e == RateLimiting
+    _ -> False
 
 writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [BlockHeader] -> IO ()
 writeBlocks e pool count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch e chain (M.fromList (ff <$> bhs'))) >>= \case
-        Nothing -> printf "[FAIL] Couldn't fetch payload batch for chain: %d" (unChainId chain)
-        Just pls' -> do
+        Left e -> do
+          printf "[FAIL] Couldn't fetch payload batch for chain: %d" (unChainId chain)
+          print e
+        Right pls' -> do
           let !pls = M.fromList pls'
               !ms = _blockPayloadWithOutputs_minerData <$> pls
               !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
@@ -146,6 +153,3 @@ writeBlocks e pool count bhs = do
 
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
-
-    check :: RetryStatus -> Maybe a -> IO Bool
-    check _ = pure . isNothing

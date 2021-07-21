@@ -33,6 +33,7 @@ import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 
 import           Control.Lens (iforM_)
+import           Data.ByteString.Lazy (ByteString)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
@@ -47,14 +48,19 @@ import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSav
 ---
 
 backfill :: Env -> BackfillArgs -> IO ()
-backfill e args = do
-  if _backfillArgs_onlyEvents args
-    then backfillEvents e args
-    else backfillBlocks e args
+backfill env args = do
+  ecut <- queryCut env
+  case ecut of
+    Left e -> do
+      putStrLn "[FAIL] Error querying cut"
+      print e
+    Right cutBS ->
+      if _backfillArgs_onlyEvents args
+        then backfillEventsCut env args cutBS
+        else backfillBlocksCut env args cutBS
 
-backfillBlocks :: Env -> BackfillArgs -> IO ()
-backfillBlocks e args = do
-  cutBS <- queryCut e
+backfillBlocksCut :: Env -> BackfillArgs -> ByteString -> IO ()
+backfillBlocksCut env args cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
   counter <- newIORef 0
@@ -75,23 +81,28 @@ backfillBlocks e args = do
         $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
   where
     delay = _backfillArgs_delayMicros args
-    pool = _env_dbConnPool e
-    allCids = _env_chainsAtHeight e
-    genesisInfo = mkGenesisInfo $ _env_nodeInfo e
+    pool = _env_dbConnPool env
+    allCids = _env_chainsAtHeight env
+    genesisInfo = mkGenesisInfo $ _env_nodeInfo env
+    delayFunc =
+      case delay of
+        Nothing -> pure ()
+        Just d -> threadDelay d
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = do
-      headersBetween e range >>= \case
-        [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-        hs -> writeBlocks e pool count hs
-      forM_ delay threadDelay
+      headersBetween env range >>= \case
+        Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
+        Right [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+        Right hs -> writeBlocks env pool count hs
+      delayFunc
 
-backfillEvents :: Env -> BackfillArgs -> IO ()
-backfillEvents e args = do
-  cutBS <- queryCut e
-  let curHeight = fromIntegral $ cutMaxHeight cutBS
-      cids = atBlockHeight curHeight allCids
+backfillEventsCut :: Env -> BackfillArgs -> ByteString -> IO ()
+backfillEventsCut env args cutBS = do
+  let curHeight = cutMaxHeight cutBS
+      cids = atBlockHeight (fromIntegral curHeight) allCids
   counter <- newIORef 0
 
+  printf "[INFO] Backfilling events (curHeight = %d)\n" curHeight
   missingTxs <- countTxMissingEvents pool
 
   missingCoinbase <- countCoinbaseTxMissingEvents pool coinbaseEventsActivationHeight
@@ -109,26 +120,29 @@ backfillEvents e args = do
                     Nothing -> Par'
                     Just _ -> Seq
       race_ (progress counter $ fromIntegral (numTxs + numCoinbase))
-        $ traverseConcurrently_ strat (f missingCoinbase counter) cids
+        $ traverseConcurrently_ strat (f (fromIntegral curHeight) missingCoinbase counter) cids
 
   where
     delay = _backfillArgs_delayMicros args
-    pool = _env_dbConnPool e
-    allCids = _env_chainsAtHeight e
-    coinbaseEventsActivationHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo e of
+    pool = _env_dbConnPool env
+    allCids = _env_chainsAtHeight env
+    coinbaseEventsActivationHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo env of
       "mainnet01" -> 1722500
       "testnet04" -> 1261001
       _ -> error "Chainweb version: Unknown"
-    f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
-    f missingCoinbase count chain = do
+    f :: Int64 -> Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
+    f _curHeight missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       -- TODO: Make chunk size configurable
+      putStrLn "[DEBUG] Backfilling tx events"
       forM_ (groupsOf 100 blocks) $ \chunk -> do
         let m = M.fromList $ map (swap . first (either (error hashMsg) id . dbHashToHash) . snd) chunk :: M.Map (DbHash PayloadHash) Hash
             hashMsg = "error converting DbHash to Hash"
-        payloadWithOutputsBatch e chain m >>= \case
-          Nothing -> printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
-          Just bpwos -> do
+        payloadWithOutputsBatch env chain m >>= \case
+          Left e -> do
+            printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
+            print e
+          Right bpwos -> do
                 let writePayload current_hash bpwo = do
                       let mh = find (\(_,(c,_)) -> c == hashToDbHash current_hash) blocks
                       case mh of
@@ -154,15 +168,18 @@ backfillEvents e args = do
                           atomicModifyIORef' count (\n -> (n+1, ()))
                 forM_ bpwos (uncurry writePayload)
 
+      putStrLn "[DEBUG] Backfilling coinbase events"
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
         -- TODO: Make chunk size configurable
         forM_ (groupsOf 100 coinbaseBlocks) $ \chunk -> do
           let m = M.fromList $ map (swap . first (either (error hashMsg) id . dbHashToHash) . snd) chunk
               hashMsg = "error converting DbHash to Hash"
-          payloadWithOutputsBatch e chain m >>= \case
-            Nothing -> printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
-            Just bpwos -> do
+          payloadWithOutputsBatch env chain m >>= \case
+            Left e -> do
+              printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
+              print e
+            Right bpwos -> do
                 let writePayload current_hash bpwo = do
                       let mh = find (\(_,(c,_)) -> c == hashToDbHash current_hash) coinbaseBlocks
                       case mh of
@@ -214,7 +231,7 @@ countTxMissingEvents pool = do
 {- We only need to go back so far to search for events in coinbase transactions -}
 countCoinbaseTxMissingEvents :: P.Pool Connection -> Integer -> IO (Map ChainId Int64)
 countCoinbaseTxMissingEvents pool eventsActivationHeight = do
-    chainCounts <- P.withResource pool $ \c -> runBeamPostgres c $
+    chainCounts <- P.withResource pool $ \c -> runBeamPostgresDebug putStrLn c $
       runSelectReturningList $
       select $
       aggregate_ agg $ do
@@ -241,7 +258,12 @@ getCoinbaseMissingEvents chain eventsActivationHeight minHeight pool =
     cid = fromIntegral $ unChainId chain
 
 -- | Get the highest lim blocks with transactions that have unfilled events
-getTxMissingEvents :: ChainId -> P.Pool Connection -> Integer -> IO [(Int64, (DbHash BlockHash, DbHash PayloadHash))]
+getTxMissingEvents
+  :: ChainId
+  -> P.Pool Connection
+  -> Integer
+  -> IO [(Int64, (DbHash BlockHash, DbHash PayloadHash))]
+  -- ^ block height, block hash, payload hash
 getTxMissingEvents chain pool lim = do
     P.withResource pool $ \c -> runBeamPostgres c $
       runSelectReturningList $
