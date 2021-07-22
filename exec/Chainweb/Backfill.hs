@@ -13,6 +13,7 @@ module Chainweb.Backfill
 
 import           BasePrelude hiding (insert, range, second)
 
+import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
 import           Chainweb.Api.NodeInfo
@@ -59,6 +60,34 @@ backfill env args = do
         then backfillEventsCut env args cutBS
         else backfillBlocksCut env args cutBS
 
+data SimpleStack a = SimpleStack {
+    size :: {-# UNPACK#-} !(IORef Int)
+  , maxsize :: {-# UNPACK #-} !Int
+  , stack :: IORef [a]
+  }
+
+flushStack :: SimpleStack a -> IO (Maybe [a], SimpleStack a)
+flushStack ss@(SimpleStack refS m q) = do
+  s <- readIORef refS
+  if (s > m)
+    then do
+      items <- readIORef q
+      atomicModifyIORef' q (\_a -> ([],()))
+      atomicModifyIORef' refS (\_a -> (0, ()))
+      return (Just items, ss)
+    else return (Nothing, ss)
+
+addItemsToStack :: [a] -> SimpleStack a -> IO ([a], SimpleStack a)
+addItemsToStack [] s = return ([],s)
+addItemsToStack xss@(x:xs) ss@(SimpleStack refS m q) = do
+  s <- readIORef refS
+  if (s >= m)
+    then pure (xss, ss)
+    else do
+      atomicModifyIORef' q (\a -> (x:a, ()))
+      atomicModifyIORef' refS (\a -> (a + 1, ()))
+      addItemsToStack xs ss
+
 backfillBlocksCut :: Env -> BackfillArgs -> ByteString -> IO ()
 backfillBlocksCut env args cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
@@ -77,8 +106,11 @@ backfillBlocksCut env args cutBS = do
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
+      sizeRef <- newIORef 0
+      stackRef <- newIORef []
+      ss <-  newIORef $ SimpleStack {size = sizeRef, maxsize = 1440 , stack = stackRef}
       race_ (progress counter $ foldl' (+) 0 mins)
-        $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
+        $ traverseConcurrently_ strat (f ss counter) $ lookupPlan genesisInfo mins
   where
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool env
@@ -88,12 +120,23 @@ backfillBlocksCut env args cutBS = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: IORef Int -> (ChainId, Low, High) -> IO ()
-    f count range = do
+    f :: IORef (SimpleStack BlockHeader) -> IORef Int -> (ChainId, Low, High) -> IO ()
+    f refBlockStack count range = do
       headersBetween env range >>= \case
         Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
         Right [] -> printf "[FAIL] headersBetween: %s\n" $ show range
-        Right hs -> writeBlocks env pool count hs
+        Right hs -> do
+          blockStack <- readIORef refBlockStack
+          (leftover,blockStack') <- addItemsToStack hs blockStack
+          case leftover of
+            [] -> pure ()
+            _ -> do
+              (items,blockStack'') <- flushStack blockStack'
+              forM_ items $ writeBlocks env pool count
+              {- we could add the leftover to the stack, but I think it is just easier to flush it -}
+              writeBlocks env pool count leftover
+              atomicModifyIORef refBlockStack (\_ -> (blockStack'',()))
+
       delayFunc
 
 backfillEventsCut :: Env -> BackfillArgs -> ByteString -> IO ()
