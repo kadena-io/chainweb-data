@@ -31,6 +31,7 @@ import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
+import           Control.Concurrent.STM
 import           Control.Scheduler hiding (traverse_)
 
 import           Control.Lens (iforM_)
@@ -60,34 +61,6 @@ backfill env args = do
         then backfillEventsCut env args cutBS
         else backfillBlocksCut env args cutBS
 
-data SimpleStack a = SimpleStack {
-    size :: {-# UNPACK#-} !(IORef Int)
-  , maxsize :: {-# UNPACK #-} !Int
-  , stack :: IORef [a]
-  }
-
-flushStack :: SimpleStack a -> IO (Maybe [a], SimpleStack a)
-flushStack ss@(SimpleStack refS m q) = do
-  s <- readIORef refS
-  if (s > m)
-    then do
-      items <- readIORef q
-      atomicModifyIORef' q (\_a -> ([],()))
-      atomicModifyIORef' refS (\_a -> (0, ()))
-      return (Just items, ss)
-    else return (Nothing, ss)
-
-addItemsToStack :: [a] -> SimpleStack a -> IO ([a], SimpleStack a)
-addItemsToStack [] s = return ([],s)
-addItemsToStack xss@(x:xs) ss@(SimpleStack refS m q) = do
-  s <- readIORef refS
-  if (s >= m)
-    then pure (xss, ss)
-    else do
-      atomicModifyIORef' q (\a -> (x:a, ()))
-      atomicModifyIORef' refS (\a -> (a + 1, ()))
-      addItemsToStack xs ss
-
 backfillBlocksCut :: Env -> BackfillArgs -> ByteString -> IO ()
 backfillBlocksCut env args cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
@@ -106,13 +79,15 @@ backfillBlocksCut env args cutBS = do
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      sizeRef <- newIORef 0
-      stackRef <- newIORef []
-      ss <-  newIORef $ SimpleStack {size = sizeRef, maxsize = 1440 , stack = stackRef}
+      blockQueue <- newTBQueueIO 1440
       race_ (progress counter $ foldl' (+) 0 mins)
-        $ traverseConcurrently_ strat (f ss counter) $ lookupPlan genesisInfo mins
+        $ traverseMapConcurrently_ Par' (\k -> traverseConcurrently_ strat (f blockQueue counter) . map (toTriple k)) $ toChainMap $ lookupPlan genesisInfo mins
   where
+    traverseMapConcurrently_ comp g m =
+      withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
     delay = _backfillArgs_delayMicros args
+    toTriple k (v1,v2) = (k,v1,v2)
+    toChainMap = M.fromListWith (<>) . map (\(cid,l,h) -> (cid,[(l,h)]))
     pool = _env_dbConnPool env
     allCids = _env_chainsAtHeight env
     genesisInfo = mkGenesisInfo $ _env_nodeInfo env
@@ -120,24 +95,37 @@ backfillBlocksCut env args cutBS = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: IORef (SimpleStack BlockHeader) -> IORef Int -> (ChainId, Low, High) -> IO ()
-    f refBlockStack count range = do
+    f :: TBQueue BlockHeader -> IORef Int -> (ChainId, Low, High) -> IO ()
+    f blockQueue count range = do
       headersBetween env range >>= \case
         Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
         Right [] -> printf "[FAIL] headersBetween: %s\n" $ show range
         Right hs -> do
-          blockStack <- readIORef refBlockStack
-          (leftover,blockStack') <- addItemsToStack hs blockStack
-          case leftover of
-            [] -> pure ()
-            _ -> do
-              (items,blockStack'') <- flushStack blockStack'
-              forM_ items $ writeBlocks env pool count
-              {- we could add the leftover to the stack, but I think it is just easier to flush it -}
-              writeBlocks env pool count leftover
-              atomicModifyIORef refBlockStack (\_ -> (blockStack'',()))
-
+          (is, ls) <- atomically $ do
+            isFull <- isFullTBQueue blockQueue
+            case isFull of
+              False -> do
+                leftover <- fillTBQueue hs blockQueue
+                items <- flushTBQueue blockQueue
+                return (items,leftover)
+              True -> do
+                items <- flushTBQueue blockQueue
+                return (items, hs)
+          writeBlocks env pool count is
+          writeBlocks env pool count ls
+              
       delayFunc
+
+
+fillTBQueue :: [a] -> TBQueue a -> STM [a]
+fillTBQueue [] _ = pure []
+fillTBQueue xss@(x:xs) queue = do
+  isFull <- isFullTBQueue queue
+  case isFull of
+    True -> pure xss
+    False -> do
+      writeTBQueue queue x
+      fillTBQueue xs queue
 
 backfillEventsCut :: Env -> BackfillArgs -> ByteString -> IO ()
 backfillEventsCut env args cutBS = do

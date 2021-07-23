@@ -107,6 +107,7 @@ executable chainweb-data
     , servant-client
     , servant-client-core
     , servant-server
+    , stm
     , stm-chans
     , streaming                ^>=0.2
     , streaming-events

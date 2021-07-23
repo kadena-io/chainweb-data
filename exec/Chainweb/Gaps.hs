@@ -20,7 +20,6 @@ import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Scheduler (Comp(..), traverseConcurrently_)
 import           Data.ByteString.Lazy (ByteString)
-import           Data.Foldable
 import           Data.IORef
 import           Data.Int
 import qualified Data.IntSet as S

@@ -123,10 +123,10 @@ check _ ev = pure $
     _ -> False
 
 writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [BlockHeader] -> IO ()
-writeBlocks e pool count bhs = do
+writeBlocks env pool count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
-      retrying policy check (const $ payloadWithOutputsBatch e chain (M.fromList (ff <$> bhs'))) >>= \case
+      retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs'))) >>= \case
         Left e -> do
           printf "[FAIL] Couldn't fetch payload batch for chain: %d" (unChainId chain)
           print e
