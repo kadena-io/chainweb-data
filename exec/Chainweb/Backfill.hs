@@ -39,6 +39,7 @@ import           Data.ByteString.Lazy (ByteString)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import qualified Data.Vector as V
 import           Data.Witherable.Class (wither)
 
 import           Database.Beam hiding (insert)
@@ -79,7 +80,7 @@ backfillBlocksCut env args cutBS = do
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      blockQueue <- newTBQueueIO 1440
+      blockQueue <- newTBQueueIO 20
       race_ (progress counter $ foldl' (+) 0 mins)
         $ traverseMapConcurrently_ Par' (\k -> traverseConcurrently_ strat (f blockQueue counter) . map (toTriple k)) $ toChainMap $ lookupPlan genesisInfo mins
   where
@@ -95,37 +96,20 @@ backfillBlocksCut env args cutBS = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: TBQueue BlockHeader -> IORef Int -> (ChainId, Low, High) -> IO ()
+    f :: TBQueue (V.Vector BlockHeader) -> IORef Int -> (ChainId, Low, High) -> IO ()
     f blockQueue count range = do
       headersBetween env range >>= \case
         Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
         Right [] -> printf "[FAIL] headersBetween: %s\n" $ show range
         Right hs -> do
-          (is, ls) <- atomically $ do
-            isFull <- isFullTBQueue blockQueue
-            case isFull of
-              False -> do
-                leftover <- fillTBQueue hs blockQueue
-                items <- flushTBQueue blockQueue
-                return (items,leftover)
-              True -> do
-                items <- flushTBQueue blockQueue
-                return (items, hs)
-          writeBlocks env pool count is
-          writeBlocks env pool count ls
-              
+          let vs = V.fromList hs
+          atomically (tryReadTBQueue blockQueue) >>= \case
+            Nothing -> atomically $ writeTBQueue blockQueue vs
+            Just q -> do
+              writeBlocks env pool count (V.toList q)
+              atomically $ writeTBQueue blockQueue vs
+
       delayFunc
-
-
-fillTBQueue :: [a] -> TBQueue a -> STM [a]
-fillTBQueue [] _ = pure []
-fillTBQueue xss@(x:xs) queue = do
-  isFull <- isFullTBQueue queue
-  case isFull of
-    True -> pure xss
-    False -> do
-      writeTBQueue queue x
-      fillTBQueue xs queue
 
 backfillEventsCut :: Env -> BackfillArgs -> ByteString -> IO ()
 backfillEventsCut env args cutBS = do
