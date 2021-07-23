@@ -14,27 +14,22 @@ import           BasePrelude hiding (insert, range, second)
 
 import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
-import           Chainweb.Api.Common
-import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           ChainwebData.Types
-import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
-import           Control.Scheduler hiding (traverse_)
 
 import           Control.Lens (iforM_)
 import           Data.ByteString.Lazy (ByteString)
-import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import           Data.Tuple.Strict (T2(..))
 
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
@@ -55,7 +50,8 @@ fillEvents env args et = do
 
 fillEventsCut :: Env -> BackfillArgs -> EventType -> ByteString -> IO ()
 fillEventsCut env args et cutBS = do
-  let curHeight = fromIntegral $ cutMaxHeight cutBS
+  let curHeight = cutMaxHeight cutBS
+
   counter <- newIORef 0
 
   when (et == CoinbaseAndTx) $ do
@@ -73,46 +69,59 @@ fillEventsCut env args et cutBS = do
         race_ (progress counter $ fromIntegral numMissingCoinbase) $ do
           forM gaps $ \(chain, low, high) -> do
             -- TODO Maybe make the chunk size configurable
-            forM (rangeToDescGroupsOf 100 low high) $ \(chunkLow, chunkHigh) -> do
-              headers <- headersBetween env (chain, chunkLow, chunkHigh)
-              let payloadHashes = map (hashToDbHash . _blockHeader_payloadHash) headers
-              payloadWithOutputsBatch env chain payloadHashes >>= \case
-                Left e -> do
-                  -- TODO Possibly also check for "key not found" message
-                  if apiError_type e == ClientError && curHeight - height > 120
-                    then do
-                      printf "[DEBUG] Setting numEvents to 0 for all transactions with block hash %s\n" (unDbHash blockHash)
-                      P.withResource pool $ \c ->
-                        withTransaction c $ runBeamPostgres c $
-                          runUpdate
-                            $ update (_cddb_transactions database)
-                                (\tx -> _tx_numEvents tx <-. val_ (Just 0))
-                                (\tx -> _tx_block tx ==. val_ (BlockId blockHash))
-                    else do
-                      printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
-                             (unChainId chain) height (unDbHash blockHash)
-                      print e
-                Right bpwo -> do
-                  P.withResource pool $ \c -> runBeamPostgres c $
-                    runInsert
-                      $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' h chain current_hash bpwo)
-                      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-                  atomicModifyIORef' counter (\n -> (n+1, ()))
+            forM (rangeToDescGroupsOf 100 (Low $ fromIntegral low) (High $ fromIntegral high)) $ \(chunkLow, chunkHigh) -> do
+              headersBetween env (ChainId $ fromIntegral chain, chunkLow, chunkHigh) >>= \case
+                Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show (chunkLow, chunkHigh)) (show e)
+                Right [] -> printf "[FAIL] headersBetween: %s\n" $ show (chunkLow, chunkHigh)
+                Right headers -> do
+                  let payloadHashes = M.fromList $ map (\header -> (hashToDbHash $ _blockHeader_payloadHash header, header)) headers
+                  payloadWithOutputsBatch env (ChainId $ fromIntegral chain) payloadHashes >>= \case
+                    Left e -> do
+                      -- TODO Possibly also check for "key not found" message
+                      if (apiError_type e == ClientError)
+                        then do
+                          forM_ (filter (\header -> curHeight - (fromIntegral $ _blockHeader_height header) > 120) headers) $ \header -> do
+                            printf "[DEBUG] Setting numEvents to 0 for all transactions with block hash %s\n" (unDbHash $ hashToDbHash $ _blockHeader_hash header)
+                            P.withResource pool $ \c ->
+                              withTransaction c $ runBeamPostgres c $
+                                runUpdate
+                                  $ update (_cddb_transactions database)
+                                    (\tx -> _tx_numEvents tx <-. val_ (Just 0))
+                                    (\tx -> _tx_block tx ==. val_ (BlockId (hashToDbHash $ _blockHeader_hash header)))
+                            print e
+                        else printf "[FAIL] no payloads for header range (%d, %d) on chain %d" (coerce chunkLow :: Int) (coerce chunkHigh :: Int) chain
+                    Right bpwos -> do
+                      let writePayload current_header bpwo = do
+                            let mh = find (\header -> _blockHeader_hash header == _blockHeader_hash current_header) headers
+                            case mh of
+                              Nothing -> pure ()
+                              Just header -> do
+                                let allTxsEvents = snd $ mkBlockEvents' (fromIntegral h) (ChainId $ fromIntegral chain) current_hash bpwo
+                                    current_hash = hashToDbHash $ _blockHeader_hash current_header
+                                    h = _blockHeader_height header
+                                    rqKeyEventsMap = allTxsEvents
+                                      & mapMaybe (\ev -> fmap (flip (,) 1) (_ev_requestkey ev))
+                                      & M.fromListWith (+)
+
+                                P.withResource pool $ \c ->
+                                  withTransaction c $ do
+                                    runBeamPostgres c $
+                                      runInsert
+                                        $ insert (_cddb_events database) (insertValues $ fst $ mkBlockEvents' (fromIntegral h) (ChainId $ fromIntegral chain) current_hash bpwo)
+                                        $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+                                    withSavepoint c $ runBeamPostgres c $
+                                      iforM_ rqKeyEventsMap $ \reqKey num_events ->
+                                        runUpdate
+                                          $ update (_cddb_transactions database)
+                                            (\tx -> _tx_numEvents tx <-. val_ (Just num_events))
+                                            (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
+                                atomicModifyIORef' counter (\n -> (n+1, ()))
+                      forM_ bpwos (uncurry writePayload)
               forM_ delay threadDelay
               
   where
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool env
-    allCids = _env_chainsAtHeight env
-    delayFunc =
-      case delay of
-        Nothing -> pure ()
-        Just d -> threadDelay d
-    coinbaseEventsActivationHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo env of
-      "mainnet01" -> 1722500
-      "testnet04" -> 1261001
-      _ -> error "Chainweb version: Unknown"
-
 
 getCoinbaseGaps :: Env -> IO [(Int64, Int64, Int64)]
 getCoinbaseGaps env = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgresDebug putStrLn c $ do
@@ -121,7 +130,7 @@ getCoinbaseGaps env = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgr
       withWindow_ (\e -> frame_ (partitionBy_ (_ev_chainid e)) (orderPartitionBy_ $ asc_ $ _ev_height e) noBounds_)
                   (\e w -> (_ev_chainid e, _ev_height e, lead_ (_ev_height e) (val_ (1 :: Int64)) `over_` w))
                   (all_ $ _cddb_events database)
-    pure $ orderBy_ (\(c,a,_) -> (desc_ a, asc_ c)) $ do
+    pure $ orderBy_ (\(cid,a,_) -> (desc_ a, asc_ cid)) $ do
       res@(_,a,b) <- reuse gaps
       guard_ ((b - a) >. val_ 1)
       pure res

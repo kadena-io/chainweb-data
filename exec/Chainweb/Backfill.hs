@@ -23,7 +23,9 @@ import           ChainwebData.Backfill
 import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.DbHash
+import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
@@ -34,10 +36,14 @@ import           Data.ByteString.Lazy (ByteString)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import           Data.Tuple.Strict (T2(..))
 import           Data.Witherable.Class (wither)
 
 import           Database.Beam hiding (insert)
+import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
+import           Database.Beam.Postgres.Full (insert, onConflict)
+import           Database.PostgreSQL.Simple.Transaction (withTransaction, withSavepoint)
 
 ---
 
@@ -48,10 +54,10 @@ backfill env args = do
     Left e -> do
       putStrLn "[FAIL] Error querying cut"
       print e
-    Right cutBS ->
-      if _backfillArgs_onlyEvents args
-        then backfillEventsCut env args cutBS
-        else backfillBlocksCut env args cutBS
+    Right _cutBS -> undefined
+      -- if _backfillArgs_onlyEvents args
+      --   then backfillEventsCut env args cutBS
+      --   else backfillBlocksCut env args cutBS
 
 backfillBlocksCut :: Env -> BackfillArgs -> ByteString -> IO ()
 backfillBlocksCut env args cutBS = do

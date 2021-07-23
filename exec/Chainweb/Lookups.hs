@@ -1,5 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Lookups
@@ -33,7 +34,7 @@ import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Env
-import           ChainwebData.Types (Low(..), High(..))
+import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
@@ -48,6 +49,7 @@ import           Data.ByteString.Lazy (ByteString,toStrict)
 import qualified Data.ByteString.Base64.URL as B64
 import           Data.Coerce
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import           Data.Foldable
 import           Data.Int
 import           Data.Maybe
@@ -110,9 +112,9 @@ headersBetween env (cid, Low low, High up) = do
 payloadWithOutputsBatch
   :: Env
   -> ChainId
-  -> [DbHash PayloadHash]
-  -> IO (Either ApiError [BlockPayloadWithOutputs])
-payloadWithOutputsBatch env (ChainId cid) hshes' = do
+  -> M.Map (DbHash PayloadHash) a
+  -> IO (Either ApiError [(a, BlockPayloadWithOutputs)])
+payloadWithOutputsBatch env (ChainId cid) m = do
     initReq <- parseRequest url
     let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
     eresp <- handleRequest req (_env_httpManager env)
@@ -121,15 +123,18 @@ payloadWithOutputsBatch env (ChainId cid) hshes' = do
           case eitherDecode' (responseBody resp) of
             Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e)
                                       (responseStatus resp) (responseBody resp)
-            Right a -> Right a
+            Right (as :: [BlockPayloadWithOutputs]) -> Right $ foldr go [] as
     pure res
   where
-    hshes = String . unDbHash <$> hshes'
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
     encoding = [("content-type", "application/json")]
-    requestObject = Array $ V.fromList hshes
+    requestObject = Array $ V.fromList $ String . unDbHash <$> M.keys m
+    go bpwo =
+      case M.lookup (hashToDbHash $ _blockPayloadWithOutputs_payloadHash bpwo) m of
+        Nothing -> id
+        Just vv -> ((vv, bpwo) :)
 
 payloadWithOutputs
   :: Env
