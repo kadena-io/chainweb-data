@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -14,6 +15,7 @@ import           BasePrelude hiding (insert, range, second)
 
 import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
+import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
@@ -55,7 +57,11 @@ fillEventsCut env args et cutBS = do
   counter <- newIORef 0
 
   when (et == CoinbaseAndTx) $ do
-    gaps <- getCoinbaseGaps env
+    let startingHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo env of
+          "mainnet01" -> 1722500
+          "testnet04" -> 1261001
+          _ -> error "Chainweb version: Unknown"
+    gaps <- getCoinbaseGaps env startingHeight
     mapM_ print gaps
     let numMissingCoinbase = sum $ map (\(_,a,b) -> b - a - 1) gaps
     printf "Got %d gaps\n" (length gaps)
@@ -118,14 +124,14 @@ fillEventsCut env args et cutBS = do
                                 atomicModifyIORef' counter (\n -> (n+1, ()))
                       forM_ bpwos (uncurry writePayload)
               forM_ delay threadDelay
-              
+
   where
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool env
 
-getCoinbaseGaps :: Env -> IO [(Int64, Int64, Int64)]
-getCoinbaseGaps env = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgresDebug putStrLn c $ do
-  runSelectReturningList $ selectWith $ do
+getCoinbaseGaps :: Env -> Int64 -> IO [(Int64, Int64, Int64)]
+getCoinbaseGaps env startingHeight = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgresDebug putStrLn c $ do
+  gaps <- runSelectReturningList $ selectWith $ do
     gaps <- selecting $
       withWindow_ (\e -> frame_ (partitionBy_ (_ev_chainid e)) (orderPartitionBy_ $ asc_ $ _ev_height e) noBounds_)
                   (\e w -> (_ev_chainid e, _ev_height e, lead_ (_ev_height e) (val_ (1 :: Int64)) `over_` w))
@@ -134,8 +140,15 @@ getCoinbaseGaps env = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgr
       res@(_,a,b) <- reuse gaps
       guard_ ((b - a) >. val_ 1)
       pure res
+  minHeights <- runSelectReturningList $ select $ aggregate_ (\e -> (group_ (_ev_chainid e), min_ (_ev_height e))) (all_ (_cddb_events database))
+  let addStart [] = gaps
+      addStart ((_,Nothing):ms) = addStart ms
+      addStart ((cid,Just m):ms) = if m > startingHeight
+                                     then (cid, startingHeight, m) : addStart ms
+                                     else addStart ms
+  pure $ addStart minHeights
 
-
+--with gaps as (select chainid, height, LEAD (height,1) OVER (PARTITION BY chainid ORDER BY height ASC) AS next_height from events) select * from gaps where next_height - height > 1;
 
 --    f :: Map ChainId Int64 -> IORef Int -> ChainId -> IO ()
 --    f missingCoinbase count chain = do
