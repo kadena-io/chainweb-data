@@ -93,7 +93,7 @@ backfillBlocksCut env args cutBS = do
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
     delay = _backfillArgs_delayMicros args
     toTriple k (v1,v2) = (k,v1,v2)
-    toChainMap = M.fromListWith (<>) . map (\(cid,l,h) -> (cid,[(l,h)]))
+    toChainMap = M.fromListWith (flip (<>)) . map (\(cid,l,h) -> (cid,[(l,h)]))
     logg = _env_logger env
     pool = _env_dbConnPool env
     allCids = _env_chainsAtHeight env
