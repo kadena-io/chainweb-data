@@ -86,7 +86,7 @@ backfillBlocksCut env args cutBS = do
                     Nothing -> Par'
                     Just _ -> Seq
       blockQueue <- newTBQueueIO 20
-      race_ (progress counter $ foldl' (+) 0 mins)
+      race_ (progress env counter $ foldl' (+) 0 mins)
         $ traverseMapConcurrently_ Par' (\k -> traverseConcurrently_ strat (f blockQueue counter) . map (toTriple k)) $ toChainMap $ lookupPlan genesisInfo mins
   where
     traverseMapConcurrently_ comp g m =
@@ -139,7 +139,7 @@ backfillEventsCut env args cutBS = do
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      race_ (progress counter $ fromIntegral (numTxs + numCoinbase))
+      race_ (progress env counter $ fromIntegral (numTxs + numCoinbase))
         $ traverseConcurrently_ strat (f (fromIntegral curHeight) missingCoinbase counter) cids
 
   where

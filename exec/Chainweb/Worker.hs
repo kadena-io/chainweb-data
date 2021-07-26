@@ -25,6 +25,7 @@ import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
 import           Control.Lens (iforM_)
 import           Control.Retry
+import           Control.StopWatch
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.Map as M
@@ -142,7 +143,8 @@ writeBlocks env pool count bhs = do
                   pls
                   (makeBlockMap bhs')
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
-          batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
+          deltaT <- fmap snd $ stopWatch $ batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
+          logger Info $ fromString $ printf "Took %s to write batch of roughly size %d." (show deltaT) (M.size bs)
           atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 

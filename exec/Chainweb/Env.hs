@@ -260,8 +260,8 @@ commands = hsubparser
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   )
 
-progress :: IORef Int -> Int -> IO a
-progress count total = do
+progress :: Env -> IORef Int -> Int -> IO a
+progress env count total = do
     start <- getPOSIXTime
     forever $ do
       threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
