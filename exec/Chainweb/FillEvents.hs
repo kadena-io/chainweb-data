@@ -39,6 +39,8 @@ import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 
+import           System.Logger.Types hiding (logg)
+
 ---
 
 fillEvents :: Env -> BackfillArgs -> EventType -> IO ()
@@ -46,8 +48,9 @@ fillEvents env args et = do
   ecut <- queryCut env
   case ecut of
     Left e -> do
-      putStrLn "[FAIL] Error querying cut"
-      print e
+      let logg = _env_logger env
+      logg Error $ fromString $ printf "[FAIL] Error querying cut"
+      logg Error $ fromString $ show e
     Right cutBS -> fillEventsCut env args et cutBS
 
 fillEventsCut :: Env -> BackfillArgs -> EventType -> ByteString -> IO ()
@@ -62,23 +65,23 @@ fillEventsCut env args et cutBS = do
           "testnet04" -> 1261001
           _ -> error "Chainweb version: Unknown"
     gaps <- getCoinbaseGaps env startingHeight
-    mapM_ print gaps
+    mapM_ (logg Debug . fromString . show) gaps
     let numMissingCoinbase = sum $ map (\(_,a,b) -> b - a - 1) gaps
-    printf "Got %d gaps\n" (length gaps)
+    logg Info $ fromString $ printf "Got %d gaps\n" (length gaps)
 
     if null gaps
       then do
-        printf "[INFO] There are no missing coinbase events on any of the chains!"
+        logg Info "[INFO] There are no missing coinbase events on any of the chains!"
         exitSuccess
       else do
-        printf "[INFO] Filling coinbase transactions of %d blocks.\n" numMissingCoinbase
+        logg Info $ fromString $ printf "[INFO] Filling coinbase transactions of %d blocks.\n" numMissingCoinbase
         race_ (progress counter $ fromIntegral numMissingCoinbase) $ do
           forM gaps $ \(chain, low, high) -> do
             -- TODO Maybe make the chunk size configurable
             forM (rangeToDescGroupsOf 100 (Low $ fromIntegral low) (High $ fromIntegral high)) $ \(chunkLow, chunkHigh) -> do
               headersBetween env (ChainId $ fromIntegral chain, chunkLow, chunkHigh) >>= \case
-                Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show (chunkLow, chunkHigh)) (show e)
-                Right [] -> printf "[FAIL] headersBetween: %s\n" $ show (chunkLow, chunkHigh)
+                Left e -> logg Error $ fromString $ printf "[FAIL] ApiError for range %s: %s\n" (show (chunkLow, chunkHigh)) (show e)
+                Right [] -> logg Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show (chunkLow, chunkHigh)
                 Right headers -> do
                   let payloadHashes = M.fromList $ map (\header -> (hashToDbHash $ _blockHeader_payloadHash header, header)) headers
                   payloadWithOutputsBatch env (ChainId $ fromIntegral chain) payloadHashes >>= \case
@@ -87,15 +90,15 @@ fillEventsCut env args et cutBS = do
                       if (apiError_type e == ClientError)
                         then do
                           forM_ (filter (\header -> curHeight - (fromIntegral $ _blockHeader_height header) > 120) headers) $ \header -> do
-                            printf "[DEBUG] Setting numEvents to 0 for all transactions with block hash %s\n" (unDbHash $ hashToDbHash $ _blockHeader_hash header)
+                            logg Debug $ fromString $ printf "[DEBUG] Setting numEvents to 0 for all transactions with block hash %s\n" (unDbHash $ hashToDbHash $ _blockHeader_hash header)
                             P.withResource pool $ \c ->
                               withTransaction c $ runBeamPostgres c $
                                 runUpdate
                                   $ update (_cddb_transactions database)
                                     (\tx -> _tx_numEvents tx <-. val_ (Just 0))
                                     (\tx -> _tx_block tx ==. val_ (BlockId (hashToDbHash $ _blockHeader_hash header)))
-                            print e
-                        else printf "[FAIL] no payloads for header range (%d, %d) on chain %d" (coerce chunkLow :: Int) (coerce chunkHigh :: Int) chain
+                            logg Debug $ fromString $ show e
+                        else logg Error $ fromString $ printf "[FAIL] no payloads for header range (%d, %d) on chain %d" (coerce chunkLow :: Int) (coerce chunkHigh :: Int) chain
                     Right bpwos -> do
                       let writePayload current_header bpwo = do
                             let mh = find (\header -> _blockHeader_hash header == _blockHeader_hash current_header) headers
@@ -126,11 +129,12 @@ fillEventsCut env args et cutBS = do
               forM_ delay threadDelay
 
   where
+    logg = _env_logger env
     delay = _backfillArgs_delayMicros args
     pool = _env_dbConnPool env
 
 getCoinbaseGaps :: Env -> Int64 -> IO [(Int64, Int64, Int64)]
-getCoinbaseGaps env startingHeight = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgresDebug putStrLn c $ do
+getCoinbaseGaps env startingHeight = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgresDebug (_env_logger env Debug . fromString) c $ do
   gaps <- runSelectReturningList $ selectWith $ do
     gaps <- selecting $
       withWindow_ (\e -> frame_ (partitionBy_ (_ev_chainid e)) (orderPartitionBy_ $ asc_ $ _ev_height e) noBounds_)

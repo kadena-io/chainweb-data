@@ -73,6 +73,7 @@ main = do
                       Backfill as -> backfill env as
                       Gaps rateLimit -> gaps env rateLimit
                       Single cid h -> single env cid h
+                      FillEvents as et -> fillEvents env as et
                       Server serverEnv -> apiServer env serverEnv
   where
     opts = info ((richListP <|> envP) <**> helper)
