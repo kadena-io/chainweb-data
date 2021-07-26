@@ -37,6 +37,7 @@ import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
+import           System.Logger hiding (logg)
 ---
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
@@ -99,11 +100,12 @@ asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHas
 writeBlock :: Env -> P.Pool Connection -> IORef Int -> BlockHeader -> IO ()
 writeBlock env pool count bh = do
   let !pair = T2 (_blockHeader_chainId bh) (hashToDbHash $ _blockHeader_payloadHash bh)
+      logg = _env_logger env
   retrying policy check (const $ payloadWithOutputs env pair) >>= \case
     Left e -> do
-      printf "[FAIL] Couldn't fetch parent for: %s\n"
+      logg Error $ fromString $ printf "[FAIL] Couldn't fetch parent for: %s\n"
         (hashB64U $ _blockHeader_hash bh)
-      print e
+      logg Info $ fromString $ show e
     Right pl -> do
       let !m = _blockPayloadWithOutputs_minerData pl
           !b = asBlock (asPow bh) m
