@@ -103,7 +103,7 @@ writeBlock env pool count bh = do
       logg = _env_logger env
   retrying policy check (const $ payloadWithOutputs env pair) >>= \case
     Left e -> do
-      logg Error $ fromString $ printf "[FAIL] Couldn't fetch parent for: %s\n"
+      logg Error $ fromString $ printf "Couldn't fetch parent for: %s\n"
         (hashB64U $ _blockHeader_hash bh)
       logg Info $ fromString $ show e
     Right pl -> do
@@ -130,7 +130,7 @@ writeBlocks env pool count bhs = do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs'))) >>= \case
         Left e -> do
-          printf "[FAIL] Couldn't fetch payload batch for chain: %d" (unChainId chain)
+          logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
           print e
         Right pls' -> do
           let !pls = M.fromList pls'
@@ -147,6 +147,8 @@ writeBlocks env pool count bhs = do
   where
 
     makeBlockMap = M.fromList . fmap (\bh -> (_blockHeader_hash bh, bh))
+
+    logger = _env_logger env
 
     blocksByChainId =
       M.fromListWith mappend

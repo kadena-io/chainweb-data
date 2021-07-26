@@ -60,7 +60,7 @@ backfill env args = do
   case ecut of
     Left e -> do
       let logg = _env_logger env
-      logg Error "[FAIL] Error querying cut"
+      logg Error "Error querying cut"
       logg Info $ fromString $ show e
     Right cutBS ->
       if _backfillArgs_onlyEvents args
@@ -76,12 +76,12 @@ backfillBlocksCut env args cutBS = do
   let count = M.size mins
   if count /= length cids
     then do
-      logg Error $ fromString $ printf "[FAIL] %d chains have block data, but we expected %d.\n" count (length cids)
-      logg Error $ fromString $ printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
-      logg Error $ fromString $ printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
+      logg Error $ fromString $ printf "%d chains have block data, but we expected %d.\n" count (length cids)
+      logg Error $ fromString $ printf "Please run a 'listen' first, and ensure that each chain has a least one block.\n"
+      logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'backfill' separately.\n"
       exitFailure
     else do
-      logg Info $ fromString $ printf "[INFO] Beginning backfill on %d chains.\n" count
+      logg Info $ fromString $ printf "Beginning backfill on %d chains.\n" count
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
@@ -105,8 +105,8 @@ backfillBlocksCut env args cutBS = do
     f :: TBQueue (V.Vector BlockHeader) -> IORef Int -> (ChainId, Low, High) -> IO ()
     f blockQueue count range = do
       headersBetween env range >>= \case
-        Left e -> logg Error $ fromString $ printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
-        Right [] -> logg Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show range
+        Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s\n" (show range) (show e)
+        Right [] -> logg Error $ fromString $ printf "headersBetween: %s\n" $ show range
         Right hs -> do
           let vs = V.fromList hs
           atomically (tryReadTBQueue blockQueue) >>= \case
@@ -122,20 +122,20 @@ backfillEventsCut env args cutBS = do
       cids = atBlockHeight (fromIntegral curHeight) allCids
   counter <- newIORef 0
 
-  logg Info $ fromString $ printf "[INFO] Backfilling events (curHeight = %d)\n" curHeight
+  logg Info $ fromString $ printf "Backfilling events (curHeight = %d)\n" curHeight
   missingTxs <- countTxMissingEvents pool
 
   missingCoinbase <- countCoinbaseTxMissingEvents pool logg coinbaseEventsActivationHeight
   if M.null missingTxs && M.null missingCoinbase
     then do
-      logg Info $ fromString $ printf "[INFO] There are no events to backfill on any of the %d chains!" (length cids)
+      logg Info $ fromString $ printf "There are no events to backfill on any of the %d chains!" (length cids)
       exitSuccess
     else do
       let numTxs = foldl' (+) 0 missingTxs
           numCoinbase = foldl' (\s h -> s + (h - fromIntegral coinbaseEventsActivationHeight)) 0 missingCoinbase
 
-      logg Info $ fromString $ printf "[INFO] Beginning event backfill of %d txs on %d chains.\n" numTxs (M.size missingTxs)
-      logg Info $ fromString $ printf "[INFO] Also beginning event backfill (of coinbase transactions) of %d txs on %d chains.\n" numCoinbase (M.size missingCoinbase)
+      logg Info $ fromString $ printf "Beginning event backfill of %d txs on %d chains.\n" numTxs (M.size missingTxs)
+      logg Info $ fromString $ printf "Also beginning event backfill (of coinbase transactions) of %d txs on %d chains.\n" numCoinbase (M.size missingCoinbase)
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
@@ -155,7 +155,7 @@ backfillEventsCut env args cutBS = do
     f curHeight missingCoinbase count chain = do
       blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
       -- TODO: Make chunk size configurable
-      logg Debug "[DEBUG] Backfilling tx events"
+      logg Debug "Backfilling tx events"
       forM_ (groupsOf 100 blocks) $ \chunk -> do
         let m = M.fromList $ map (swap . first (either (error hashMsg) id . dbHashToHash) . snd) chunk :: M.Map (DbHash PayloadHash) Hash
             hashMsg = "error converting DbHash to Hash"
@@ -165,7 +165,7 @@ backfillEventsCut env args cutBS = do
             if apiError_type e == ClientError
               then do
                 forM_ (filter (\bh -> curHeight - fst bh > 120) blocks) $ \(_, (blockHash, _)) -> do
-                  logg Debug $ fromString $ printf "[DEBUG] Setting num events to 0 for all transactions with block hash %s\n" (unDbHash blockHash)
+                  logg Debug $ fromString $ printf "Setting num events to 0 for all transactions with block hash %s\n" (unDbHash blockHash)
                   P.withResource pool $ \c ->
                     withTransaction c $ runBeamPostgres c $
                       runUpdate
@@ -173,7 +173,7 @@ backfillEventsCut env args cutBS = do
                             (\tx -> _tx_numEvents tx <-. val_ (Just 0))
                             (\tx -> _tx_block tx ==. val_ (BlockId blockHash))
                 logg Info $ fromString $ show e
-              else logg Error $ fromString $ printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
+              else logg Error $ fromString $ printf "No payloads for chain %d, over range (fill in later)" (unChainId chain)
           Right bpwos -> do
                 let writePayload current_hash bpwo = do
                       let mh = find (\(_,(c,_)) -> c == hashToDbHash current_hash) blocks
@@ -199,7 +199,7 @@ backfillEventsCut env args cutBS = do
                           atomicModifyIORef' count (\n -> (n+1, ()))
                 forM_ bpwos (uncurry writePayload)
 
-      logg Debug $ "[DEBUG] Backfilling coinbase events"
+      logg Debug $ "Backfilling coinbase events"
       forM_ (M.lookup chain missingCoinbase) $ \minheight -> do
         coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
         -- TODO: Make chunk size configurable
@@ -210,10 +210,10 @@ backfillEventsCut env args cutBS = do
             Left e -> do
               unless (apiError_type e == ClientError) $ do
                 forM_ (filter (\(height,(_,_)) -> curHeight - height > 120) coinbaseBlocks) $ \(height,(blockHash,_)) -> do
-                  logg Error $ fromString $ printf "[FAIL] No payload for chain %d, height %d, block hash %s\n"
+                  logg Error $ fromString $ printf "No payload for chain %d, height %d, block hash %s\n"
                     (unChainId chain) height (unDbHash blockHash)
                   logg Info $ fromString $ show e
-              printf "[FAIL] No payloads for chain %d, over range (fill in later)" (unChainId chain)
+              printf "No payloads for chain %d, over range (fill in later)" (unChainId chain)
               print e
             Right bpwos -> do
                 let writePayload current_hash bpwo = do

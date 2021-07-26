@@ -262,18 +262,19 @@ commands = hsubparser
 
 progress :: IORef Int -> Int -> IO a
 progress count total = do
-  start <- getPOSIXTime
-  forever $ do
-    threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
-    completed <- readIORef count
-    now <- getPOSIXTime
-    let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
-        elapsedMinutes = (now - start) / 60
-        blocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
-        estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
-        (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
-                              | otherwise = ("hours", estMinutesLeft `div` 60)
-    printf "[INFO] Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute.\n"
-      completed total perc timeLeft timeUnits blocksPerMinute
-    hFlush stdout
-
+    start <- getPOSIXTime
+    forever $ do
+      threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
+      completed <- readIORef count
+      now <- getPOSIXTime
+      let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
+          elapsedMinutes = (now - start) / 60
+          blocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
+          estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
+          (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
+                                | otherwise = ("hours", estMinutesLeft `div` 60)
+      logger Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute.\n"
+        completed total perc timeLeft timeUnits blocksPerMinute
+      hFlush stdout
+  where
+    logger = _env_logger env
