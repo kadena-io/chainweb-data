@@ -116,6 +116,7 @@ executable chainweb-data
     , warp
     , warp-tls
     , witherable-class         ^>=0
+    , yet-another-logger
 
   -- , gargoyle-postgresql-nix
   other-modules:

@@ -29,8 +29,11 @@ import qualified Data.List.NonEmpty as NEL
 import           Data.Maybe
 import qualified Data.Pool as P
 import           Data.Semigroup
+import           Data.String
+import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
+import           System.Logger hiding (logg)
 import           Text.Printf
 
 ---
@@ -40,8 +43,9 @@ gaps env delay = do
   ecut <- queryCut env
   case ecut of
     Left e -> do
-      putStrLn "[FAIL] Error querying cut"
-      print e
+      let logg = _env_logger env
+      logg Error "[FAIL] Error querying cut"
+      logg Info $ fromString $ show e
     Right cutBS -> gapsCut env delay cutBS
 
 gapsCut :: Env -> Maybe Int -> ByteString -> IO ()
@@ -49,31 +53,32 @@ gapsCut env delay cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight $ _env_chainsAtHeight env
   work genesisInfo cids pool >>= \case
-    Nothing -> printf "[INFO] No gaps detected.\n"
+    Nothing -> logg Info $ fromString $ printf "[INFO] No gaps detected.\n"
     Just bs -> do
       count <- newIORef 0
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
           total = length bs
-      printf "[INFO] Filling %d gaps\n" total
+      logg Info $ fromString $ printf "[INFO] Filling %d gaps\n" total
       race_ (progress count total) $
-        traverseConcurrently_ strat (f count) bs
+        traverseConcurrently_ strat (f logg count) bs
       final <- readIORef count
-      printf "[INFO] Filled in %d missing blocks.\n" final
+      logg Info $ fromString $ printf "[INFO] Filled in %d missing blocks.\n" final
   where
     pool = _env_dbConnPool env
+    logg = _env_logger env
     genesisInfo = mkGenesisInfo $ _env_nodeInfo env
     delayFunc =
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: IORef Int -> (BlockHeight, Int) -> IO ()
-    f count (h, cid) = do
+    f :: LogFunctionIO Text -> IORef Int -> (BlockHeight, Int) -> IO ()
+    f logger count (h, cid) = do
       let range = (ChainId cid, Low h, High h)
       headersBetween env range >>= \case
-        Left e -> printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
-        Right [] -> printf "[FAIL] headersBetween: %s\n" $ show range
+        Left e -> logger Error $ fromString $ printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
+        Right [] -> logger Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show range
         Right hs -> traverse_ (writeBlock env pool count) hs
       delayFunc
 

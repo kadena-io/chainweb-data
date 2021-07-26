@@ -37,7 +37,7 @@ import qualified Data.Map.Strict as M
 import           Data.Maybe
 import           Data.String
 import           Data.Pool
-import           Data.Text (Text)
+import           Data.Text (pack, Text)
 import           Data.Time.Clock.POSIX
 import           Database.Beam.Postgres
 import           Gargoyle
@@ -51,15 +51,16 @@ import           Network.HTTP.Client (Manager)
 import           Options.Applicative
 import qualified Servant.Client as S
 import           System.IO
+import           System.Logger.Types
 import           Text.Printf
 
 ---
 
 data Args
-  = Args Command Connect UrlScheme Url
+  = Args Command Connect UrlScheme Url LogLevel
     -- ^ arguments for the Listen, Backfill, Gaps, Single,
     -- and Server cmds
-  | RichListArgs NodeDbPath
+  | RichListArgs NodeDbPath LogLevel
     -- ^ arguments for the Richlist command
   deriving (Show)
 
@@ -70,6 +71,7 @@ data Env = Env
   , _env_p2pUrl :: Url
   , _env_nodeInfo :: NodeInfo
   , _env_chainsAtHeight :: [(BlockHeight, [ChainId])]
+  , _env_logger :: LogFunctionIO Text
   }
 
 chainStartHeights :: [(BlockHeight, [ChainId])] -> Map ChainId BlockHeight
@@ -182,6 +184,14 @@ envP = Args
   <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
   <*> urlSchemeParser "service" 1848
   <*> urlParser "p2p" 443
+  <*> logLevelParser
+
+logLevelParser :: Parser LogLevel
+logLevelParser =
+    option (eitherReader (readLogLevel . pack)) $
+      long "level"
+      <> value Info
+      <> help "Initial log threshold"
 
 richListP :: Parser Args
 richListP = hsubparser
@@ -198,6 +208,7 @@ richListP = hsubparser
         <> value (NodeDbPath Nothing)
         <> help "Chainweb node db filepath"
         )
+      <*> logLevelParser
 
 connectP :: Parser Connect
 connectP = (PGString <$> pgstringP) <|> (PGInfo <$> connectInfoP) <|> (PGGargoyle <$> dbdirP)
