@@ -21,6 +21,7 @@ import GHC.Generics
 data PayloadHash = PayloadHash
 data PowHash = PowHash
 data BlockHash = BlockHash
+data TxHash = TxHash -- i.e. requestkey
 
 -- | DB hashes stored as Base64Url encoded text for more convenient querying.
 newtype DbHash t = DbHash { unDbHash :: Text }

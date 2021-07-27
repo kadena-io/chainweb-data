@@ -82,7 +82,7 @@ backfillBlocksCut env args cutBS = do
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      race_ (progress counter $ foldl' (+) 0 mins)
+      race_ (progress logg counter $ foldl' (+) 0 mins)
         $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
   where
     delay = _backfillArgs_delayMicros args
@@ -125,7 +125,7 @@ backfillEventsCut env args cutBS = do
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      race_ (progress counter $ fromIntegral (numTxs + numCoinbase))
+      race_ (progress logg counter $ fromIntegral (numTxs + numCoinbase))
         $ traverseConcurrently_ strat (f (fromIntegral curHeight) missingCoinbase counter) cids
 
   where
@@ -163,23 +163,7 @@ backfillEventsCut env args cutBS = do
                        (unChainId chain) height (unDbHash blockHash)
                 logg Info $ fromString $ show e
           Right bpwo -> do
-            let allTxsEvents = snd $ mkBlockEvents' height chain blockHash bpwo
-                rqKeyEventsMap = allTxsEvents
-                  & mapMaybe (\ev -> fmap (flip (,) 1) (_ev_requestkey ev))
-                  & M.fromListWith (+)
-
-            P.withResource pool $ \c ->
-              withTransaction c $ do
-                runBeamPostgres c $ do
-                  runInsert
-                    $ insert (_cddb_events database) (insertValues allTxsEvents)
-                    $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-                withSavepoint c $ runBeamPostgres c $
-                  iforM_ rqKeyEventsMap $ \reqKey num_events ->
-                    runUpdate
-                      $ update (_cddb_transactions database)
-                          (\tx -> _tx_numEvents tx <-. val_ (Just num_events))
-                          (\tx -> _tx_requestKey tx ==. val_ (unDbHash reqKey))
+            writePayload pool chain blockHash height bpwo
         atomicModifyIORef' count (\n -> (n+1, ()))
 
       logg Debug $ "[DEBUG] Backfilling coinbase events"

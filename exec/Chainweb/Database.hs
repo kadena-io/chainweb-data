@@ -11,13 +11,18 @@ module Chainweb.Database
   ( ChainwebDataDb(..)
   , database
   , initializeTables
+
+  , withDb
+  , withDbDebug
   ) where
 
+import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
 import qualified Control.Monad.Fail as Fail
+import qualified Data.Pool as P
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.String
@@ -171,3 +176,8 @@ ourMigrate logger BeamMigrationBackend { backendActionProvider = actions
         logger Info $ fromString $ show $ fromPgCommand s
       runNoReturn s
 
+withDb :: Env -> Pg b -> IO b
+withDb env qry = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgres c qry
+
+withDbDebug :: Env -> LogLevel -> Pg b -> IO b
+withDbDebug env level qry = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgresDebug (liftIO . _env_logger env level . fromString) c qry

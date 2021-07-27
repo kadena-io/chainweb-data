@@ -281,7 +281,7 @@ searchTxs logger pool limit offset (Just search) = do
     lim = maybe 10 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
     getHeight (_,a,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
     searchString = "%" <> search <> "%"
 
 throw404 :: MonadError ServerError m => ByteString -> m a
@@ -300,7 +300,7 @@ txHandler logger pool (Just (RequestKey rk)) =
       tx <- all_ (_cddb_transactions database)
       blk <- all_ (_cddb_blocks database)
       guard_ (_tx_block tx `references_` blk)
-      guard_ (_tx_requestKey tx ==. val_ rk)
+      guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
       return (tx,blk)
     evs <- runSelectReturningList $ select $ do
        ev <- all_ (_cddb_events database)
@@ -329,7 +329,7 @@ txHandler logger pool (Just (RequestKey rk)) =
         , _txDetail_blockTime = _block_creationTime blk
         , _txDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
         , _txDetail_creationTime = _tx_creationTime tx
-        , _txDetail_requestKey = _tx_requestKey tx
+        , _txDetail_requestKey = unDbHash $ _tx_requestKey tx
         , _txDetail_sender = _tx_sender tx
         , _txDetail_code = _tx_code tx
         , _txDetail_success =
@@ -377,7 +377,7 @@ evHandler logger pool limit offset qSearch qParam qName =
       , _evDetail_height = fromIntegral $ _block_height blk
       , _evDetail_blockTime = _block_creationTime blk
       , _evDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
-      , _evDetail_requestKey = _tx_requestKey tx
+      , _evDetail_requestKey = unDbHash $ _tx_requestKey tx
       , _evDetail_idx = fromIntegral $ _ev_idx ev
       }
   where
@@ -422,7 +422,7 @@ queryRecentTxs logger pool = do
       return $ mkSummary <$> res
   where
     getHeight (_,a,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d e f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
 
 getTransactionCount :: (LogLevel -> String -> IO ()) -> P.Pool Connection -> IO (Maybe Int64)
 getTransactionCount logger pool = do

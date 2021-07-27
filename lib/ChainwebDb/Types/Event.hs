@@ -24,8 +24,8 @@ import Database.Beam.Postgres (PgJSONB)
 import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 data EventT f = Event
-  { _ev_requestkey :: C f (Maybe (DbHash PayloadHash))
-  , _ev_block :: C f (Maybe (DbHash BlockHash))
+  { _ev_requestkey :: C f (Maybe (DbHash TxHash))
+  , _ev_block :: C f (DbHash BlockHash)
   , _ev_chainid :: C f Int64
   , _ev_height :: C f Int64
   , _ev_idx :: C f Int64
@@ -57,7 +57,7 @@ type Event = EventT Identity
 type EventId = PrimaryKey EventT Identity
 
 instance Table EventT where
-  data PrimaryKey EventT f = EventId (C f Int64) (C f Int64) (C f Int64)
+  data PrimaryKey EventT f = EventNoId
     deriving stock (Generic)
     deriving anyclass (Beamable)
 {-
@@ -72,4 +72,4 @@ chainweb-data: internal error: Unable to commit 1048576 bytes of memory
     Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug
 Killed
 -}
-  primaryKey = EventId <$> _ev_chainid <*> _ev_height <*> _ev_idx
+  primaryKey _ = EventNoId

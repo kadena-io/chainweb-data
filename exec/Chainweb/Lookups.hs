@@ -193,20 +193,25 @@ mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_tran
 -- the current block hash and NOT the parent hash However, the source key of the
 -- event in chainweb-data database instance is the current block hash and NOT
 -- the parent hash.
-mkBlockEvents' :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ([Event], [Event])
-mkBlockEvents' height cid blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
-    & concatMap (mkTxEvents height cid)
-    & ((,) (mkCoinbaseEvents height cid blockhash pl))
+mkBlockEvents' :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ([Event], [(DbHash TxHash, [Event])])
+mkBlockEvents' height cid blockhash pl =
+    (mkCoinbaseEvents height cid blockhash pl, map mkPair tos)
+  where
+    tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
+    mkPair p = ( DbHash $ hashB64U $ CW._transaction_hash $ fst p
+               , mkTxEvents height cid blockhash p)
 
 mkBlockEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
-mkBlockEvents height cid blockhash pl = uncurry (++) (mkBlockEvents' height cid blockhash pl)
+mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
+  where
+    (cbes, txes) = mkBlockEvents' height cid blockhash pl
 
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
     & coerce
     & _toutEvents
     {- idx of coinbase transactions is set to 0.... this value is just a placeholder-}
-    <&> \ev -> mkEvent cid height (Right blockhash) ev 0
+    <&> \ev -> mkEvent cid height blockhash Nothing ev 0
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -221,7 +226,7 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_gasPrice = _chainwebMeta_gasPrice mta
   , _tx_sender = _chainwebMeta_sender mta
   , _tx_nonce = _pactCommand_nonce cmd
-  , _tx_requestKey = hashB64U $ CW._transaction_hash tx
+  , _tx_requestKey = DbHash $ hashB64U $ CW._transaction_hash tx
   , _tx_code = _exec_code <$> exc
   , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
@@ -253,13 +258,14 @@ mkTransaction b (tx,txo) = Transaction
       PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
       PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
 
-mkTxEvents :: Int64 -> ChainId -> (CW.Transaction,TransactionOutput) -> [Event]
-mkTxEvents height cid (tx,txo) = zipWith (mkEvent cid height (Left k)) (_toutEvents txo) [0..]
+mkTxEvents :: Int64 -> ChainId -> DbHash BlockHash -> (CW.Transaction,TransactionOutput) -> [Event]
+mkTxEvents height cid blk (tx,txo) = zipWith (mkEvent cid height blk (Just rk)) (_toutEvents txo) [0..]
   where
-    k = DbHash $ hashB64U $ CW._transaction_hash tx
+    rk = DbHash $ hashB64U $ CW._transaction_hash tx
+    
 
-mkEvent :: ChainId -> Int64 -> Either (DbHash PayloadHash) (DbHash BlockHash) -> Value -> Int64 -> Event
-mkEvent (ChainId chainid) height requestkeyOrBlock ev idx = Event
+mkEvent :: ChainId -> Int64 -> DbHash BlockHash -> Maybe (DbHash TxHash) -> Value -> Int64 -> Event
+mkEvent (ChainId chainid) height block requestkey ev idx = Event
     { _ev_requestkey = requestkey
     , _ev_block = block
     , _ev_chainid = fromIntegral chainid
@@ -273,8 +279,6 @@ mkEvent (ChainId chainid) height requestkeyOrBlock ev idx = Event
     , _ev_params = PgJSONB $ toList $ params ev
     }
   where
-    requestkey = either Just (const Nothing) requestkeyOrBlock
-    block = either (const Nothing) Just requestkeyOrBlock
     ename = fromMaybe "" . str "name"
     emodule = fromMaybe "" . join . fmap qualm . lkp "module"
     qname ev' = case join $ fmap qualm $ lkp "module" ev' of

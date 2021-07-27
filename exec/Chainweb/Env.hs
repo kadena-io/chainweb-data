@@ -51,7 +51,7 @@ import           Network.HTTP.Client (Manager)
 import           Options.Applicative
 import qualified Servant.Client as S
 import           System.IO
-import           System.Logger.Types
+import           System.Logger.Types hiding (logg)
 import           Text.Printf
 
 ---
@@ -269,8 +269,8 @@ commands = hsubparser
        (progDesc "Event Worker - Fills missing events"))
   )
 
-progress :: IORef Int -> Int -> IO a
-progress count total = do
+progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a
+progress logg count total = do
   start <- getPOSIXTime
   forever $ do
     threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
@@ -282,7 +282,7 @@ progress count total = do
         estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
         (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
                               | otherwise = ("hours", estMinutesLeft `div` 60)
-    printf "[INFO] Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute.\n"
+    logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute."
       completed total perc timeLeft timeUnits blocksPerMinute
     hFlush stdout
 
