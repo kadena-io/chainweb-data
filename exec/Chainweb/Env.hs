@@ -3,7 +3,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 module Chainweb.Env
-  ( Args(..)
+  ( MigrateStatus(..)
+  , Args(..)
   , Env(..)
   , chainStartHeights
   , ServerEnv(..)
@@ -56,8 +57,11 @@ import           Text.Printf
 
 ---
 
+data MigrateStatus = RunMigration | DontMigrate
+  deriving (Eq,Ord,Show,Read)
+
 data Args
-  = Args Command Connect UrlScheme Url LogLevel
+  = Args Command Connect UrlScheme Url LogLevel MigrateStatus
     -- ^ arguments for the Listen, Backfill, Gaps, Single,
     -- and Server cmds
   | RichListArgs NodeDbPath LogLevel
@@ -185,6 +189,11 @@ envP = Args
   <*> urlSchemeParser "service" 1848
   <*> urlParser "p2p" 443
   <*> logLevelParser
+  <*> migrationP
+
+migrationP :: Parser MigrateStatus
+migrationP =
+  flag DontMigrate RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
 
 logLevelParser :: Parser LogLevel
 logLevelParser =

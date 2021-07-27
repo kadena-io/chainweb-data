@@ -80,6 +80,7 @@ executable chainweb-data
     , async                    ^>=2.2
     , base16-bytestring
     , base64-bytestring        ^>=1.0
+    , beam-automigrate
     , bytestring
     , cassava                  ^>=0.5
     , cereal                   ^>=0.5

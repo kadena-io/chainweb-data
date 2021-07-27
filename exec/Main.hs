@@ -51,12 +51,12 @@ main = do
               logg Info $ "[INFO] Constructing rich list using given db-path: " <> fromString fp
               return fp
           richList logg fp
-        Args c pgc us u _ -> do
+        Args c pgc us u _ ms -> do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
           withPool pgc $ \pool -> do
-            P.withResource pool (initializeTables logg)
+            P.withResource pool (initializeTables logg ms)
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -82,7 +82,7 @@ main = do
       & loggerConfigThreshold .~ level
     backendConfig = defaultHandleBackendConfig
     getLevel = \case
-      Args _ _ _ _ level -> level
+      Args _ _ _ _ level _ -> level
       RichListArgs _ level -> level
 
 
