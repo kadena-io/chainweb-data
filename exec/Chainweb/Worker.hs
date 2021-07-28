@@ -43,13 +43,13 @@ import           System.Logger hiding (logg)
 writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> IO ()
 writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $ do
      runBeamPostgres c $ do
-        -- Write Pub Key many-to-many relationships if unique --
-        runInsert
-          $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
-          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         -- Write the Block if unique --
         runInsert
           $ insert (_cddb_blocks database) (insertValues [b])
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        -- Write Pub Key many-to-many relationships if unique --
+        runInsert
+          $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
      {- We should still be able to write the block & miner keys data if writing
      either the transaction or event data somehow fails. -}

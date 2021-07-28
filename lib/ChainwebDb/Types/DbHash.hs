@@ -8,6 +8,8 @@ module ChainwebDb.Types.DbHash where
 ------------------------------------------------------------------------------
 import Data.Aeson
 import Data.Text (Text)
+import Database.Beam.AutoMigrate
+import Database.Beam.Backend.SQL hiding (tableName)
 import Database.Beam.Backend.SQL.Row (FromBackendRow)
 import Database.Beam.Backend.SQL.SQL92 (HasSqlValueSyntax)
 import Database.Beam.Migrate (HasDefaultSqlDataType)
@@ -34,3 +36,8 @@ instance ToJSON (DbHash t) where
 
 instance FromJSON (DbHash t) where
     parseJSON = withText "DbHash" $ \v -> pure $ DbHash v
+
+instance HasColumnType (DbHash a) where
+  defaultColumnType _ = SqlStdType $ varCharType Nothing Nothing
+  defaultTypeCast _ = Just "character varying"
+

@@ -20,7 +20,6 @@ module Chainweb.Database
 
 import           Chainweb.Env
 import           ChainwebDb.Types.Block
-import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
@@ -31,21 +30,11 @@ import qualified Data.Text as T
 import           Data.String
 import           Database.Beam
 import qualified Database.Beam.AutoMigrate as BA
-import           Database.Beam.AutoMigrate.Types
-import           Database.Beam.Backend.SQL hiding (tableName)
 import           Database.Beam.Postgres
 import           System.Exit
 import           System.Logger hiding (logg)
 
 ---
-
-instance BA.HasColumnType (DbHash a) where
-  defaultColumnType _ = SqlStdType $ varCharType Nothing Nothing
-  defaultTypeCast _ = Just "character varying"
-
-instance BA.HasColumnType HashAsNum where
-  defaultColumnType _ = SqlStdType $ numericType (Just (80, Nothing))
-  defaultTypeCast _ = Just "numeric"
 
 data ChainwebDataDb f = ChainwebDataDb
   { _cddb_blocks :: f (TableEntity BlockT)

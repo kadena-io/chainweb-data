@@ -1,8 +1,8 @@
 {
   "owner": "mightybyte",
   "repo": "beam-automigrate",
-  "branch": "develop",
+  "branch": "no-primary-key-fix",
   "private": false,
-  "rev": "3728df439b0a421bdd0a568c8a6461b4e0e9fdbf",
-  "sha256": "1qs18jny4iv4gzgbz3mlc8d370awq2f5gfip6pc25s2ls1cmbjf9"
+  "rev": "0fd33d660a523941ad78bcd9869a6e3d9220008e",
+  "sha256": "13im8k1kzdinb09zw9n6ljnh7jarm5q8s6ipmzk8c7ayz5gvf1c0"
 }

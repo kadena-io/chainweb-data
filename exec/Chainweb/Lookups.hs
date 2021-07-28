@@ -47,7 +47,6 @@ import           Data.Aeson
 import           Data.Aeson.Lens
 import           Data.ByteString.Lazy (ByteString,toStrict)
 import qualified Data.ByteString.Base64.URL as B64
-import           Data.Coerce
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import           Data.Foldable
@@ -208,10 +207,12 @@ mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
 
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
-    & coerce
+    & coinbaseTO
     & _toutEvents
     {- idx of coinbase transactions is set to 0.... this value is just a placeholder-}
     <&> \ev -> mkEvent cid height blockhash Nothing ev 0
+  where
+    coinbaseTO (Coinbase t) = t
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -266,7 +267,7 @@ mkTxEvents height cid blk (tx,txo) = zipWith (mkEvent cid height blk (Just rk)) 
 
 mkEvent :: ChainId -> Int64 -> DbHash BlockHash -> Maybe (DbHash TxHash) -> Value -> Int64 -> Event
 mkEvent (ChainId chainid) height block requestkey ev idx = Event
-    { _ev_requestkey = requestkey
+    { _ev_requestkey = maybe RKCB_Coinbase RKCB_RequestKey requestkey
     , _ev_block = block
     , _ev_chainid = fromIntegral chainid
     , _ev_height = height

@@ -146,9 +146,11 @@ apiServerCut env senv cutBS = do
   recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs (logFunc senv env) pool
   numTxs <- getTransactionCount (logFunc senv env) pool
   ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
+  logg Info $ fromString $ "Total number of transactions: " <> show numTxs
   _ <- forkIO $ scheduledUpdates env senv pool ssRef
   _ <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
+  logg Info $ fromString "Starting chainweb-data server"
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve theApi $
     ( ( recentTxsHandler ssRef
         :<|> searchTxs (logFunc senv env) pool
@@ -304,7 +306,7 @@ txHandler logger pool (Just (RequestKey rk)) =
       return (tx,blk)
     evs <- runSelectReturningList $ select $ do
        ev <- all_ (_cddb_events database)
-       guard_ (_ev_requestkey ev ==. val_ (Just $ DbHash rk))
+       guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
        return ev
     return $ (`fmap` r) $ \(tx,blk) -> TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx

@@ -3,9 +3,10 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -15,16 +16,50 @@
 module ChainwebDb.Types.Event where
 
 ------------------------------------------------------------------------------
-import BasePrelude
-import Data.Aeson
-import Data.Text (Text)
-import Database.Beam
-import Database.Beam.Postgres (PgJSONB)
+import           Data.Aeson
+import           Data.Int
+import           Data.Text (Text)
+import qualified Data.Text as T
+import           Database.Beam
+import           Database.Beam.AutoMigrate hiding (Table)
+import           Database.Beam.Backend.SQL hiding (tableName)
+import           Database.Beam.Backend.SQL.Row (FromBackendRow)
+import           Database.Beam.Backend.SQL.SQL92 (HasSqlValueSyntax)
+import           Database.Beam.Backend.Types
+import           Database.Beam.Migrate
+import           Database.Beam.Postgres
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
+
+data ReqKeyOrCoinbase = RKCB_RequestKey (DbHash TxHash) | RKCB_Coinbase
+  deriving (Eq, Ord, Generic)
+
+instance Show ReqKeyOrCoinbase where
+  show RKCB_Coinbase = "cb"
+  show (RKCB_RequestKey rk) = T.unpack $ unDbHash rk
+
+rkcbFromText :: Text -> ReqKeyOrCoinbase
+rkcbFromText "cb" = RKCB_Coinbase
+rkcbFromText rk = RKCB_RequestKey $ DbHash rk
+
+instance BeamMigrateSqlBackend be => HasSqlEqualityCheck be ReqKeyOrCoinbase
+
+instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be ReqKeyOrCoinbase where
+  defaultSqlDataType _ _ _ = varCharType Nothing Nothing
+
+instance HasSqlValueSyntax be String => HasSqlValueSyntax be ReqKeyOrCoinbase where
+  sqlValueSyntax = autoSqlValueSyntax
+
+instance (BeamBackend be, FromBackendRow be Text) => FromBackendRow be ReqKeyOrCoinbase where
+  fromBackendRow = rkcbFromText <$> fromBackendRow
+
+instance HasColumnType ReqKeyOrCoinbase where
+  defaultColumnType _ = SqlStdType $ varCharType Nothing Nothing
+  defaultTypeCast _ = Just "character varying"
+
 data EventT f = Event
-  { _ev_requestkey :: C f (Maybe (DbHash TxHash))
+  { _ev_requestkey :: C f ReqKeyOrCoinbase
   , _ev_block :: C f (DbHash BlockHash)
   , _ev_chainid :: C f Int64
   , _ev_height :: C f Int64
@@ -57,7 +92,7 @@ type Event = EventT Identity
 type EventId = PrimaryKey EventT Identity
 
 instance Table EventT where
-  data PrimaryKey EventT f = EventNoId
+  data PrimaryKey EventT f = EventId (C f ReqKeyOrCoinbase) (C f Int64) (C f Int64) (C f Int64)
     deriving stock (Generic)
     deriving anyclass (Beamable)
 {-
@@ -72,4 +107,5 @@ chainweb-data: internal error: Unable to commit 1048576 bytes of memory
     Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug
 Killed
 -}
-  primaryKey _ = EventNoId
+  primaryKey = EventId <$> _ev_requestkey <*> _ev_chainid <*> _ev_height <*> _ev_idx
+
