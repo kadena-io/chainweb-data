@@ -147,7 +147,7 @@ apiServerCut env senv cutBS = do
   numTxs <- getTransactionCount logg pool
   ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
   logg Info $ fromString $ "Total number of transactions: " <> show numTxs
-  _ <- forkIO $ scheduledUpdates env senv pool ssRef
+  _ <- forkIO $ scheduledUpdates env pool ssRef
   _ <- forkIO $ listenWithHandler env $ serverHeaderHandler env pool ssRef
   logg Info $ fromString "Starting chainweb-data server"
   let serverApp req =
@@ -165,11 +165,10 @@ apiServerCut env senv cutBS = do
 
 scheduledUpdates
   :: Env
-  -> ServerEnv
   -> P.Pool Connection
   -> IORef ServerState
   -> IO ()
-scheduledUpdates env senv pool ssRef = forever $ do
+scheduledUpdates env pool ssRef = forever $ do
     threadDelay (60 * 60 * 24 * micros)
 
     now <- getCurrentTime
