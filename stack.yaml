@@ -25,6 +25,8 @@ extra-deps:
       - beam-core
       - beam-migrate
       - beam-postgres
+  - github: mightybyte/beam-automigrate
+    commit: 0fd33d660a523941ad78bcd9869a6e3d9220008e
   - github: obsidiansystems/gargoyle
     commit: b0bf855cc91f7cc3b986083af8fbc9da59c86b56
     subdirs:
