@@ -34,8 +34,6 @@ source-repository-package
     subdir:
       gargoyle
       gargoyle-postgresql
-      gargoyle-postgresql-connect
-      gargoyle-postgresql-nix
 
 source-repository-package
     type: git

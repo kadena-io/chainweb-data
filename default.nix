@@ -10,7 +10,7 @@ in haskellPackages.developPackage {
   let gargoylePkgs = import ./deps/gargoyle { haskellPackages = self; };
   in
   {
-    inherit (gargoylePkgs) gargoyle gargoyle-postgresql gargoyle-postgresql-nix gargoyle-postgresql-connect;
+    inherit (gargoylePkgs) gargoyle gargoyle-postgresql;
 
     #beam-automigrate = self.callHackageDirect {
     #  pkg = "beam-automigrate";
