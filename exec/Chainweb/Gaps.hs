@@ -16,9 +16,12 @@ import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           Control.Concurrent
 import           Control.Concurrent.Async
-import           Control.Monad (when, unless, void)
+import           Control.Exception
+import           Control.Monad
 import           Control.Scheduler
+import           Data.Bool
 import           Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString as B
 import           Data.IORef
 import           Data.Int
 import qualified Data.Map.Strict as M
@@ -27,24 +30,26 @@ import           Data.String
 import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
+import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.Types
 import           System.Logger hiding (logg)
 import           System.Exit (exitFailure)
 import           Text.Printf
 
 ---
 
-gaps :: Env -> Maybe Int -> IO ()
-gaps env delay = do
+gaps :: Env -> GapArgs -> IO ()
+gaps env args = do
   ecut <- queryCut env
   case ecut of
     Left e -> do
       let logg = _env_logger env
       logg Error "Error querying cut"
       logg Info $ fromString $ show e
-    Right cutBS -> gapsCut env delay cutBS
+    Right cutBS -> gapsCut env args cutBS
 
-gapsCut :: Env -> Maybe Int -> ByteString -> IO ()
-gapsCut env delay cutBS = do
+gapsCut :: Env -> GapArgs -> ByteString -> IO ()
+gapsCut env args cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight $ _env_chainsAtHeight env
   getBlockGaps env >>= \gapsByChain ->
@@ -62,12 +67,14 @@ gapsCut env delay cutBS = do
         let strat = maybe Seq (const Par') delay
             total = sum $ fmap length gapsByChain
         logg Info $ fromString $ printf "Filling %d gaps\n" total
-        race_ (progress env count total) $
+        bool id (withDroppedIndexes env) disableIndexesPred $ race_ (progress env count total) $
           traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count cid)) gapsByChain
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks.\n" final
   where
     pool = _env_dbConnPool env
+    delay =  _gapArgs_delayMicros args
+    disableIndexesPred =  _gapArgs_disableIndexes args
     logg = _env_logger env
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
@@ -79,6 +86,25 @@ gapsCut env delay cutBS = do
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s\n" $ show range
         Right hs -> writeBlocks env pool count hs
       maybe mempty threadDelay delay
+
+listIndexes :: Env -> IO [(B.ByteString, B.ByteString)]
+listIndexes env = P.withResource (_env_dbConnPool env) $ \conn -> query_ conn qry
+  where
+    qry =
+      "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname='public';"
+
+dropIndexes :: Env -> [B.ByteString] -> IO ()
+dropIndexes env indexdefs = forM_ indexdefs $ \indexdef -> P.withResource (_env_dbConnPool env) $ \conn ->
+  execute conn "DROP INDEX ?" [indexdef]
+
+withDroppedIndexes :: Env -> IO a -> IO a
+withDroppedIndexes env action = do
+    indexInfos <- listIndexes env
+    bracket (dropIndexes env (fst <$> indexInfos)) (const $ recreateIndexes env (snd <$> indexInfos)) (const action)
+
+recreateIndexes :: Env -> [B.ByteString] -> IO ()
+recreateIndexes env cmds = forM_ cmds $ \indexcmd -> P.withResource (_env_dbConnPool env) $ \conn ->
+  execute_ conn (Query indexcmd)
 
 getBlockGaps :: Env -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do

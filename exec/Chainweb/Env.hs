@@ -17,6 +17,7 @@ module Chainweb.Env
   , ChainwebVersion(..)
   , Command(..)
   , BackfillArgs(..)
+  , GapArgs(..)
   , envP
   , richListP
   , NodeDbPath(..)
@@ -162,7 +163,7 @@ data Command
     = Server ServerEnv
     | Listen
     | Backfill BackfillArgs
-    | Gaps (Maybe Int)
+    | Gaps GapArgs
     | Single ChainId BlockHeight
     deriving (Show)
 
@@ -171,6 +172,11 @@ data BackfillArgs = BackfillArgs
   , _backfillArgs_onlyEvents :: Bool
   , _backfillArgs_eventChunkSize :: Maybe Integer
   } deriving (Eq,Ord,Show)
+
+data GapArgs = GapArgs
+  { _gapArgs_delayMicros :: Maybe Int
+  , _gapArgs_disableIndexes :: Bool
+  } deriving (Eq, Ord, Show)
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
@@ -246,13 +252,18 @@ bfArgsP = BackfillArgs
   <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
 
+gapArgsP :: Parser GapArgs
+gapArgsP = GapArgs
+  <$> delayP
+  <*> flag False True (long "disable-indexes" <> short 'd' <> help "Disable indexes on tables while filling on gaps.")
+
 commands :: Parser Command
 commands = hsubparser
   (  command "listen" (info (pure Listen)
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
   <> command "backfill" (info (Backfill <$> bfArgsP)
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
-  <> command "gaps" (info (Gaps <$> delayP)
+  <> command "gaps" (info (Gaps <$> gapArgsP)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
