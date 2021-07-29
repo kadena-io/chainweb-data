@@ -21,7 +21,6 @@ import           Control.Monad
 import           Control.Scheduler
 import           Data.Bool
 import           Data.ByteString.Lazy (ByteString)
-import qualified Data.ByteString as B
 import           Data.IORef
 import           Data.Int
 import qualified Data.Map.Strict as M
@@ -81,7 +80,7 @@ gapsCut env args cutBS = do
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
     createRanges (l,h)
        | l < h =
-          let xs = [l, l + 359 .. h]
+          let xs = [l, l + 360 .. h]
           in case zip xs (drop 1 xs) of
               (a:as) -> a : map (\(s,t) -> (s + 1, t)) as
               _ -> []
@@ -92,27 +91,34 @@ gapsCut env args cutBS = do
       headersBetween env range >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s\n" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s\n" $ show range
-        Right hs -> writeBlocks env pool count sampler hs
+        Right hs -> writeBlocks env pool disableIndexesPred count sampler hs
       maybe mempty threadDelay delay
 
-listIndexes :: Env -> IO [(B.ByteString, B.ByteString)]
-listIndexes env = P.withResource (_env_dbConnPool env) $ \conn -> query_ conn qry
+listIndexes :: Env -> IO [(String, String, String)]
+listIndexes env = P.withResource (_env_dbConnPool env) $ \conn -> do
+    res <- query_ conn qry
+    forM_ res $ \(_,name,definition) -> do
+      putStrLn "index name"
+      putStrLn name
+      putStrLn "index definitions"
+      putStrLn definition
+    return res
   where
     qry =
-      "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname='public';"
+      "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname='public';"
 
-dropIndexes :: Env -> [B.ByteString] -> IO ()
-dropIndexes env indexnames = forM_ indexnames $ \indexname -> P.withResource (_env_dbConnPool env) $ \conn ->
-  execute conn "DROP INDEX ?" [indexname]
+dropIndexes :: Env -> [(String, String, String)] -> IO ()
+dropIndexes env indexinfos = forM_ indexinfos $ \(tablename, indexname, _) -> P.withResource (_env_dbConnPool env) $ \conn ->
+  execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s ;" tablename indexname
 
 withDroppedIndexes :: Env -> IO a -> IO a
 withDroppedIndexes env action = do
     indexInfos <- listIndexes env
-    bracket (dropIndexes env (fst <$> indexInfos)) (const $ recreateIndexes env (snd <$> indexInfos)) (const action)
+    bracket (dropIndexes env indexInfos) (const $ recreateIndexes env indexInfos) (const action)
 
-recreateIndexes :: Env -> [B.ByteString] -> IO ()
-recreateIndexes env indexdefs = forM_ indexdefs $ \indexdef -> P.withResource (_env_dbConnPool env) $ \conn ->
-  execute_ conn (Query indexdef)
+recreateIndexes :: Env -> [(String, String, String)] -> IO ()
+recreateIndexes env indexinfos = forM_ indexinfos $ \(_,_,indexdef) -> P.withResource (_env_dbConnPool env) $ \conn ->
+  execute_ conn (Query $ fromString $ indexdef <> ";")
 
 getBlockGaps :: Env -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
@@ -134,7 +140,9 @@ getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
               minHeights'
               $ fmap toInt64 $ M.mapKeys toInt64 genesisInfo
       unless (M.null minHeights) (liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights)
-      pure $ M.intersectionWith addStart minHeights foundGaps
+      pure $ if M.null foundGaps
+        then M.mapMaybe (fmap pure) minHeights
+        else M.intersectionWith addStart minHeights foundGaps
   where
     logg level = _env_logger env level . fromString
     genesisInfo = getGenesisInfo $ mkGenesisInfo $ _env_nodeInfo env

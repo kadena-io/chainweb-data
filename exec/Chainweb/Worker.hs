@@ -36,7 +36,7 @@ import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
-import           Database.Beam.Postgres.Full (insert, onConflict)
+import           Database.Beam.Postgres.Full (insert, onConflictDefault, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 import           System.Logger hiding (logg)
 ---
@@ -71,27 +71,33 @@ writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $ do
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
-batchWrites :: P.Pool Connection -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> IO ()
-batchWrites pool bs kss tss ess = P.withResource pool $ \c -> withTransaction c $ do
-  runBeamPostgres c $ do
-    -- Write Pub Key many-to-many relationships if unique --
-    runInsert
-      $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
-      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-    -- Write the Blocks if unique
-    runInsert
-      $ insert (_cddb_blocks database) (insertValues bs)
-      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+batchWrites :: P.Pool Connection -> Bool -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> IO ()
+batchWrites pool indexesDisabled bs kss tss ess = P.withResource pool $ \c -> withTransaction c $ do
+    runBeamPostgres c $ do
+      -- Write Pub Key many-to-many relationships if unique --
+      runInsert
+        $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
+        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+      -- Write the Blocks if unique
+      runInsert
+        $ insert (_cddb_blocks database) (insertValues bs)
+        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-  withSavepoint c $ runBeamPostgres c $ do
-    -- Write the TXs if unique
-    runInsert
-      $ insert (_cddb_transactions database) (insertValues $ concat tss)
-      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+    withSavepoint c $ runBeamPostgres c $ do
+      -- Write the TXs if unique
+      runInsert
+        $ insert (_cddb_transactions database) (insertValues $ concat tss)
+        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-    runInsert
-      $ insert (_cddb_events database) (insertValues $ concat ess)
-      $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+      runInsert
+        $ insert (_cddb_events database) (insertValues $ concat ess)
+        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+  where
+    {- the type system won't allow me to simply inline the "other" expression -}
+    actionOnConflict other = if indexesDisabled
+      then onConflictDefault -- There shouldn't be any constraints on any tables, so this SHOULD be no-op
+      else other
+
 
 asPow :: BlockHeader -> PowHeader
 asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHash bh)
@@ -125,8 +131,8 @@ check _ ev = pure $
     Left e -> apiError_type e == RateLimiting
     _ -> False
 
-writeBlocks :: Env -> P.Pool Connection -> IORef Int -> IORef Int -> [BlockHeader] -> IO ()
-writeBlocks env pool count sampler bhs = do
+writeBlocks :: Env -> P.Pool Connection -> Bool -> IORef Int -> IORef Int -> [BlockHeader] -> IO ()
+writeBlocks env pool disableIndexesPred count sampler bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs'))) >>= \case
@@ -143,11 +149,10 @@ writeBlocks env pool count sampler bhs = do
                   pls
                   (makeBlockMap bhs')
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
-          deltaT <- fmap snd $ stopWatch $ batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
-          logger Info $ fromString $ printf "Took %s to write batch of roughly size %d." (show deltaT) (M.size bs)
+          deltaT <- fmap snd $ stopWatch $ batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
           sample <- readIORef sampler
           when (mod sample 100 == 0) $ do
-            logger Debug $ fromString $ printf "Took %s to write btach of roughly size %d." (show deltaT) (M.size bs)
+            logger Debug $ fromString $ printf "Took %s to write batch of roughly size %d." (show deltaT) (M.size bs)
             atomicModifyIORef' sampler (const (0,()))
           atomicModifyIORef' sampler (\n -> (n + 1, ()))
           atomicModifyIORef' count (\n -> (n + numWrites, ()))

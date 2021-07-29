@@ -113,7 +113,7 @@ backfillBlocksCut env args cutBS = do
           atomically (tryReadTBQueue blockQueue) >>= \case
             Nothing -> atomically $ writeTBQueue blockQueue vs
             Just q -> do
-              writeBlocks env pool count sampler (V.toList q)
+              writeBlocks env pool False count sampler (V.toList q)
               atomically $ writeTBQueue blockQueue vs
       delayFunc
 
