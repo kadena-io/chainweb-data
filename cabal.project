@@ -6,7 +6,7 @@ package aeson
 source-repository-package
     type: git
     location: https://github.com/mightybyte/beam-automigrate.git
-    tag: 0fd33d660a523941ad78bcd9869a6e3d9220008e
+    tag: 112c39953c432b05ec6ae2354b0150c61ee30157
 
 source-repository-package
     type: git
