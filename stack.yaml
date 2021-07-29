@@ -30,5 +30,6 @@ extra-deps:
     subdirs:
       - gargoyle
       - gargoyle-postgresql
+      - gargoyle-postgresql-connect
   - git: https://github.com/kadena-io/thyme.git
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
