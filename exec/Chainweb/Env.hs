@@ -179,7 +179,6 @@ data BackfillArgs = BackfillArgs
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
-  , _serverEnv_verbose :: Bool
   } deriving (Eq,Ord,Show)
 
 envP :: Parser Args
@@ -245,7 +244,6 @@ singleP = Single
 serverP :: Parser ServerEnv
 serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
-  <*> switch (short 'v' <> help "Verbose mode that shows when headers come in")
 
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
