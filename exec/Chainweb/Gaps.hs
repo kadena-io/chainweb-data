@@ -69,7 +69,7 @@ gapsCut env args cutBS = do
             total = sum $ fmap length gapsByChain
         logg Info $ fromString $ printf "Filling %d gaps\n" total
         bool id (withDroppedIndexes env) disableIndexesPred $ race_ (progress env count total) $
-          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count sampler cid)) gapsByChain
+          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count sampler cid) . concatMap createRanges) gapsByChain
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks.\n" final
   where
@@ -79,6 +79,13 @@ gapsCut env args cutBS = do
     logg = _env_logger env
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
+    createRanges (l,h)
+       | l < h =
+          let xs = [l, l + 359 .. h]
+          in case zip xs (drop 1 xs) of
+              (a:as) -> a : map (\(s,t) -> (s + 1, t)) as
+              _ -> []
+       | otherwise = []
     f :: LogFunctionIO Text -> IORef Int -> IORef Int -> Int64 -> (Int64, Int64) -> IO ()
     f logger count sampler cid (l, h) = do
       let range = (ChainId (fromIntegral cid), Low (fromIntegral l), High (fromIntegral h))
