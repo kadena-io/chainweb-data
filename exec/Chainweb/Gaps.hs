@@ -6,7 +6,6 @@
 module Chainweb.Gaps ( gaps ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
-import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
 import           Chainweb.Env
@@ -15,24 +14,21 @@ import           Chainweb.Worker (writeBlocks)
 import           ChainwebDb.Types.Block
 import           ChainwebData.Genesis
 import           ChainwebData.Types
-import           Control.Arrow
 import           Control.Concurrent
 import           Control.Concurrent.Async
-import           Control.Scheduler (Comp(..), traverseConcurrently_)
+import           Control.Monad (when, void)
+import           Control.Scheduler
 import           Data.ByteString.Lazy (ByteString)
 import           Data.IORef
 import           Data.Int
-import qualified Data.IntSet as S
-import           Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NEL
-import           Data.Maybe
+import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import           Data.Semigroup
 import           Data.String
 import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           System.Logger hiding (logg)
+import           System.Exit (exitFailure)
 import           Text.Printf
 
 ---
@@ -51,108 +47,77 @@ gapsCut :: Env -> Maybe Int -> ByteString -> IO ()
 gapsCut env delay cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight $ _env_chainsAtHeight env
-  work genesisInfo cids pool >>= \case
-    Nothing -> logg Info $ fromString $ printf "No gaps detected.\n"
-    Just bs -> do
-      count <- newIORef 0
-      let strat = case delay of
-                    Nothing -> Par'
-                    Just _ -> Seq
-          total = length bs
-      logg Info $ fromString $ printf "Filling %d gaps\n" total
-      race_ (progress env count total) $
-        traverseConcurrently_ strat (f logg count) bs
-      final <- readIORef count
-      logg Info $ fromString $ printf "Filled in %d missing blocks.\n" final
+  getBlockGaps env >>= \gapsByChain ->
+    if null gapsByChain
+      then logg Info $ fromString $ printf "No gaps detected.\n"
+      else do
+        when (M.size gapsByChain /= length cids) $ do
+          logg Error $ fromString $ printf "%d chains have block data, but we expected %d.\n" (M.size gapsByChain) (length cids)
+          logg Error $ fromString $ printf "Please run a 'listen' first, and ensure that each chain has a least one block.\n"
+          logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'gaps' separately.\n"
+          exitFailure
+        count <- newIORef 0
+        let strat = maybe Seq (const Par') delay
+            total = sum $ fmap length gapsByChain
+        logg Info $ fromString $ printf "Filling %d gaps\n" total
+        race_ (progress env count total) $
+          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count cid)) gapsByChain
+        final <- readIORef count
+        logg Info $ fromString $ printf "Filled in %d missing blocks.\n" final
   where
     pool = _env_dbConnPool env
     logg = _env_logger env
-    genesisInfo = mkGenesisInfo $ _env_nodeInfo env
-    delayFunc =
-      case delay of
-        Nothing -> pure ()
-        Just d -> threadDelay d
-    f :: LogFunctionIO Text -> IORef Int -> (BlockHeight, Int) -> IO ()
-    f logger count (h, cid) = do
-      let range = (ChainId cid, Low h, High h)
+    traverseMapConcurrently_ comp g m =
+      withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
+    f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Int64, Int64) -> IO ()
+    f logger count cid (l, h) = do
+      let range = (ChainId (fromIntegral cid), Low (fromIntegral l), High (fromIntegral h))
       headersBetween env range >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s\n" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s\n" $ show range
         Right hs -> writeBlocks env pool count hs
-      delayFunc
+      maybe mempty threadDelay delay
 
---queryGaps :: Env -> IO (BlockHeight, Int, Int)
---queryGaps e = P.withResource pool $ \c -> runBeamPostgres c $ do
---  gaps <- runSelectReturningList
---    $ select
---    $ do
---      (chain, height, nextHeight) <-
---        orderBy_ (asc_ . snd) $
---        aggregate_ (\(c,h) -> (group_ (c,h), lead1_ h)) $ do
---          blk <- all_ $ _cddb_blocks database
---          pure (_block_chainId blk, _block_height blk)
---      guard_ (nextHeight - height >. val_ 1)
---  pure $ NEL.nonEmpty pairs >>= filling cids . expanding . grouping
-
--- with gaps as (select chainid, height, LEAD (height,1) OVER (PARTITION BY chainid ORDER BY height ASC) AS next_height from blocks group by chainid, height) select * from gaps where next_height - height > 1;
-
--- | TODO: Parametrize chain id with genesis block info so we can mark min height to grep.
---
-work
-  :: GenesisInfo
-  -> [ChainId]
-  -> P.Pool Connection
-  -> IO (Maybe (NonEmpty (BlockHeight, Int)))
-work gi cids pool = P.withResource pool $ \c -> runBeamPostgres c $ do
-  -- Pull all (chain, height) pairs --
-  pairs <- runSelectReturningList
-    $ select
-    $ orderBy_ (asc_ . fst)
-    $ do
-      bs <- all_ $ _cddb_blocks database
-      pure (_block_height bs, _block_chainId bs)
-  -- Determine the missing pairs --
-  pure $ NEL.nonEmpty (map changeIntPair pairs) >>= pruning gi . filling cids . expanding . grouping
-
-changeIntPair :: (Int64, Int64) -> (BlockHeight, Int)
-changeIntPair (a, b) = (fromIntegral a, fromIntegral b)
-
-grouping :: NonEmpty (BlockHeight, Int) -> NonEmpty (BlockHeight, NonEmpty Int)
-grouping = NEL.map (fst . NEL.head &&& NEL.map snd) . NEL.groupWith1 fst
-
--- | We know that the input is ordered by height. This function fills adds any
--- rows that are missing.
---
--- Written in such a way as to maintain laziness.
---
-expanding :: NonEmpty (BlockHeight, NonEmpty Int) -> NonEmpty (BlockHeight, [Int])
-expanding (h :| t) = g h :| f (map g t)
+getBlockGaps :: Env -> IO (M.Map Int64 [(Int64,Int64)])
+getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
+    runBeamPostgresDebug (liftIO . logg Debug) c $ do
+      let toMap = M.fromListWith (<>) . map (\(cid,a,b) -> (cid,[(a,b)]))
+      foundGaps <- fmap toMap $ runSelectReturningList $ selectWith $ do
+        foundGaps <- selecting $
+          withWindow_ (\b -> frame_ (partitionBy_ (_block_chainId b)) (orderPartitionBy_ $ asc_ $ _block_height b) noBounds_)
+                      (\b w -> (_block_chainId b, _block_height b, lead_ (_block_height b) (val_ (1 :: Int64)) `over_` w))
+                      (all_ $ _cddb_blocks database)
+        pure $ orderBy_ (\(cid,a,_) -> (desc_ a, asc_ cid)) $ do
+          res@(_,a,b) <- reuse foundGaps
+          guard_ ((b - a) >. val_ 1)
+          pure res
+      minHeights' <- chainMinHeights
+      let minHeights =
+            M.intersectionWith
+              maybeAppendGenesis
+              minHeights'
+              $ fmap toInt64 $ M.mapKeys toInt64 genesisInfo
+      liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights
+      pure $ M.intersectionWith addStart minHeights foundGaps
   where
-    f :: [(BlockHeight, [Int])] -> [(BlockHeight, [Int])]
-    f [] = []
-    f [a] = [a]
-    f (a:b:cs)
-      | fst a + 1 /= fst b = a : f (z : b : cs)
-      | otherwise = a : f (b : cs)
-      where
-        z :: (BlockHeight, [Int])
-        z = (fst a + 1, [])
+    logg level = _env_logger env level . fromString
+    genesisInfo = getGenesisInfo $ mkGenesisInfo $ _env_nodeInfo env
+    toInt64 a = fromIntegral a :: Int64
+    maybeAppendGenesis mMin genesisheight =
+      case mMin of
+        Just min' -> case compare genesisheight min' of
+          LT -> Just (genesisheight, min')
+          _ -> Nothing
+        Nothing -> Nothing
+    addStart mr xs = case mr of
+        Nothing -> xs
+        Just r@(a,b)
+          | b > a -> r : xs
+          | otherwise -> xs
 
-    g :: (BlockHeight, NonEmpty Int) -> (BlockHeight, [Int])
-    g = second NEL.toList
-
-filling :: [ChainId] -> NonEmpty (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
-filling cids pairs = fmap sconcat . NEL.nonEmpty . mapMaybe f $ NEL.toList pairs
-  where
-    chains :: S.IntSet
-    chains = S.fromList $ map unChainId cids
-
-    -- | Detect gaps in existing rows.
-    f :: (BlockHeight, [Int]) -> Maybe (NonEmpty (BlockHeight, Int))
-    f (h, cs) = NEL.nonEmpty . map (h,) . S.toList . S.difference chains $ S.fromList cs
-
-pruning :: GenesisInfo -> Maybe (NonEmpty (BlockHeight, Int)) -> Maybe (NonEmpty (BlockHeight, Int))
-pruning gi pairs = NEL.nonEmpty . NEL.filter p =<< pairs
-  where
-    p :: (BlockHeight, Int) -> Bool
-    p (bh, cid) = bh >= genesisHeight (ChainId cid) gi
+chainMinHeights :: Pg (M.Map Int64 (Maybe Int64))
+chainMinHeights =
+  fmap M.fromList
+  $ runSelectReturningList
+  $ select
+  $ aggregate_ (\b -> (group_ (_block_chainId b), min_ (_block_height b))) (all_ $ _cddb_blocks database)
