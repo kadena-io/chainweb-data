@@ -80,9 +80,9 @@ gapsCut env args cutBS = do
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
     createRanges (l,h)
        | l < h =
-          let xs = [l, l + 360 .. h]
+          let xs = [h, h - 360 .. l]
           in case zip xs (drop 1 xs) of
-              (a:as) -> a : map (\(s,t) -> (s + 1, t)) as
+              (a:as) -> a : map (\(s,t) -> (s - 1, t)) as
               _ -> []
        | otherwise = []
     f :: LogFunctionIO Text -> IORef Int -> IORef Int -> Int64 -> (Int64, Int64) -> IO ()
