@@ -16,7 +16,7 @@ import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           Control.Concurrent
 import           Control.Concurrent.Async
-import           Control.Monad (when, void)
+import           Control.Monad (when, unless, void)
 import           Control.Scheduler
 import           Data.ByteString.Lazy (ByteString)
 import           Data.IORef
@@ -49,7 +49,9 @@ gapsCut env delay cutBS = do
       cids = atBlockHeight curHeight $ _env_chainsAtHeight env
   getBlockGaps env >>= \gapsByChain ->
     if null gapsByChain
-      then logg Info $ fromString $ printf "No gaps detected.\n"
+      then do
+        logg Info $ fromString $ printf "No gaps detected.\n"
+        logg Info $ fromString $ printf "Either the database is empty or there are truly no gaps!\n"
       else do
         when (M.size gapsByChain /= length cids) $ do
           logg Error $ fromString $ printf "%d chains have block data, but we expected %d.\n" (M.size gapsByChain) (length cids)
@@ -97,7 +99,7 @@ getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
               maybeAppendGenesis
               minHeights'
               $ fmap toInt64 $ M.mapKeys toInt64 genesisInfo
-      liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights
+      unless (M.null minHeights) (liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights)
       pure $ M.intersectionWith addStart minHeights foundGaps
   where
     logg level = _env_logger env level . fromString
@@ -106,14 +108,14 @@ getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
     maybeAppendGenesis mMin genesisheight =
       case mMin of
         Just min' -> case compare genesisheight min' of
-          LT -> Just (genesisheight, min')
-          _ -> Nothing
+          GT -> Nothing
+          _ -> Just (genesisheight, min')
         Nothing -> Nothing
     addStart mr xs = case mr of
         Nothing -> xs
         Just r@(a,b)
-          | b > a -> r : xs
-          | otherwise -> xs
+          | a == b -> xs
+          | otherwise -> r : xs
 
 chainMinHeights :: Pg (M.Map Int64 (Maybe Int64))
 chainMinHeights =
