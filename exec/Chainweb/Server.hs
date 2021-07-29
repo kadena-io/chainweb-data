@@ -149,16 +149,20 @@ apiServerCut env senv cutBS = do
   _ <- forkIO $ scheduledUpdates env senv pool ssRef
   _ <- forkIO $ listenWithHandler env $
     serverHeaderHandler env (_serverEnv_verbose senv) pool ssRef
-  Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ serve theApi $
-    ( ( recentTxsHandler ssRef
-        :<|> searchTxs (logFunc senv env) pool
-        :<|> evHandler (logFunc senv env) pool
-        :<|> txHandler (logFunc senv env) pool
-      )
-        :<|> statsHandler ssRef
-        :<|> coinsHandler ssRef
-      )
-      :<|> richlistHandler
+  let serverApp req =
+        ( ( recentTxsHandler ssRef
+            :<|> searchTxs (logFunc senv env) pool req
+            :<|> evHandler (logFunc senv env) pool
+            :<|> txHandler (logFunc senv env) pool
+          )
+            :<|> statsHandler ssRef
+            :<|> coinsHandler ssRef
+          )
+          :<|> richlistHandler
+  Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
+    serve theApi (serverApp req) req f
+
+
 
 scheduledUpdates
   :: Env
@@ -250,13 +254,14 @@ instance BeamSqlBackendIsString Postgres (Maybe String)
 searchTxs
   :: (LogLevel -> String -> IO ())
   -> P.Pool Connection
+  -> Request
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text
   -> Handler [TxSummary]
-searchTxs _ _ _ _ Nothing = throw404 "You must specify a search string"
-searchTxs logger pool limit offset (Just search) = do
-    liftIO $ logger Info $ "Transaction search: " <> T.unpack search
+searchTxs _ _ _ _ _ Nothing = throw404 "You must specify a search string"
+searchTxs logger pool req limit offset (Just search) = do
+    liftIO $ logger Info $ printf "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
     liftIO $ P.withResource pool $ \c -> do
       res <- runBeamPostgresDebug (logger Debug . fromString) c $
         runSelectReturningList $ select $ do
