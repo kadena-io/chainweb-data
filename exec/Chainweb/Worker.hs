@@ -125,8 +125,8 @@ check _ ev = pure $
     Left e -> apiError_type e == RateLimiting
     _ -> False
 
-writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [BlockHeader] -> IO ()
-writeBlocks env pool count bhs = do
+writeBlocks :: Env -> P.Pool Connection -> IORef Int -> IORef Int -> [BlockHeader] -> IO ()
+writeBlocks env pool count sampler bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs'))) >>= \case
@@ -145,6 +145,11 @@ writeBlocks env pool count bhs = do
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
           deltaT <- fmap snd $ stopWatch $ batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
           logger Info $ fromString $ printf "Took %s to write batch of roughly size %d." (show deltaT) (M.size bs)
+          sample <- readIORef sampler
+          when (mod sample 100 == 0) $ do
+            logger Debug $ fromString $ printf "Took %s to write btach of roughly size %d." (show deltaT) (M.size bs)
+            atomicModifyIORef' sampler (const (0,()))
+          atomicModifyIORef' sampler (\n -> (n + 1, ()))
           atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 

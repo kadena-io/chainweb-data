@@ -64,11 +64,12 @@ gapsCut env args cutBS = do
           logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'gaps' separately.\n"
           exitFailure
         count <- newIORef 0
+        sampler <- newIORef 0
         let strat = maybe Seq (const Par') delay
             total = sum $ fmap length gapsByChain
         logg Info $ fromString $ printf "Filling %d gaps\n" total
         bool id (withDroppedIndexes env) disableIndexesPred $ race_ (progress env count total) $
-          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count cid)) gapsByChain
+          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count sampler cid)) gapsByChain
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks.\n" final
   where
@@ -78,13 +79,13 @@ gapsCut env args cutBS = do
     logg = _env_logger env
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
-    f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Int64, Int64) -> IO ()
-    f logger count cid (l, h) = do
+    f :: LogFunctionIO Text -> IORef Int -> IORef Int -> Int64 -> (Int64, Int64) -> IO ()
+    f logger count sampler cid (l, h) = do
       let range = (ChainId (fromIntegral cid), Low (fromIntegral l), High (fromIntegral h))
       headersBetween env range >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s\n" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s\n" $ show range
-        Right hs -> writeBlocks env pool count hs
+        Right hs -> writeBlocks env pool count sampler hs
       maybe mempty threadDelay delay
 
 listIndexes :: Env -> IO [(B.ByteString, B.ByteString)]
@@ -94,8 +95,8 @@ listIndexes env = P.withResource (_env_dbConnPool env) $ \conn -> query_ conn qr
       "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname='public';"
 
 dropIndexes :: Env -> [B.ByteString] -> IO ()
-dropIndexes env indexdefs = forM_ indexdefs $ \indexdef -> P.withResource (_env_dbConnPool env) $ \conn ->
-  execute conn "DROP INDEX ?" [indexdef]
+dropIndexes env indexnames = forM_ indexnames $ \indexname -> P.withResource (_env_dbConnPool env) $ \conn ->
+  execute conn "DROP INDEX ?" [indexname]
 
 withDroppedIndexes :: Env -> IO a -> IO a
 withDroppedIndexes env action = do
@@ -103,8 +104,8 @@ withDroppedIndexes env action = do
     bracket (dropIndexes env (fst <$> indexInfos)) (const $ recreateIndexes env (snd <$> indexInfos)) (const action)
 
 recreateIndexes :: Env -> [B.ByteString] -> IO ()
-recreateIndexes env cmds = forM_ cmds $ \indexcmd -> P.withResource (_env_dbConnPool env) $ \conn ->
-  execute_ conn (Query indexcmd)
+recreateIndexes env indexdefs = forM_ indexdefs $ \indexdef -> P.withResource (_env_dbConnPool env) $ \conn ->
+  execute_ conn (Query indexdef)
 
 getBlockGaps :: Env -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
