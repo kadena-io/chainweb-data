@@ -54,23 +54,23 @@ gapsCut env args cutBS = do
   getBlockGaps env >>= \gapsByChain ->
     if null gapsByChain
       then do
-        logg Info $ fromString $ printf "No gaps detected.\n"
-        logg Info $ fromString $ printf "Either the database is empty or there are truly no gaps!\n"
+        logg Info $ fromString $ printf "No gaps detected."
+        logg Info $ fromString $ printf "Either the database is empty or there are truly no gaps!"
       else do
         when (M.size gapsByChain /= length cids) $ do
-          logg Error $ fromString $ printf "%d chains have block data, but we expected %d.\n" (M.size gapsByChain) (length cids)
-          logg Error $ fromString $ printf "Please run a 'listen' first, and ensure that each chain has a least one block.\n"
-          logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'gaps' separately.\n"
+          logg Error $ fromString $ printf "%d chains have block data, but we expected %d." (M.size gapsByChain) (length cids)
+          logg Error $ fromString $ printf "Please run a 'listen' first, and ensure that each chain has a least one block."
+          logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'gaps' separately."
           exitFailure
         count <- newIORef 0
         sampler <- newIORef 0
         let strat = maybe Seq (const Par') delay
             total = sum $ fmap length gapsByChain
-        logg Info $ fromString $ printf "Filling %d gaps\n" total
+        logg Info $ fromString $ printf "Filling %d gaps" total
         bool id (withDroppedIndexes env) disableIndexesPred $ race_ (progress logg count total) $
           traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count sampler cid) . concatMap createRanges) gapsByChain
         final <- readIORef count
-        logg Info $ fromString $ printf "Filled in %d missing blocks.\n" final
+        logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
     pool = _env_dbConnPool env
     delay =  _gapArgs_delayMicros args
@@ -84,8 +84,8 @@ gapsCut env args cutBS = do
     f logger count sampler cid (l, h) = do
       let range = (ChainId (fromIntegral cid), Low (fromIntegral l), High (fromIntegral h))
       headersBetween env range >>= \case
-        Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s\n" (show range) (show e)
-        Right [] -> logger Error $ fromString $ printf "headersBetween: %s\n" $ show range
+        Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
+        Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
         Right hs -> writeBlocks env pool disableIndexesPred count sampler hs
       maybe mempty threadDelay delay
 

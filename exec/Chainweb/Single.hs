@@ -24,8 +24,8 @@ single env cid h = do
       range = (cid, Low h, High h)
       logg = _env_logger env
   headersBetween env range >>= \case
-        Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s\n" (show range) (show e)
-        Right [] -> logg Error $ fromString $ printf "headersBetween: %s\n" $ show range
+        Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
+        Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show range
         Right hs -> traverse_ (writeBlock env pool count) hs
   final <- readIORef count
-  logg Info $ fromString $ printf "Filled in %d blocks.\n" final
+  logg Info $ fromString $ printf "Filled in %d blocks." final

@@ -61,7 +61,7 @@ main = do
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
             getNodeInfo m us >>= \case
-              Left e -> logg Error (fromString $ printf "Unable to connect to %s /info endpoint\n%s" (showUrlScheme us) e) >> exitFailure
+              Left e -> logg Error (fromString $ printf "Unable to connect to %s /info endpoint%s" (showUrlScheme us) e) >> exitFailure
               Right ni -> do
                 let !mcids = map (second (map (ChainId . fst))) <$> _nodeInfo_graphs ni
                 case mcids of

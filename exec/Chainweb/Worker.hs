@@ -111,7 +111,7 @@ writeBlock env pool count bh = do
       logg = _env_logger env
   retrying policy check (const $ payloadWithOutputs env pair) >>= \case
     Left e -> do
-      logg Error $ fromString $ printf "Couldn't fetch parent for: %s\n"
+      logg Error $ fromString $ printf "Couldn't fetch parent for: %s"
         (hashB64U $ _blockHeader_hash bh)
       logg Info $ fromString $ show e
     Right pl -> do

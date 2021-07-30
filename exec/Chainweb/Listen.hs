@@ -55,7 +55,7 @@ getOutputsAndInsert env ph@(PowHeader h _) = do
       logg = _env_logger env
   payloadWithOutputs env pair >>= \case
     Left e -> do
-      logg Error $ fromString $ printf "Couldn't fetch parent for: %s\n"
+      logg Error $ fromString $ printf "Couldn't fetch parent for: %s"
              (hashB64U $ _blockHeader_hash h)
       logg Info $ fromString $ show e
     Right pl -> do
