@@ -78,13 +78,8 @@ gapsCut env args cutBS = do
     logg = _env_logger env
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
-    createRanges (l,h)
-       | l < h =
-          let xs = [h, h - 360 .. l]
-          in case zip xs (drop 1 xs) of
-              (a:as) -> a : map (\(s,t) -> (s - 1, t)) as
-              _ -> []
-       | otherwise = []
+    -- this is not very efficient, but the lists aren't very big
+    createRanges (l,h) = map (\xs -> (head xs, last xs)) $ groupsOf 360 [h,h-1..l]
     f :: LogFunctionIO Text -> IORef Int -> IORef Int -> Int64 -> (Int64, Int64) -> IO ()
     f logger count sampler cid (l, h) = do
       let range = (ChainId (fromIntegral cid), Low (fromIntegral l), High (fromIntegral h))
