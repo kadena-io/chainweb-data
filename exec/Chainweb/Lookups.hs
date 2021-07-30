@@ -219,15 +219,16 @@ bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
 
 mkTransaction :: Block -> (CW.Transaction, TransactionOutput) -> Transaction
 mkTransaction b (tx,txo) = Transaction
-  { _tx_chainId = _block_chainId b
+  { _tx_requestKey = DbHash $ hashB64U $ CW._transaction_hash tx
   , _tx_block = pk b
+  , _tx_chainId = _block_chainId b
+  , _tx_height = _block_height b
   , _tx_creationTime = posixSecondsToUTCTime $ _chainwebMeta_creationTime mta
   , _tx_ttl = fromIntegral $ _chainwebMeta_ttl mta
   , _tx_gasLimit = fromIntegral $ _chainwebMeta_gasLimit mta
   , _tx_gasPrice = _chainwebMeta_gasPrice mta
   , _tx_sender = _chainwebMeta_sender mta
   , _tx_nonce = _pactCommand_nonce cmd
-  , _tx_requestKey = DbHash $ hashB64U $ CW._transaction_hash tx
   , _tx_code = _exec_code <$> exc
   , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
