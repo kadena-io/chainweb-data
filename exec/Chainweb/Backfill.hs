@@ -57,7 +57,7 @@ backfill env args = do
   case ecut of
     Left e -> do
       let logg = _env_logger env
-      logg Error "[FAIL] Error querying cut"
+      logg Error "Error querying cut"
       logg Info $ fromString $ show e
     Right cutBS -> backfillBlocksCut env args cutBS
 
@@ -70,12 +70,12 @@ backfillBlocksCut env args cutBS = do
   let count = M.size mins
   if count /= length cids
     then do
-      logg Error $ fromString $ printf "[FAIL] %d chains have block data, but we expected %d.\n" count (length cids)
-      logg Error $ fromString $ printf "[FAIL] Please run a 'listen' first, and ensure that each chain has a least one block.\n"
-      logg Error $ fromString $ printf "[FAIL] That should take about a minute, after which you can rerun 'backfill' separately.\n"
+      logg Error $ fromString $ printf "%d chains have block data, but we expected %d." count (length cids)
+      logg Error $ fromString $ printf "Please run a 'listen' first, and ensure that each chain has a least one block."
+      logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'backfill' separately."
       exitFailure
     else do
-      logg Info $ fromString $ printf "[INFO] Beginning backfill on %d chains.\n" count
+      logg Info $ fromString $ printf "Beginning backfill on %d chains." count
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
@@ -94,8 +94,8 @@ backfillBlocksCut env args cutBS = do
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = do
       headersBetween env range >>= \case
-        Left e -> logg Error $ fromString $ printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
-        Right [] -> logg Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show range
+        Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
+        Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show range
         Right hs -> traverse_ (writeBlock env pool count) hs
       delayFunc
 

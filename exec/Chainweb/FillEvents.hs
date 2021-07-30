@@ -153,7 +153,7 @@ chainMinHeights = runSelectReturningList $ select $ aggregate_ (\e -> (group_ (_
 --      blocks <- getTxMissingEvents chain pool (fromMaybe 100 $ _backfillArgs_eventChunkSize args)
 --      forM_ blocks $ \(h,(current_hash,ph)) -> do
 --        payloadWithOutputs e (T2 chain ph) >>= \case
---          Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
+--          Nothing -> printf "No payload for chain %d, height %d, ph %s"
 --                            (unChainId chain) h (unDbHash ph)
 --          Just bpwo -> do
 --            let allTxsEvents = snd $ mkBlockEvents' h chain current_hash bpwo
@@ -179,7 +179,7 @@ chainMinHeights = runSelectReturningList $ select $ aggregate_ (\e -> (group_ (_
 --        coinbaseBlocks <- getCoinbaseMissingEvents chain (fromIntegral coinbaseEventsActivationHeight) minheight pool
 --        forM_ coinbaseBlocks $ \(h, (current_hash, ph)) -> do
 --          payloadWithOutputs e (T2 chain ph) >>= \case
---            Nothing -> printf "[FAIL] No payload for chain %d, height %d, ph %s\n"
+--            Nothing -> printf "No payload for chain %d, height %d, ph %s"
 --                            (unChainId chain) h (unDbHash ph)
 --            Just bpwo -> do
 --              P.withResource pool $ \c -> runBeamPostgres c $

@@ -45,10 +45,10 @@ main = do
             Nothing -> do
               h <- getHomeDirectory
               let h' = h </> ".local/share"
-              logg Info $ "[INFO] Constructing rich list using default db-path: " <> fromString h'
+              logg Info $ "Constructing rich list using default db-path: " <> fromString h'
               return h'
             Just fp -> do
-              logg Info $ "[INFO] Constructing rich list using given db-path: " <> fromString fp
+              logg Info $ "Constructing rich list using given db-path: " <> fromString fp
               return fp
           richList logg fp
         Args c pgc us u _ ms -> do
@@ -61,11 +61,11 @@ main = do
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
             getNodeInfo m us >>= \case
-              Left e -> logg Error (fromString $ printf "[FAIL] Unable to connect to %s /info endpoint\n%s" (showUrlScheme us) e) >> exitFailure
+              Left e -> logg Error (fromString $ printf "Unable to connect to %s /info endpoint%s" (showUrlScheme us) e) >> exitFailure
               Right ni -> do
                 let !mcids = map (second (map (ChainId . fst))) <$> _nodeInfo_graphs ni
                 case mcids of
-                  Nothing -> logg Error "[FAIL] Node did not have graph information" >> exitFailure
+                  Nothing -> logg Error "Node did not have graph information" >> exitFailure
                   Just cids -> do
                     let !env = Env m pool us u ni cids logg
                     case c of
