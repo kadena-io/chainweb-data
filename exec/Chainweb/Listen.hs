@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Listen
@@ -10,7 +9,6 @@ module Chainweb.Listen
   , insertNewHeader
   ) where
 
-import           BasePrelude hiding (insert)
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (unChainId)
@@ -21,8 +19,11 @@ import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Types
 import           ChainwebDb.Types.DbHash (DbHash(..))
+import           Control.Exception
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Pool as P
+import           Data.String
+import qualified Data.Text as T
 import           Data.Text.Encoding
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam.Postgres (Connection)
@@ -31,6 +32,7 @@ import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
 import           System.IO (hFlush, stdout)
 import           System.Logger.Types hiding (logg)
+import           Text.Printf
 
 ---
 
@@ -38,12 +40,14 @@ listen :: Env -> IO ()
 listen e = listenWithHandler e (getOutputsAndInsert e)
 
 listenWithHandler :: Env -> (PowHeader -> IO a) -> IO ()
-listenWithHandler env handler =
-  withEvents (req us cv) mgr $ SP.mapM_ handler . dataOnly @PowHeader
+listenWithHandler env handler = handle onError $
+    withEvents (mkRequest us cv) mgr $ SP.mapM_ handler . dataOnly @PowHeader
   where
     mgr = _env_httpManager env
     us = _env_serviceUrlScheme env
     cv = ChainwebVersion $ _nodeInfo_chainwebVer $ _env_nodeInfo env
+    onError :: SomeException -> IO ()
+    onError e = _env_logger env Error $ "listenWithHandler caught exception: " <> T.pack (show e)
 
 getOutputsAndInsert :: Env -> PowHeader -> IO ()
 getOutputsAndInsert env ph@(PowHeader h _) = do
@@ -67,8 +71,8 @@ insertNewHeader pool ph pl = do
       !k = bpwoMinerKeys pl
   writes pool b k t es
 
-req :: UrlScheme -> ChainwebVersion -> Request
-req us (ChainwebVersion cv) = defaultRequest
+mkRequest :: UrlScheme -> ChainwebVersion -> Request
+mkRequest us (ChainwebVersion cv) = defaultRequest
   { host = B.pack $ urlHost u
   , path = "chainweb/0.0/" <> encodeUtf8 cv <> "/header/updates"  -- TODO Parameterize as needed.
   , port = urlPort u

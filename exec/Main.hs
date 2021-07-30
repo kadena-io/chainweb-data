@@ -10,11 +10,12 @@ import           Chainweb.Api.NodeInfo
 import           Chainweb.Backfill (backfill)
 import           Chainweb.Database (initializeTables)
 import           Chainweb.Env
+import           Chainweb.FillEvents (fillEvents)
 import           Chainweb.Gaps (gaps)
 import           Chainweb.Listen (listen)
-import           Chainweb.Server (apiServer)
 import           Chainweb.Lookups (getNodeInfo)
 import           Chainweb.RichList (richList)
+import           Chainweb.Server (apiServer)
 import           Chainweb.Single (single)
 import           Control.Lens
 import           Data.Bifunctor
@@ -50,12 +51,12 @@ main = do
               logg Info $ "Constructing rich list using given db-path: " <> fromString fp
               return fp
           richList logg fp
-        Args c pgc us u _ -> do
+        Args c pgc us u _ ms -> do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
           withPool pgc $ \pool -> do
-            P.withResource pool (initializeTables logg)
+            P.withResource pool (initializeTables logg ms)
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -72,6 +73,7 @@ main = do
                       Backfill as -> backfill env as
                       Gaps as -> gaps env as
                       Single cid h -> single env cid h
+                      FillEvents as et -> fillEvents env as et
                       Server serverEnv -> apiServer env serverEnv
   where
     opts = info ((richListP <|> envP) <**> helper)
@@ -80,7 +82,7 @@ main = do
       & loggerConfigThreshold .~ level
     backendConfig = defaultHandleBackendConfig
     getLevel = \case
-      Args _ _ _ _ level -> level
+      Args _ _ _ _ level _ -> level
       RichListArgs _ level -> level
 
 

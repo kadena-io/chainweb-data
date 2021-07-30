@@ -1,34 +1,38 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Database
   ( ChainwebDataDb(..)
   , database
   , initializeTables
+
+  , withDb
+  , withDbDebug
   ) where
 
+import           Chainweb.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
-import qualified Control.Monad.Fail as Fail
+import qualified Data.Pool as P
+import           Data.Proxy
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.String
 import           Database.Beam
-import           Database.Beam.Migrate
-import           Database.Beam.Migrate.Backend
-import           Database.Beam.Migrate.Simple
+import qualified Database.Beam.AutoMigrate as BA
 import           Database.Beam.Postgres
-import           Database.Beam.Postgres.Migrate (migrationBackend)
-import           Database.Beam.Postgres.Syntax
-import           System.Logger
+import           System.Exit
+import           System.Logger hiding (logg)
 
 ---
 
@@ -44,9 +48,10 @@ data ChainwebDataDb f = ChainwebDataDb
 modTableName :: Text -> Text
 modTableName = T.takeWhileEnd (/= '_')
 
-migratableDb :: CheckedDatabaseSettings Postgres ChainwebDataDb
-migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
-  { _cddb_blocks = modifyCheckedTable modTableName checkedTableModification
+database :: DatabaseSettings be ChainwebDataDb
+database = defaultDbSettings `withDbModification` dbModification
+  { _cddb_blocks = modifyEntityName modTableName <>
+    modifyTableFields tableModification
     { _block_creationTime = "creationtime"
     , _block_chainId = "chainid"
     , _block_height = "height"
@@ -62,7 +67,8 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _block_miner_acc = "miner"
     , _block_miner_pred = "predicate"
     }
-  , _cddb_transactions = modifyCheckedTable modTableName checkedTableModification
+  , _cddb_transactions = modifyEntityName modTableName <>
+    modifyTableFields tableModification
     { _tx_chainId = "chainid"
     , _tx_block = BlockId "block"
     , _tx_creationTime = "creationtime"
@@ -88,11 +94,13 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     , _tx_txid = "txid"
     , _tx_numEvents = "num_events"
     }
-  , _cddb_minerkeys = modifyCheckedTable modTableName checkedTableModification
+  , _cddb_minerkeys = modifyEntityName modTableName <>
+    modifyTableFields tableModification
     { _minerKey_block = BlockId "block"
     , _minerKey_key = "key"
     }
-  , _cddb_events = modifyCheckedTable modTableName checkedTableModification
+  , _cddb_events = modifyEntityName modTableName <>
+    modifyTableFields tableModification
     { _ev_requestkey = "requestkey"
     , _ev_block = "block"
     , _ev_chainid = "chainid"
@@ -107,67 +115,40 @@ migratableDb = defaultMigratableDbSettings `withDbModification` dbModification
     }
   }
 
-database :: DatabaseSettings Postgres ChainwebDataDb
-database = unCheckDatabase migratableDb
+annotatedDb :: BA.AnnotatedDatabaseSettings be ChainwebDataDb
+annotatedDb = BA.defaultAnnotatedDbSettings database
+
+hsSchema :: BA.Schema
+hsSchema = BA.fromAnnotatedDbSettings annotatedDb (Proxy @'[])
+
+showMigration :: Connection -> IO ()
+showMigration conn =
+  runBeamPostgres conn $
+    BA.printMigration $ BA.migrate conn hsSchema
 
 -- | Create the DB tables if necessary.
-initializeTables :: LogFunctionIO Text -> Connection -> IO ()
-initializeTables logger conn = runBeamPostgresDebug (logger Debug . fromString) conn $ do
-  liftIO $ logger Info "Verifying schema..."
-  verifySchema migrationBackend migratableDb >>= \case
-    VerificationFailed ps -> do
-      liftIO $ do
-        logger Info "The following schema predicates need to be satisfied:"
-        mapM_ (logger Info . fromString . show) ps
-        logger Info "Migrating schema..."
-      ourMigrate logger migrationBackend migratableDb
-      liftIO $ logger Info "Finished migration."
-    VerificationSucceeded -> liftIO $ logger Info "Schema verified."
+initializeTables :: LogFunctionIO Text -> MigrateStatus -> Connection -> IO ()
+initializeTables logg migrateStatus conn = do
+  diff <- BA.calcMigrationSteps annotatedDb conn
+  case diff of
+    Left err -> do
+        logg Error "Error detecting database migration requirements: "
+        logg Error $ fromString $ show err
+    Right [] -> logg Info "No database migration needed.  Continuing..."
+    Right _ -> do
+      logg Info "Database migration needed."
+      case migrateStatus of
+        RunMigration -> do
+          logg Info "Running the following migration:"
+          showMigration conn
+          BA.tryRunMigrationsWithEditUpdate annotatedDb conn
+        DontMigrate -> do
+          logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
+          showMigration conn
+          exitFailure
 
-ourMigrate
-  :: forall db m.
-     (Database Postgres db,
-      Fail.MonadFail m,
-      MonadIO m)
-  => LogFunctionIO Text
-  -> BeamMigrationBackend Postgres m
-  -> CheckedDatabaseSettings Postgres db
-  -> m ()
-ourMigrate logger BeamMigrationBackend { backendActionProvider = actions
-                                 , backendGetDbConstraints = getCs }
-           db = do
-    liftIO $ logger Info "Calling getCs"
-    actual <- getCs
-    liftIO $ logger Info "Collecting checks"
-    let expected = collectChecks db
-    liftIO $ logger Info "Running heuristic solver"
-    let !solver = heuristicSolver actions actual expected
-    case solver of
-      ProvideSolution _ -> liftIO $ logger Info "hueristicSolver returned ProvideSolution"
-      SearchFailed _ -> liftIO $ logger Info "hueristicSolver returned SearchFailed"
-      ChooseActions _ mkac fs _ -> liftIO $ do
-        logger Info "hueristicSolver returned ChooseActions"
-        mapM_ (logger Info . actionEnglish . mkac) fs
-    liftIO $ logger Info "Calculationg final solution"
-    case finalSolution solver of
-      Candidates {} -> Fail.fail "autoMigrate: Could not determine migration"
-      Solved cmds -> do
-        -- Check if any of the commands are irreversible
-        liftIO $ logger Info "Folding over migration commands"
-        case foldMap migrationCommandDataLossPossible cmds of
-          MigrationKeepsData -> do
-            liftIO $ do
-              logger Info "Will run the following migration steps:"
-              mapM_ (logger Info . fromString . show . fromPgCommand . migrationCommand) cmds
-            mapM_ doStep cmds
-          _ -> Fail.fail "autoMigrate: Not performing automatic migration due to data loss"
-  where
-    doStep :: MigrationCommand Postgres -> m ()
-    --doStep c = runNoReturn (migrationCommand c)
-    doStep c = do
-      let s = migrationCommand c
-      liftIO $ do
-        logger Info "Executing step:"
-        logger Info $ fromString $ show $ fromPgCommand s
-      runNoReturn s
+withDb :: Env -> Pg b -> IO b
+withDb env qry = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgres c qry
 
+withDbDebug :: Env -> LogLevel -> Pg b -> IO b
+withDbDebug env level qry = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgresDebug (liftIO . _env_logger env level . fromString) c qry

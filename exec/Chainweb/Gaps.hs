@@ -67,7 +67,7 @@ gapsCut env args cutBS = do
         let strat = maybe Seq (const Par') delay
             total = sum $ fmap length gapsByChain
         logg Info $ fromString $ printf "Filling %d gaps\n" total
-        bool id (withDroppedIndexes env) disableIndexesPred $ race_ (progress env count total) $
+        bool id (withDroppedIndexes env) disableIndexesPred $ race_ (progress logg count total) $
           traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count sampler cid) . concatMap createRanges) gapsByChain
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks.\n" final
