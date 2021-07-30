@@ -139,8 +139,6 @@ initializeTables logg migrateStatus conn = do
       logg Info "Database migration needed."
       case migrateStatus of
         RunMigration -> do
-          logg Info "Running the following migration:"
-          showMigration conn
           BA.tryRunMigrationsWithEditUpdate annotatedDb conn
         DontMigrate -> do
           logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
