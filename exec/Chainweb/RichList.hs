@@ -43,14 +43,14 @@ richList logger fp = do
         $ "Chainweb-node top-level db directory does not exist: "
         <> fp
 
-    logger Info $ "[INFO] Aggregating richlist.csv..."
+    logger Info $ "Aggregating richlist.csv..."
     let cmd = proc "/bin/sh" ["scripts/richlist.sh", show chains]
     void $! readCreateProcess cmd []
 
-    logger Info $ "[INFO] Filtering top 100 richest accounts..."
+    logger Info $ "Filtering top 100 richest accounts..."
     void $! pruneRichList
 
-    logger Info $ "[INFO] Finished."
+    logger Info $ "Finished."
   where
     pruneRichList = do
       csv <- LBS.readFile "richlist.csv"

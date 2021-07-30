@@ -44,7 +44,7 @@ gaps env delay = do
   case ecut of
     Left e -> do
       let logg = _env_logger env
-      logg Error "[FAIL] Error querying cut"
+      logg Error "Error querying cut"
       logg Info $ fromString $ show e
     Right cutBS -> gapsCut env delay cutBS
 
@@ -53,18 +53,18 @@ gapsCut env delay cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight $ _env_chainsAtHeight env
   work genesisInfo cids pool >>= \case
-    Nothing -> logg Info $ fromString $ printf "[INFO] No gaps detected.\n"
+    Nothing -> logg Info $ fromString $ printf "No gaps detected.\n"
     Just bs -> do
       count <- newIORef 0
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
           total = length bs
-      logg Info $ fromString $ printf "[INFO] Filling %d gaps\n" total
+      logg Info $ fromString $ printf "Filling %d gaps" total
       race_ (progress logg count total) $
         traverseConcurrently_ strat (f logg count) bs
       final <- readIORef count
-      logg Info $ fromString $ printf "[INFO] Filled in %d missing blocks.\n" final
+      logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
     pool = _env_dbConnPool env
     logg = _env_logger env
@@ -77,8 +77,8 @@ gapsCut env delay cutBS = do
     f logger count (h, cid) = do
       let range = (ChainId cid, Low h, High h)
       headersBetween env range >>= \case
-        Left e -> logger Error $ fromString $ printf "[FAIL] ApiError for range %s: %s\n" (show range) (show e)
-        Right [] -> logger Error $ fromString $ printf "[FAIL] headersBetween: %s\n" $ show range
+        Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
+        Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
         Right hs -> traverse_ (writeBlock env pool count) hs
       delayFunc
 
