@@ -5,6 +5,7 @@
 
 module Chainweb.Gaps ( gaps ) where
 
+import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
@@ -16,6 +17,7 @@ import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           Control.Concurrent
 import           Control.Concurrent.Async
+import           Control.Concurrent.STM
 import           Control.Exception
 import           Control.Monad
 import           Control.Scheduler
@@ -27,10 +29,13 @@ import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
 import           Data.String
 import           Data.Text (Text)
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Types
+import           GHC.Natural (Natural)
 import           System.Logger hiding (logg)
 import           System.Exit (exitFailure)
 import           Text.Printf
@@ -46,6 +51,10 @@ gaps env args = do
       logg Error "Error querying cut"
       logg Info $ fromString $ show e
     Right cutBS -> gapsCut env args cutBS
+
+-- TODO Make this configurable?
+blockQueueSize :: Natural
+blockQueueSize = 30
 
 gapsCut :: Env -> GapArgs -> ByteString -> IO ()
 gapsCut env args cutBS = do
@@ -64,11 +73,12 @@ gapsCut env args cutBS = do
           exitFailure
         count <- newIORef 0
         sampler <- newIORef 0
+        blockQueue <- newTBQueueIO blockQueueSize
         let strat = maybe Seq (const Par') delay
             total = sum $ fmap length gapsByChain
         logg Info $ fromString $ printf "Filling %d gaps" total
-        bool id (withDroppedIndexes env) disableIndexesPred $ race_ (progress logg count total) $
-          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg count sampler cid) . concatMap createRanges) gapsByChain
+        bool id (withDroppedIndexes pool logg) disableIndexesPred $ race_ (progress logg count total) $
+          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count sampler cid) . concatMap createRanges) gapsByChain
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
@@ -78,41 +88,45 @@ gapsCut env args cutBS = do
     logg = _env_logger env
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
-    -- this is not very efficient, but the lists aren't very big
-    createRanges (l,h) = map (\xs -> (head xs, last xs)) $ groupsOf 360 [h,h-1..l]
-    f :: LogFunctionIO Text -> IORef Int -> IORef Int -> Int64 -> (Int64, Int64) -> IO ()
-    f logger count sampler cid (l, h) = do
-      let range = (ChainId (fromIntegral cid), Low (fromIntegral l), High (fromIntegral h))
+    createRanges (low, high) = rangeToDescGroupsOf 360 (Low $ fromIntegral low) (High $ fromIntegral high)
+    f :: LogFunctionIO Text -> TBQueue (Vector BlockHeader) -> IORef Int -> IORef Int -> Int64 -> (Low, High) -> IO ()
+    f logger blockQueue count sampler cid (l, h) = do
+      let range = (ChainId (fromIntegral cid), l, h)
       headersBetween env range >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> writeBlocks env pool disableIndexesPred count sampler hs
+        Right hs -> do
+          let vs = V.fromList hs
+          mq <- atomically (tryReadTBQueue blockQueue)
+          maybe mempty (writeBlocks env pool disableIndexesPred count sampler . V.toList) mq
+          atomically $ writeTBQueue blockQueue vs
       maybe mempty threadDelay delay
 
-listIndexes :: Env -> IO [(String, String, String)]
-listIndexes env = P.withResource (_env_dbConnPool env) $ \conn -> do
+listIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO [(String, String, String)]
+listIndexes pool logger = P.withResource pool $ \conn -> do
     res <- query_ conn qry
     forM_ res $ \(_,name,definition) -> do
-      putStrLn "index name"
-      putStrLn name
-      putStrLn "index definitions"
-      putStrLn definition
+      logger Debug "index name"
+      logger Debug $ fromString name
+      logger Debug "index definitions"
+      logger Debug $ fromString definition
     return res
   where
     qry =
       "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname='public';"
+{- IMPORTANT: indexdef in the query gives the command that creates the index/constraint-}
 
-dropIndexes :: Env -> [(String, String, String)] -> IO ()
-dropIndexes env indexinfos = forM_ indexinfos $ \(tablename, indexname, _) -> P.withResource (_env_dbConnPool env) $ \conn ->
+dropIndexes :: P.Pool Connection -> [(String, String, String)] -> IO ()
+dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname, _) -> P.withResource pool $ \conn ->
   execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s ;" tablename indexname
 
-withDroppedIndexes :: Env -> IO a -> IO a
-withDroppedIndexes env action = do
-    indexInfos <- listIndexes env
-    bracket (dropIndexes env indexInfos) (const $ recreateIndexes env indexInfos) (const action)
+withDroppedIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO a -> IO a
+withDroppedIndexes pool logger action = do
+    indexInfos <- listIndexes pool logger
+    bracket (dropIndexes pool indexInfos) (const $ recreateIndexes pool indexInfos) (const action)
 
-recreateIndexes :: Env -> [(String, String, String)] -> IO ()
-recreateIndexes env indexinfos = forM_ indexinfos $ \(_,_,indexdef) -> P.withResource (_env_dbConnPool env) $ \conn ->
+recreateIndexes :: P.Pool Connection -> [(String, String, String)] -> IO ()
+recreateIndexes pool indexinfos = forM_ indexinfos $ \(_,_,indexdef) -> P.withResource pool $ \conn ->
   execute_ conn (Query $ fromString $ indexdef <> ";")
 
 getBlockGaps :: Env -> IO (M.Map Int64 [(Int64,Int64)])
