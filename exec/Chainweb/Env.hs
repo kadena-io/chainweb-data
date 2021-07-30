@@ -3,7 +3,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 module Chainweb.Env
-  ( Args(..)
+  ( MigrateStatus(..)
+  , Args(..)
   , Env(..)
   , chainStartHeights
   , ServerEnv(..)
@@ -21,6 +22,7 @@ module Chainweb.Env
   , richListP
   , NodeDbPath(..)
   , progress
+  , EventType(..)
   ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -50,13 +52,16 @@ import           Network.HTTP.Client (Manager)
 import           Options.Applicative
 import qualified Servant.Client as S
 import           System.IO
-import           System.Logger.Types
+import           System.Logger.Types hiding (logg)
 import           Text.Printf
 
 ---
 
+data MigrateStatus = RunMigration | DontMigrate
+  deriving (Eq,Ord,Show,Read)
+
 data Args
-  = Args Command Connect UrlScheme Url LogLevel
+  = Args Command Connect UrlScheme Url LogLevel MigrateStatus
     -- ^ arguments for the Listen, Backfill, Gaps, Single,
     -- and Server cmds
   | RichListArgs NodeDbPath LogLevel
@@ -164,17 +169,16 @@ data Command
     | Backfill BackfillArgs
     | Gaps (Maybe Int)
     | Single ChainId BlockHeight
+    | FillEvents BackfillArgs EventType
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
-  , _backfillArgs_onlyEvents :: Bool
   , _backfillArgs_eventChunkSize :: Maybe Integer
   } deriving (Eq,Ord,Show)
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
-  , _serverEnv_verbose :: Bool
   } deriving (Eq,Ord,Show)
 
 envP :: Parser Args
@@ -184,6 +188,11 @@ envP = Args
   <*> urlSchemeParser "service" 1848
   <*> urlParser "p2p" 443
   <*> logLevelParser
+  <*> migrationP
+
+migrationP :: Parser MigrateStatus
+migrationP =
+  flag DontMigrate RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
 
 logLevelParser :: Parser LogLevel
 logLevelParser =
@@ -235,7 +244,6 @@ singleP = Single
 serverP :: Parser ServerEnv
 serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
-  <*> switch (short 'v' <> help "Verbose mode that shows when headers come in")
 
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
@@ -243,8 +251,14 @@ delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help 
 bfArgsP :: Parser BackfillArgs
 bfArgsP = BackfillArgs
   <$> delayP
-  <*> flag False True (long "events" <> short 'e' <> help "Only backfill events")
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
+
+data EventType = CoinbaseAndTx | OnlyTx
+  deriving (Eq,Ord,Show,Read,Enum,Bounded)
+
+eventTypeP :: Parser EventType
+eventTypeP =
+  flag CoinbaseAndTx OnlyTx (long "only-tx" <> help "Only fill missing events associated with transactions")
 
 commands :: Parser Command
 commands = hsubparser
@@ -258,10 +272,12 @@ commands = hsubparser
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   <> command "server" (info (Server <$> serverP)
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
+  <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
+       (progDesc "Event Worker - Fills missing events"))
   )
 
-progress :: IORef Int -> Int -> IO a
-progress count total = do
+progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a
+progress logg count total = do
   start <- getPOSIXTime
   forever $ do
     threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
@@ -273,7 +289,7 @@ progress count total = do
         estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
         (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
                               | otherwise = ("hours", estMinutesLeft `div` 60)
-    printf "[INFO] Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute.\n"
+    logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute."
       completed total perc timeLeft timeUnits blocksPerMinute
     hFlush stdout
 

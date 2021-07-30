@@ -23,6 +23,7 @@ import Database.Beam
 import Database.Beam.Postgres (PgJSONB)
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
+import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 
 
@@ -36,7 +37,7 @@ data TransactionT f = Transaction
   , _tx_gasPrice :: C f Double
   , _tx_sender :: C f Text
   , _tx_nonce :: C f Text
-  , _tx_requestKey :: C f Text
+  , _tx_requestKey :: C f (DbHash TxHash)
   , _tx_code :: C f (Maybe Text)
   , _tx_pactId :: C f (Maybe Text)
   , _tx_rollback :: C f (Maybe Bool)
@@ -96,7 +97,7 @@ type TransactionId = PrimaryKey TransactionT Identity
 -- deriving instance Ord (PrimaryKey TransactionT Maybe)
 
 instance Table TransactionT where
-  data PrimaryKey TransactionT f = TransactionId (C f Text) (PrimaryKey BlockT f)
+  data PrimaryKey TransactionT f = TransactionId (C f (DbHash TxHash)) (PrimaryKey BlockT f)
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey tx = TransactionId (_tx_requestKey tx) (_tx_block tx)

@@ -61,7 +61,7 @@ gapsCut env delay cutBS = do
                     Just _ -> Seq
           total = length bs
       logg Info $ fromString $ printf "[INFO] Filling %d gaps\n" total
-      race_ (progress count total) $
+      race_ (progress logg count total) $
         traverseConcurrently_ strat (f logg count) bs
       final <- readIORef count
       logg Info $ fromString $ printf "[INFO] Filled in %d missing blocks.\n" final

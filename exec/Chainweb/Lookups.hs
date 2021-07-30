@@ -1,11 +1,13 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Chainweb.Lookups
   ( -- * Endpoints
     headersBetween
   , payloadWithOutputs
+  , payloadWithOutputsBatch
   , getNodeInfo
   , queryCut
   , cutMaxHeight
@@ -32,7 +34,7 @@ import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Env
-import           ChainwebData.Types (Low(..), High(..))
+import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
@@ -45,8 +47,8 @@ import           Data.Aeson
 import           Data.Aeson.Lens
 import           Data.ByteString.Lazy (ByteString,toStrict)
 import qualified Data.ByteString.Base64.URL as B64
-import           Data.Coerce
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as M
 import           Data.Foldable
 import           Data.Int
 import           Data.Maybe
@@ -55,6 +57,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
+import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Network.HTTP.Client hiding (Proxy)
@@ -85,6 +88,7 @@ handleRequest req mgr = do
 --------------------------------------------------------------------------------
 -- Endpoints
 
+-- | Returns headers in the range [low, high] (inclusive).
 headersBetween
   :: Env
   -> (ChainId, Low, High)
@@ -103,6 +107,33 @@ headersBetween env (cid, Low low, High up) = do
 
     f :: T.Text -> Maybe BlockHeader
     f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
+
+payloadWithOutputsBatch
+  :: Env
+  -> ChainId
+  -> M.Map (DbHash PayloadHash) a
+  -> IO (Either ApiError [(a, BlockPayloadWithOutputs)])
+payloadWithOutputsBatch env (ChainId cid) m = do
+    initReq <- parseRequest url
+    let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
+    eresp <- handleRequest req (_env_httpManager env)
+    let res = do
+          resp <- eresp
+          case eitherDecode' (responseBody resp) of
+            Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e)
+                                      (responseStatus resp) (responseBody resp)
+            Right (as :: [BlockPayloadWithOutputs]) -> Right $ foldr go [] as
+    pure res
+  where
+    url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
+    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
+    query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
+    encoding = [("content-type", "application/json")]
+    requestObject = Array $ V.fromList $ String . unDbHash <$> M.keys m
+    go bpwo =
+      case M.lookup (hashToDbHash $ _blockPayloadWithOutputs_payloadHash bpwo) m of
+        Nothing -> id
+        Just vv -> ((vv, bpwo) :)
 
 payloadWithOutputs
   :: Env
@@ -161,20 +192,27 @@ mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_tran
 -- the current block hash and NOT the parent hash However, the source key of the
 -- event in chainweb-data database instance is the current block hash and NOT
 -- the parent hash.
-mkBlockEvents' :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ([Event], [Event])
-mkBlockEvents' height cid blockhash pl = _blockPayloadWithOutputs_transactionsWithOutputs pl
-    & concatMap (mkTxEvents height cid)
-    & ((,) (mkCoinbaseEvents height cid blockhash pl))
+mkBlockEvents' :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ([Event], [(DbHash TxHash, [Event])])
+mkBlockEvents' height cid blockhash pl =
+    (mkCoinbaseEvents height cid blockhash pl, map mkPair tos)
+  where
+    tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
+    mkPair p = ( DbHash $ hashB64U $ CW._transaction_hash $ fst p
+               , mkTxEvents height cid blockhash p)
 
 mkBlockEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
-mkBlockEvents height cid blockhash pl = uncurry (++) (mkBlockEvents' height cid blockhash pl)
+mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
+  where
+    (cbes, txes) = mkBlockEvents' height cid blockhash pl
 
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
-    & coerce
+    & coinbaseTO
     & _toutEvents
     {- idx of coinbase transactions is set to 0.... this value is just a placeholder-}
-    <&> \ev -> mkEvent cid height (Right blockhash) ev 0
+    <&> \ev -> mkEvent cid height blockhash Nothing ev 0
+  where
+    coinbaseTO (Coinbase t) = t
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
@@ -189,7 +227,7 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_gasPrice = _chainwebMeta_gasPrice mta
   , _tx_sender = _chainwebMeta_sender mta
   , _tx_nonce = _pactCommand_nonce cmd
-  , _tx_requestKey = hashB64U $ CW._transaction_hash tx
+  , _tx_requestKey = DbHash $ hashB64U $ CW._transaction_hash tx
   , _tx_code = _exec_code <$> exc
   , _tx_pactId = _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
@@ -221,14 +259,15 @@ mkTransaction b (tx,txo) = Transaction
       PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
       PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
 
-mkTxEvents :: Int64 -> ChainId -> (CW.Transaction,TransactionOutput) -> [Event]
-mkTxEvents height cid (tx,txo) = zipWith (mkEvent cid height (Left k)) (_toutEvents txo) [0..]
+mkTxEvents :: Int64 -> ChainId -> DbHash BlockHash -> (CW.Transaction,TransactionOutput) -> [Event]
+mkTxEvents height cid blk (tx,txo) = zipWith (mkEvent cid height blk (Just rk)) (_toutEvents txo) [0..]
   where
-    k = DbHash $ hashB64U $ CW._transaction_hash tx
+    rk = DbHash $ hashB64U $ CW._transaction_hash tx
+    
 
-mkEvent :: ChainId -> Int64 -> Either (DbHash PayloadHash) (DbHash BlockHash) -> Value -> Int64 -> Event
-mkEvent (ChainId chainid) height requestkeyOrBlock ev idx = Event
-    { _ev_requestkey = requestkey
+mkEvent :: ChainId -> Int64 -> DbHash BlockHash -> Maybe (DbHash TxHash) -> Value -> Int64 -> Event
+mkEvent (ChainId chainid) height block requestkey ev idx = Event
+    { _ev_requestkey = maybe RKCB_Coinbase RKCB_RequestKey requestkey
     , _ev_block = block
     , _ev_chainid = fromIntegral chainid
     , _ev_height = height
@@ -241,8 +280,6 @@ mkEvent (ChainId chainid) height requestkeyOrBlock ev idx = Event
     , _ev_params = PgJSONB $ toList $ params ev
     }
   where
-    requestkey = either Just (const Nothing) requestkeyOrBlock
-    block = either (const Nothing) Just requestkeyOrBlock
     ename = fromMaybe "" . str "name"
     emodule = fromMaybe "" . join . fmap qualm . lkp "module"
     qname ev' = case join $ fmap qualm $ lkp "module" ev' of

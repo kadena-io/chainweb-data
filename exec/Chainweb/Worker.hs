@@ -6,18 +6,20 @@
 module Chainweb.Worker
   ( writes
   , writeBlock
+  , writePayload
   ) where
 
 import           BasePrelude hiding (delete, insert)
 import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BlockPayloadWithOutputs
+import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
 import           Chainweb.Database
 import           Chainweb.Env
 import           Chainweb.Lookups
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
-import           ChainwebDb.Types.DbHash (DbHash(..))
+import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
@@ -41,13 +43,13 @@ import           System.Logger hiding (logg)
 writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> IO ()
 writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $ do
      runBeamPostgres c $ do
-        -- Write Pub Key many-to-many relationships if unique --
-        runInsert
-          $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
-          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         -- Write the Block if unique --
         runInsert
           $ insert (_cddb_blocks database) (insertValues [b])
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        -- Write Pub Key many-to-many relationships if unique --
+        runInsert
+          $ insert (_cddb_minerkeys database) (insertValues $ map (MinerKey (pk b)) ks)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
      {- We should still be able to write the block & miner keys data if writing
      either the transaction or event data somehow fails. -}
@@ -97,3 +99,27 @@ writeBlock env pool count bh = do
       case ev of
         Left e -> apiError_type e == RateLimiting
         _ -> False
+
+-- | Writes all of the events from a block payload to the events table.
+writePayload
+  :: P.Pool Connection
+  -> ChainId
+  -> DbHash BlockHash
+  -> Int64
+  -> BlockPayloadWithOutputs
+  -> IO ()
+writePayload pool chain blockHash blockHeight bpwo = do
+  let (cbEvents, txEvents) = mkBlockEvents' blockHeight chain blockHash bpwo
+
+  P.withResource pool $ \c ->
+    withTransaction c $ do
+      runBeamPostgres c $
+        runInsert
+          $ insert (_cddb_events database) (insertValues $ cbEvents ++ concatMap snd txEvents)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+      withSavepoint c $ runBeamPostgres c $
+        forM_ txEvents $ \(reqKey, events) ->
+          runUpdate
+            $ update (_cddb_transactions database)
+              (\tx -> _tx_numEvents tx <-. val_ (Just $ fromIntegral $ length events))
+              (\tx -> _tx_requestKey tx ==. val_ reqKey)

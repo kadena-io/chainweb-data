@@ -5,6 +5,11 @@ package aeson
 
 source-repository-package
     type: git
+    location: https://github.com/mightybyte/beam-automigrate.git
+    tag: 112c39953c432b05ec6ae2354b0150c61ee30157
+
+source-repository-package
+    type: git
     location: https://github.com/kadena-io/pact.git
     tag: 8681a6d6e72eccefe00100f86202d616ab5d1621
 
