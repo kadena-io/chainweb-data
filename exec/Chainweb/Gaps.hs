@@ -118,7 +118,7 @@ listIndexes pool logger = P.withResource pool $ \conn -> do
 
 dropIndexes :: P.Pool Connection -> [(String, String, String)] -> IO ()
 dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname, _) -> P.withResource pool $ \conn ->
-  execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s ;" tablename indexname
+  execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s CASCADE;" tablename indexname
 
 withDroppedIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO a -> IO a
 withDroppedIndexes pool logger action = do
