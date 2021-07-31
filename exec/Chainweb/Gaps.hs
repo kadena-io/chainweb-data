@@ -75,7 +75,8 @@ gapsCut env args cutBS = do
         sampler <- newIORef 0
         blockQueue <- newTBQueueIO blockQueueSize
         let strat = maybe Seq (const Par') delay
-            total = sum $ fmap length gapsByChain
+            gapSize (a,b) = b - a - 1;
+            total = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain
         logg Info $ fromString $ printf "Filling %d gaps" total
         bool id (withDroppedIndexes pool logg) disableIndexesPred $ race_ (progress logg count total) $
           traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count sampler cid) . concatMap createRanges) gapsByChain
