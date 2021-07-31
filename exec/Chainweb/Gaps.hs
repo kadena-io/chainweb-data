@@ -66,8 +66,9 @@ gapsCut env args cutBS = do
         logg Info $ fromString $ printf "No gaps detected."
         logg Info $ fromString $ printf "Either the database is empty or there are truly no gaps!"
       else do
-        when (M.size gapsByChain /= length cids) $ do
-          logg Error $ fromString $ printf "%d chains have block data, but we expected %d." (M.size gapsByChain) (length cids)
+        minHeights <- withDb env chainMinHeights
+        when (M.size minHeights /= length cids) $ do
+          logg Error $ fromString $ printf "%d chains have block data, but we expected %d." (M.size minHeights) (length cids)
           logg Error $ fromString $ printf "Please run a 'listen' first, and ensure that each chain has a least one block."
           logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'gaps' separately."
           exitFailure
