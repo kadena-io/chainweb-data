@@ -89,7 +89,7 @@ gapsCut env args cutBS = do
     logg = _env_logger env
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
-    createRanges (low, high) = rangeToDescGroupsOf 360 (Low $ fromIntegral low) (High $ fromIntegral high)
+    createRanges (low, high) = rangeToDescGroupsOf 360 (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
     f :: LogFunctionIO Text -> TBQueue (Vector BlockHeader) -> IORef Int -> IORef Int -> Int64 -> (Low, High) -> IO ()
     f logger blockQueue count sampler cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
@@ -142,7 +142,7 @@ getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
             M.intersectionWith
               maybeAppendGenesis
               minHeights'
-              $ fmap toInt64 $ M.mapKeys toInt64 genesisInfo
+              $ fmap (pred . toInt64) $ M.mapKeys toInt64 genesisInfo
       unless (M.null minHeights) (liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights)
       pure $ if M.null foundGaps
         then M.mapMaybe (fmap pure) minHeights
