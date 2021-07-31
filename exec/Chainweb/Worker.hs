@@ -75,13 +75,13 @@ writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $ do
 batchWrites :: P.Pool Connection -> Bool -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> IO ()
 batchWrites pool indexesDisabled bs kss tss ess = P.withResource pool $ \c -> withTransaction c $ do
     runBeamPostgres c $ do
-      -- Write Pub Key many-to-many relationships if unique --
-      runInsert
-        $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
-        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       -- Write the Blocks if unique
       runInsert
         $ insert (_cddb_blocks database) (insertValues bs)
+        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+      -- Write Pub Key many-to-many relationships if unique --
+      runInsert
+        $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
         $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
     withSavepoint c $ runBeamPostgres c $ do
