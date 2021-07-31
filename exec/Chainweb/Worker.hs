@@ -20,9 +20,10 @@ import           Chainweb.Lookups
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
-import           ChainwebDb.Types.MinerKey
-import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
+import           ChainwebDb.Types.MinerKey
+import           ChainwebDb.Types.Signer
+import           ChainwebDb.Types.Transaction
 import           Control.Retry
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
@@ -40,8 +41,8 @@ import           System.Logger hiding (logg)
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> IO ()
-writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $ do
+writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> [Signer] -> IO ()
+writes pool b ks ts es ss = P.withResource pool $ \c -> withTransaction c $ do
      runBeamPostgres c $ do
         -- Write the Block if unique --
         runInsert
@@ -61,6 +62,9 @@ writes pool b ks ts es = P.withResource pool $ \c -> withTransaction c $ do
         -- Write the events if unique --
         runInsert
           $ insert (_cddb_events database) (insertValues es)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        runInsert
+          $ insert (_cddb_signers database) (insertValues ss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
         --   (_block_chainId b)
@@ -87,9 +91,10 @@ writeBlock env pool count bh = do
           !b = asBlock (asPow bh) m
           !t = mkBlockTransactions b pl
           !es = mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh) pl
+          !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
           !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
-      writes pool b k t es
+      writes pool b k t es ss
   where
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3

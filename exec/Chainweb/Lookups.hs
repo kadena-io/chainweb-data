@@ -16,6 +16,7 @@ module Chainweb.Lookups
   , mkBlockEvents
   , mkBlockEvents'
   , mkCoinbaseEvents
+  , mkTransactionSigners
   , bpwoMinerKeys
 
   , ErrorType(..)
@@ -32,13 +33,16 @@ import           Chainweb.Api.MinerData
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
+import           Chainweb.Api.Sig
+import qualified Chainweb.Api.Signer as CW
 import qualified Chainweb.Api.Transaction as CW
 import           Chainweb.Env
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
-import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
+import           ChainwebDb.Types.Signer
+import           ChainwebDb.Types.Transaction
 import           Control.Applicative
 import           Control.Error.Util (hush)
 import           Control.Lens
@@ -204,6 +208,20 @@ mkBlockEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs
 mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
   where
     (cbes, txes) = mkBlockEvents' height cid blockhash pl
+
+mkTransactionSigners :: CW.Transaction -> [Signer]
+mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
+  where
+    signers = _pactCommand_signers $ CW._transaction_cmd t
+    sigs = CW._transaction_sigs t
+    mkSigner signer sig idx = Signer
+      (DbHash $ hashB64U $ CW._transaction_hash t)
+      idx
+      (CW._signer_pubKey signer)
+      (CW._signer_scheme signer)
+      (CW._signer_addr signer)
+      (PgJSONB $ map toJSON $ CW._signer_capList signer)
+      (HexText $ unSig sig)
 
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
