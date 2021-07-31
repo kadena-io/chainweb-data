@@ -18,7 +18,6 @@ import           ChainwebData.Types
 import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM
-import           Control.Exception
 import           Control.Monad
 import           Control.Scheduler
 import           Data.Bool
@@ -103,32 +102,26 @@ gapsCut env args cutBS = do
           atomically $ writeTBQueue blockQueue vs
       maybe mempty threadDelay delay
 
-listIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO [(String, String, String)]
+listIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO [(String, String)]
 listIndexes pool logger = P.withResource pool $ \conn -> do
     res <- query_ conn qry
-    forM_ res $ \(_,name,definition) -> do
+    forM_ res $ \(_,name) -> do
       logger Debug "index name"
       logger Debug $ fromString name
-      logger Debug "index definitions"
-      logger Debug $ fromString definition
     return res
   where
     qry =
-      "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname='public';"
-{- IMPORTANT: indexdef in the query gives the command that creates the index/constraint-}
+      "SELECT tablename, indexname FROM pg_indexes WHERE schemaname='public';"
 
-dropIndexes :: P.Pool Connection -> [(String, String, String)] -> IO ()
-dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname, _) -> P.withResource pool $ \conn ->
+dropIndexes :: P.Pool Connection -> [(String, String)] -> IO ()
+dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname) -> P.withResource pool $ \conn ->
   execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s CASCADE;" tablename indexname
 
 withDroppedIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO a -> IO a
 withDroppedIndexes pool logger action = do
     indexInfos <- listIndexes pool logger
-    bracket (dropIndexes pool indexInfos) (const $ recreateIndexes pool indexInfos) (const action)
-
-recreateIndexes :: P.Pool Connection -> [(String, String, String)] -> IO ()
-recreateIndexes pool indexinfos = forM_ indexinfos $ \(_,_,indexdef) -> P.withResource pool $ \conn ->
-  execute_ conn (Query $ fromString $ indexdef <> ";")
+    dropIndexes pool indexInfos
+    action
 
 getBlockGaps :: Env -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
