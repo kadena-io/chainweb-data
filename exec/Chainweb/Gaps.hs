@@ -75,21 +75,30 @@ gapsCut env args cutBS = do
         sampler <- newIORef 0
         blockQueue <- newTBQueueIO blockQueueSize
         let strat = maybe Seq (const Par') delay
-            gapSize (a,b) = b - a - 1;
-            total = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain
-        logg Info $ fromString $ printf "Filling %d gaps" total
+            gapSize (a,b) = case compare a b of
+              LT -> b - a - 1
+              _ -> 0
+            isGap = bool 0 1 . (> 0) . gapSize
+            total = fromIntegral $ sum $ fmap (sum . map isGap) gapsByChain
+            totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain
+        logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
+        logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
         bool id (withDroppedIndexes pool logg) disableIndexesPred $ race_ (progress logg count total) $
-          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count sampler cid) . concatMap createRanges) gapsByChain
+          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count sampler cid) . concatMap (createRanges cid)) gapsByChain
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
     pool = _env_dbConnPool env
     delay =  _gapArgs_delayMicros args
     disableIndexesPred =  _gapArgs_disableIndexes args
+    gi = mkGenesisInfo $ _env_nodeInfo env
     logg = _env_logger env
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
-    createRanges (low, high) = rangeToDescGroupsOf 360 (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
+    createRanges _genesisHeight (low, high)
+      | low == high = []
+      | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf 360 (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
+      | otherwise = rangeToDescGroupsOf 360 (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
     f :: LogFunctionIO Text -> TBQueue (Vector BlockHeader) -> IORef Int -> IORef Int -> Int64 -> (Low, High) -> IO ()
     f logger blockQueue count sampler cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
@@ -142,7 +151,7 @@ getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
             M.intersectionWith
               maybeAppendGenesis
               minHeights'
-              $ fmap (pred . toInt64) $ M.mapKeys toInt64 genesisInfo
+              $ fmap toInt64 $ M.mapKeys toInt64 genesisInfo
       unless (M.null minHeights) (liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights)
       pure $ if M.null foundGaps
         then M.mapMaybe (fmap pure) minHeights
