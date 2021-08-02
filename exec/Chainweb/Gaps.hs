@@ -19,6 +19,7 @@ import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM
 import           Control.Monad
+import           Control.Monad.Catch
 import           Control.Scheduler
 import           Data.Bool
 import           Data.ByteString.Lazy (ByteString)
@@ -79,8 +80,8 @@ gapsCut env args cutBS = do
               LT -> b - a - 1
               _ -> 0
             isGap = bool 0 1 . (> 0) . gapSize
-            total = fromIntegral $ sum $ fmap (sum . map isGap) gapsByChain
-            totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain
+            total = sum $ fmap (sum . map isGap) gapsByChain
+            totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain :: Int
         logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
         logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
         bool id (withDroppedIndexes pool logg) disableIndexesPred $ race_ (progress logg count total) $
@@ -95,7 +96,7 @@ gapsCut env args cutBS = do
     logg = _env_logger env
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
-    createRanges _genesisHeight (low, high)
+    createRanges cid (low, high)
       | low == high = []
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf 360 (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
       | otherwise = rangeToDescGroupsOf 360 (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
@@ -127,11 +128,70 @@ dropIndexes :: P.Pool Connection -> [(String, String)] -> IO ()
 dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname) -> P.withResource pool $ \conn ->
   execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s CASCADE;" tablename indexname
 
+dedupeEventsTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
+dedupeEventsTable pool logger = do
+    logger Debug "Deduping events table"
+    P.withResource pool $ \conn ->
+      void $ execute_ conn dedupestmt
+  where
+    dedupestmt =
+      "DELETE FROM events WHERE (requestkey,chainid,height,idx,ctid) IN (SELECT\
+      \ requestkey,chainid,height,idx,ctid FROM (SELECT\
+      \ requestkey,chainid,height,idx,ctid,row_number() OVER (PARTITION BY\
+      \ requestkey,chainid,height,idx) AS row_num FROM events) t WHERE t.row_num >1);"
+
+dedupeBlocksTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
+dedupeBlocksTable pool logger = do
+    logger Debug "Deduping blocks table"
+    P.withResource pool $ \conn ->
+      void $ execute_ conn dedupestmt
+  where
+    dedupestmt =
+      "DELETE FROM blocks WHERE (hash,ctid) IN (SELECT\
+      \ hash,ctid FROM (SELECT\
+      \ hash,ctid,row_number() OVER (PARTITION BY\
+      \ hash) AS row_num FROM blocks) t WHERE t.row_num >1);"
+
+dedupeMinerKeysTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
+dedupeMinerKeysTable pool logger = do
+    logger Debug "Deduping minerkeys table"
+    P.withResource pool $ \conn ->
+      void $ execute_ conn dedupestmt
+  where
+    dedupestmt =
+      "DELETE FROM minerkeys WHERE (block,key,ctid) IN (SELECT\
+      \ block,key,ctid FROM (SELECT\
+      \ block,key,ctid,row_number() OVER (PARTITION BY\
+      \ block,key) AS row_num FROM minerkeys) t WHERE t.row_num >1);"
+
+dedupeTransactionsTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
+dedupeTransactionsTable pool logger = do
+    logger Debug "Deduping transactions table"
+    P.withResource pool $ \conn ->
+      void $ execute_ conn dedupestmt
+  where
+    dedupestmt =
+      "DELETE FROM transactions WHERE (requestkey,block,ctid) IN (SELECT\
+      \ requestkey,block,ctid FROM (SELECT\
+      \ requestkey,block,ctid,row_number() OVER (PARTITION BY\
+      \ requestkey,block) AS row_num FROM transactions) t WHERE t.row_num >1);"
+
+
+dedupeTables :: P.Pool Connection -> LogFunctionIO Text -> IO ()
+dedupeTables pool logger = do
+  dedupeTransactionsTable pool logger
+  dedupeEventsTable pool logger
+  dedupeBlocksTable pool logger
+  dedupeMinerKeysTable pool logger
+
 withDroppedIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO a -> IO a
 withDroppedIndexes pool logger action = do
     indexInfos <- listIndexes pool logger
-    dropIndexes pool indexInfos
-    action
+    fmap fst $ generalBracket (dropIndexes pool indexInfos) release (const action)
+  where
+    release _ = \case
+      ExitCaseSuccess _ -> dedupeTables pool logger
+      _ -> return ()
 
 getBlockGaps :: Env -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
