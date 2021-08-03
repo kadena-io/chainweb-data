@@ -221,7 +221,7 @@ mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
       (CW._signer_scheme signer)
       (CW._signer_addr signer)
       (PgJSONB $ map toJSON $ CW._signer_capList signer)
-      (HexText $ unSig sig)
+      (Signature $ unSig sig)
 
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
