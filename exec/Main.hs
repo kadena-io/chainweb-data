@@ -18,6 +18,7 @@ import           Chainweb.RichList (richList)
 import           Chainweb.Server (apiServer)
 import           Chainweb.Single (single)
 import           Control.Lens
+import           Control.Monad (unless)
 import           Data.Bifunctor
 import qualified Data.Pool as P
 import           Data.String
@@ -56,7 +57,7 @@ main = do
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
           withPool pgc $ \pool -> do
-            P.withResource pool (initializeTables logg ms)
+            P.withResource pool (unless (isIndexedDisabled c) . initializeTables logg ms)
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -81,6 +82,9 @@ main = do
     config level = defaultLoggerConfig
       & loggerConfigThreshold .~ level
     backendConfig = defaultHandleBackendConfig
+    isIndexedDisabled = \case
+      Gaps (GapArgs _ p) -> p
+      _ -> False
     getLevel = \case
       Args _ _ _ _ level _ -> level
       RichListArgs _ level -> level

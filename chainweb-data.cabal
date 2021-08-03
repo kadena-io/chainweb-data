@@ -108,7 +108,6 @@ executable chainweb-data
     , servant-client
     , servant-client-core
     , servant-server
-    , stopwatch
     , stm
     , stm-chans
     , streaming                ^>=0.2

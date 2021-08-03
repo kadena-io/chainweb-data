@@ -73,19 +73,22 @@ gapsCut env args cutBS = do
           logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'gaps' separately."
           exitFailure
         count <- newIORef 0
-        sampler <- newIORef 0
         blockQueue <- newTBQueueIO blockQueueSize
         let strat = maybe Seq (const Par') delay
             gapSize (a,b) = case compare a b of
               LT -> b - a - 1
               _ -> 0
-            isGap = bool 0 1 . (> 0) . gapSize
-            total = sum $ fmap (sum . map isGap) gapsByChain
+            isGap = (> 0) . gapSize
+            total = sum $ fmap (sum . map (bool 0 1 . isGap)) gapsByChain :: Int
             totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain :: Int
         logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
         logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
-        bool id (withDroppedIndexes pool logg) disableIndexesPred $ race_ (progress logg count total) $
-          traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count sampler cid) . concatMap (createRanges cid)) gapsByChain
+        let gapFiller =
+              race_ (progress logg count totalNumBlocks)
+              $ traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count cid) . concatMap (createRanges cid)) gapsByChain
+        if disableIndexesPred
+          then gapFiller
+          else withDroppedIndexes pool logg gapFiller
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
@@ -100,8 +103,8 @@ gapsCut env args cutBS = do
       | low == high = []
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf 360 (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
       | otherwise = rangeToDescGroupsOf 360 (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
-    f :: LogFunctionIO Text -> TBQueue (Vector BlockHeader) -> IORef Int -> IORef Int -> Int64 -> (Low, High) -> IO ()
-    f logger blockQueue count sampler cid (l, h) = do
+    f :: LogFunctionIO Text -> TBQueue (Vector BlockHeader) -> IORef Int -> Int64 -> (Low, High) -> IO ()
+    f logger blockQueue count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
       headersBetween env range >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
@@ -109,7 +112,7 @@ gapsCut env args cutBS = do
         Right hs -> do
           let vs = V.fromList hs
           mq <- atomically (tryReadTBQueue blockQueue)
-          maybe mempty (writeBlocks env pool disableIndexesPred count sampler . V.toList) mq
+          maybe mempty (writeBlocks env pool disableIndexesPred count . V.toList) mq
           atomically $ writeTBQueue blockQueue vs
       maybe mempty threadDelay delay
 

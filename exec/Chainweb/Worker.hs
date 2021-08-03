@@ -26,7 +26,6 @@ import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
 import           Control.Lens (iforM_)
 import           Control.Retry
-import           Control.StopWatch
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.Map as M
@@ -126,8 +125,8 @@ writeBlock env pool count bh = do
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
 
-writeBlocks :: Env -> P.Pool Connection -> Bool -> IORef Int -> IORef Int -> [BlockHeader] -> IO ()
-writeBlocks env pool disableIndexesPred count sampler bhs = do
+writeBlocks :: Env -> P.Pool Connection -> Bool -> IORef Int -> [BlockHeader] -> IO ()
+writeBlocks env pool disableIndexesPred count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs'))) >>= \case
@@ -144,12 +143,7 @@ writeBlocks env pool disableIndexesPred count sampler bhs = do
                   pls
                   (makeBlockMap bhs')
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
-          deltaT <- fmap snd $ stopWatch $ batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
-          sample <- readIORef sampler
-          when (mod sample 100 == 0) $ do
-            logger Debug $ fromString $ printf "Took %s to write batch of roughly size %d." (show deltaT) (M.size bs)
-            atomicModifyIORef' sampler (const (0,()))
-          atomicModifyIORef' sampler (\n -> (n + 1, ()))
+          batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
           atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 

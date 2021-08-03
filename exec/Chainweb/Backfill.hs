@@ -60,7 +60,6 @@ backfillBlocksCut env args cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       cids = atBlockHeight curHeight allCids
   counter <- newIORef 0
-  sampler <- newIORef 0
   mins <- minHeights cids pool
   let count = M.size mins
   if count /= length cids
@@ -76,7 +75,7 @@ backfillBlocksCut env args cutBS = do
                     Just _ -> Seq
       blockQueue <- newTBQueueIO 20
       race_ (progress logg counter $ foldl' (+) 0 mins)
-        $ traverseMapConcurrently_ Par' (\k -> traverseConcurrently_ strat (f blockQueue counter sampler) . map (toTriple k)) $ toChainMap $ lookupPlan genesisInfo mins
+        $ traverseMapConcurrently_ Par' (\k -> traverseConcurrently_ strat (f blockQueue counter) . map (toTriple k)) $ toChainMap $ lookupPlan genesisInfo mins
   where
     traverseMapConcurrently_ comp g m =
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
@@ -91,8 +90,8 @@ backfillBlocksCut env args cutBS = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: TBQueue (V.Vector BlockHeader) -> IORef Int -> IORef Int -> (ChainId, Low, High) -> IO ()
-    f blockQueue count sampler range = do
+    f :: TBQueue (V.Vector BlockHeader) -> IORef Int -> (ChainId, Low, High) -> IO ()
+    f blockQueue count range = do
       headersBetween env range >>= \case
         Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show range
@@ -101,7 +100,7 @@ backfillBlocksCut env args cutBS = do
           atomically (tryReadTBQueue blockQueue) >>= \case
             Nothing -> atomically $ writeTBQueue blockQueue vs
             Just q -> do
-              writeBlocks env pool False count sampler (V.toList q)
+              writeBlocks env pool False count (V.toList q)
               atomically $ writeTBQueue blockQueue vs
       delayFunc
 
