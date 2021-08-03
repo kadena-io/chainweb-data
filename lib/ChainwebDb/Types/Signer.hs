@@ -31,16 +31,16 @@ import           Database.Beam.Postgres.Syntax (PgValueSyntax)
 import           ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 
-newtype HexText = HexText { unHexText :: Text }
+newtype Signature = Signature { unSignature :: Text }
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (ToJSON, FromJSON)
   deriving newtype (HasSqlValueSyntax PgValueSyntax)
   deriving newtype (FromBackendRow Postgres, HasSqlEqualityCheck Postgres)
 
-instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be HexText where
+instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be Signature where
   defaultSqlDataType _ _ _ = varCharType Nothing Nothing
 
-instance HasColumnType HexText where
+instance HasColumnType Signature where
   defaultColumnType _ = SqlStdType $ varCharType Nothing Nothing
   defaultTypeCast _ = Just "character varying"
 
@@ -52,7 +52,7 @@ data SignerT f = Signer
   , _signer_scheme :: C f (Maybe Text)
   , _signer_addr :: C f (Maybe Text)
   , _signer_caps :: C f (PgJSONB [Value])
-  , _signer_sig :: C f HexText
+  , _signer_sig :: C f Signature
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)
