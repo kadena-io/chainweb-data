@@ -75,8 +75,8 @@ writes pool b ks ts es ss = P.withResource pool $ \c -> withTransaction c $ do
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
-batchWrites :: P.Pool Connection -> Bool -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> IO ()
-batchWrites pool indexesDisabled bs kss tss ess = P.withResource pool $ \c -> withTransaction c $ do
+batchWrites :: P.Pool Connection -> Bool -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> IO ()
+batchWrites pool indexesDisabled bs kss tss ess sss = P.withResource pool $ \c -> withTransaction c $ do
     runBeamPostgres c $ do
       -- Write the Blocks if unique
       runInsert
@@ -96,6 +96,9 @@ batchWrites pool indexesDisabled bs kss tss ess = P.withResource pool $ \c -> wi
       runInsert
         $ insert (_cddb_events database) (insertValues $ concat ess)
         $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+      runInsert
+        $ insert (_cddb_signers database) (insertValues $ concat sss)
+        $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   where
     {- the type system won't allow me to simply inline the "other" expression -}
     actionOnConflict other = if indexesDisabled
@@ -147,8 +150,9 @@ writeBlocks env pool disableIndexesPred count bhs = do
                   (\pl bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh) pl)
                   pls
                   (makeBlockMap bhs')
+              !sss = M.intersectionWith (\pl _ -> concat $ mkTransactionSigners . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
-          batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess)
+          batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss)
           atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 

@@ -87,8 +87,8 @@ gapsCut env args cutBS = do
               race_ (progress logg count totalNumBlocks)
               $ traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count cid) . concatMap (createRanges cid)) gapsByChain
         if disableIndexesPred
-          then gapFiller
-          else withDroppedIndexes pool logg gapFiller
+          then withDroppedIndexes pool logg gapFiller
+          else gapFiller
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
