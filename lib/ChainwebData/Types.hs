@@ -15,6 +15,7 @@ module ChainwebData.Types
     -- * Utils
   , groupsOf
   , rangeToDescGroupsOf
+  , blockHeaderRequestSize
   ) where
 
 import           BasePrelude
@@ -106,3 +107,7 @@ rangeToDescGroupsOf n l@(Low low) h@(High high)
 
 instance ToJSON BlockHeader where
   toJSON _ = object []
+
+-- This constant defines the maximum number of blockheaders we can retrieve from a node at a time.
+blockHeaderRequestSize :: Int
+blockHeaderRequestSize = 360

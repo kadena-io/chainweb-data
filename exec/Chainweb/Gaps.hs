@@ -101,8 +101,8 @@ gapsCut env args cutBS = do
       withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
     createRanges cid (low, high)
       | low == high = []
-      | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf 360 (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
-      | otherwise = rangeToDescGroupsOf 360 (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
+      | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
+      | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
     f :: LogFunctionIO Text -> TBQueue (Vector BlockHeader) -> IORef Int -> Int64 -> (Low, High) -> IO ()
     f logger blockQueue count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
