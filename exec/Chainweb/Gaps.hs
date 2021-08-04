@@ -179,6 +179,16 @@ dedupeTransactionsTable pool logger = do
       \ requestkey,block,ctid,row_number() OVER (PARTITION BY\
       \ requestkey,block) AS row_num FROM transactions) t WHERE t.row_num >1);"
 
+dedupeSignersTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
+dedupeSignersTable pool logger = do
+    logger Debug "Deduping signers table"
+    P.withResource pool $ \conn ->
+      void $ execute_ conn dedupestmt
+  where
+    dedupestmt =
+      "DELETE FROM signers WHERE (requestkey,idx,ctid) IN (SELECT requestkey,idx,ctid\
+      \ FROM (SELECT requestkey,idx,ctid,row_number() OVER (PARTITION BY requestkey,idx)\
+      \ AS row_num FROM signers) t WHERE t.row_num > 1);"
 
 dedupeTables :: P.Pool Connection -> LogFunctionIO Text -> IO ()
 dedupeTables pool logger = do
@@ -186,6 +196,7 @@ dedupeTables pool logger = do
   dedupeEventsTable pool logger
   dedupeBlocksTable pool logger
   dedupeMinerKeysTable pool logger
+  dedupeSignersTable pool logger
 
 withDroppedIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO a -> IO a
 withDroppedIndexes pool logger action = do
