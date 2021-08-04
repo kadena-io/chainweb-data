@@ -98,7 +98,7 @@ batchWrites pool indexesDisabled bs kss tss ess sss = P.withResource pool $ \c -
         $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       runInsert
         $ insert (_cddb_signers database) (insertValues $ concat sss)
-        $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   where
     {- the type system won't allow me to simply inline the "other" expression -}
     actionOnConflict other = if indexesDisabled
