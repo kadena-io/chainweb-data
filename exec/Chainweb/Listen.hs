@@ -68,8 +68,9 @@ insertNewHeader pool ph pl = do
       !b = asBlock ph m
       !t = mkBlockTransactions b pl
       !es = mkBlockEvents (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_parent $ _hwp_header ph) pl
+      !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
       !k = bpwoMinerKeys pl
-  writes pool b k t es
+  writes pool b k t es ss
 
 mkRequest :: UrlScheme -> ChainwebVersion -> Request
 mkRequest us (ChainwebVersion cv) = defaultRequest

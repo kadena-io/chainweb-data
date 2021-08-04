@@ -29,15 +29,16 @@ import ChainwebDb.Types.DbHash
 
 ------------------------------------------------------------------------------
 data TransactionT f = Transaction
-  { _tx_chainId :: C f Int64
+  { _tx_requestKey :: C f (DbHash TxHash)
   , _tx_block :: PrimaryKey BlockT f
+  , _tx_chainId :: C f Int64
+  , _tx_height :: C f Int64 -- Not fully normalized but this gets used a ton
   , _tx_creationTime :: C f UTCTime
   , _tx_ttl :: C f Int64
   , _tx_gasLimit :: C f Int64
   , _tx_gasPrice :: C f Double
   , _tx_sender :: C f Text
   , _tx_nonce :: C f Text
-  , _tx_requestKey :: C f (DbHash TxHash)
   , _tx_code :: C f (Maybe Text)
   , _tx_pactId :: C f (Maybe Text)
   , _tx_rollback :: C f (Maybe Bool)
@@ -58,15 +59,16 @@ data TransactionT f = Transaction
   deriving anyclass (Beamable)
 
 Transaction
-  (LensFor tx_chainId)
+  (LensFor tx_requestKey)
   (BlockId (LensFor tx_block))
+  (LensFor tx_chainId)
+  (LensFor tx_height)
   (LensFor tx_creationTime)
   (LensFor tx_ttl)
   (LensFor tx_gasLimit)
   (LensFor tx_gasPrice)
   (LensFor tx_sender)
   (LensFor tx_nonce)
-  (LensFor tx_requestKey)
   (LensFor tx_code)
   (LensFor tx_pactId)
   (LensFor tx_rollback)

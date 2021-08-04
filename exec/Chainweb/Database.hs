@@ -20,9 +20,10 @@ module Chainweb.Database
 
 import           Chainweb.Env
 import           ChainwebDb.Types.Block
-import           ChainwebDb.Types.MinerKey
-import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
+import           ChainwebDb.Types.MinerKey
+import           ChainwebDb.Types.Signer
+import           ChainwebDb.Types.Transaction
 import qualified Data.Pool as P
 import           Data.Proxy
 import           Data.Text (Text)
@@ -41,6 +42,7 @@ data ChainwebDataDb f = ChainwebDataDb
   , _cddb_transactions :: f (TableEntity TransactionT)
   , _cddb_minerkeys :: f (TableEntity MinerKeyT)
   , _cddb_events :: f (TableEntity EventT)
+  , _cddb_signers :: f (TableEntity SignerT)
   }
   deriving stock (Generic)
   deriving anyclass (Database be)
@@ -69,15 +71,16 @@ database = defaultDbSettings `withDbModification` dbModification
     }
   , _cddb_transactions = modifyEntityName modTableName <>
     modifyTableFields tableModification
-    { _tx_chainId = "chainid"
+    { _tx_requestKey = "requestkey"
     , _tx_block = BlockId "block"
+    , _tx_chainId = "chainid"
+    , _tx_height = "height"
     , _tx_creationTime = "creationtime"
     , _tx_ttl = "ttl"
     , _tx_gasLimit = "gaslimit"
     , _tx_gasPrice = "gasprice"
     , _tx_sender = "sender"
     , _tx_nonce = "nonce"
-    , _tx_requestKey = "requestkey"
     , _tx_code = "code"
     , _tx_pactId = "pactid"
     , _tx_rollback = "rollback"
@@ -112,6 +115,16 @@ database = defaultDbSettings `withDbModification` dbModification
     , _ev_moduleHash = "modulehash"
     , _ev_paramText = "paramtext"
     , _ev_params = "params"
+    }
+  , _cddb_signers = modifyEntityName modTableName <>
+    modifyTableFields tableModification
+    { _signer_requestkey = "requestkey"
+    , _signer_idx = "idx"
+    , _signer_pubkey = "pubkey"
+    , _signer_scheme = "scheme"
+    , _signer_addr = "addr"
+    , _signer_caps = "caps"
+    , _signer_sig = "sig"
     }
   }
 
