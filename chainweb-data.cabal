@@ -63,12 +63,12 @@ library
     ChainwebData.Types
     ChainwebDb.Types.Block
     ChainwebDb.Types.DbHash
-    ChainwebDb.Types.MinerKey
-    ChainwebDb.Types.Transaction
     ChainwebDb.Types.Event
+    ChainwebDb.Types.MinerKey
+    ChainwebDb.Types.Signer
+    ChainwebDb.Types.Transaction
   build-depends:
     base64-bytestring        ^>=1.0
-
 
   if flag(ghc-flags)
     build-tool-depends: hsinspect:hsinspect -any

@@ -16,7 +16,7 @@ extra-deps:
   - witherable-class-0
   - yet-another-logger-0.4.0
   - github: kadena-io/chainweb-api
-    commit: fc85edb708853ff08be1c0ca8652de6aa8b9367c
+    commit: d6ad27ed16c060e18bd86213d04d15a360f88d35
   - github: kadena-io/pact
     commit: 8681a6d6e72eccefe00100f86202d616ab5d1621
   - github: tathougies/beam
