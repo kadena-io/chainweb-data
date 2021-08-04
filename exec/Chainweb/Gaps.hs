@@ -83,14 +83,14 @@ gapsCut env args cutBS = do
             totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain :: Int
         logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
         logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
-        let gapFiller =
-              race_ (progress logg count totalNumBlocks)
-              $ traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count cid) . concatMap (createRanges cid)) gapsByChain
+        let gapFiller = do
+              race_ (progress logg count totalNumBlocks) $
+                traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count cid) . concatMap (createRanges cid)) gapsByChain
+              final <- readIORef count
+              logg Info $ fromString $ printf "Filled in %d missing blocks." final
         if disableIndexesPred
           then withDroppedIndexes pool logg gapFiller
           else gapFiller
-        final <- readIORef count
-        logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
     pool = _env_dbConnPool env
     delay =  _gapArgs_delayMicros args
@@ -133,7 +133,7 @@ dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname) -> P.wi
 
 dedupeEventsTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
 dedupeEventsTable pool logger = do
-    logger Debug "Deduping events table"
+    logger Info "Deduping events table"
     P.withResource pool $ \conn ->
       void $ execute_ conn dedupestmt
   where
@@ -145,7 +145,7 @@ dedupeEventsTable pool logger = do
 
 dedupeBlocksTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
 dedupeBlocksTable pool logger = do
-    logger Debug "Deduping blocks table"
+    logger Info "Deduping blocks table"
     P.withResource pool $ \conn ->
       void $ execute_ conn dedupestmt
   where
@@ -157,7 +157,7 @@ dedupeBlocksTable pool logger = do
 
 dedupeMinerKeysTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
 dedupeMinerKeysTable pool logger = do
-    logger Debug "Deduping minerkeys table"
+    logger Info "Deduping minerkeys table"
     P.withResource pool $ \conn ->
       void $ execute_ conn dedupestmt
   where
@@ -169,7 +169,7 @@ dedupeMinerKeysTable pool logger = do
 
 dedupeTransactionsTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
 dedupeTransactionsTable pool logger = do
-    logger Debug "Deduping transactions table"
+    logger Info "Deduping transactions table"
     P.withResource pool $ \conn ->
       void $ execute_ conn dedupestmt
   where
