@@ -89,6 +89,7 @@ gapsCut env args cutBS = do
         if disableIndexesPred
           then withDroppedIndexes pool logg gapFiller
           else gapFiller
+        flushQueue blockQueue count
         final <- readIORef count
         logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
@@ -103,6 +104,14 @@ gapsCut env args cutBS = do
       | low == high = []
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
       | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
+    flushQueue :: TBQueue (Vector BlockHeader) -> IORef Int -> IO ()
+    flushQueue blockQueue count =
+      atomically (tryReadTBQueue blockQueue) >>= \case
+        Nothing -> logg Debug "blockQueue fully flushed."
+        Just q -> do
+          writeBlocks env pool disableIndexesPred count (V.toList q)
+          flushQueue blockQueue count
+
     f :: LogFunctionIO Text -> TBQueue (Vector BlockHeader) -> IORef Int -> Int64 -> (Low, High) -> IO ()
     f logger blockQueue count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
