@@ -29,7 +29,8 @@ import           Database.Beam.Backend.Types
 import           Database.Beam.Migrate
 import           Database.Beam.Postgres
 ------------------------------------------------------------------------------
-import ChainwebDb.Types.DbHash
+import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------
 
 data ReqKeyOrCoinbase = RKCB_RequestKey (DbHash TxHash) | RKCB_Coinbase
@@ -60,7 +61,7 @@ instance HasColumnType ReqKeyOrCoinbase where
 
 data EventT f = Event
   { _ev_requestkey :: C f ReqKeyOrCoinbase
-  , _ev_block :: C f (DbHash BlockHash)
+  , _ev_block :: PrimaryKey BlockT f
   , _ev_chainid :: C f Int64
   , _ev_height :: C f Int64
   , _ev_idx :: C f Int64
@@ -76,7 +77,7 @@ data EventT f = Event
 
 Event
   (LensFor ev_requestkey)
-  (LensFor ev_block)
+  (BlockId (LensFor ev_block))
   (LensFor ev_chainid)
   (LensFor ev_height)
   (LensFor ev_idx)
@@ -92,7 +93,9 @@ type Event = EventT Identity
 type EventId = PrimaryKey EventT Identity
 
 instance Table EventT where
-  data PrimaryKey EventT f = EventId (C f ReqKeyOrCoinbase) (C f Int64) (C f Int64) (C f Int64)
+  -- The block hash has to be included in the index.  See description in
+  -- Transaction.hs.
+  data PrimaryKey EventT f = EventId (C f ReqKeyOrCoinbase) (PrimaryKey BlockT f) (C f Int64)
     deriving stock (Generic)
     deriving anyclass (Beamable)
 {-
@@ -107,5 +110,5 @@ chainweb-data: internal error: Unable to commit 1048576 bytes of memory
     Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug
 Killed
 -}
-  primaryKey = EventId <$> _ev_requestkey <*> _ev_chainid <*> _ev_height <*> _ev_idx
+  primaryKey = EventId <$> _ev_requestkey <*> _ev_block <*> _ev_idx
 

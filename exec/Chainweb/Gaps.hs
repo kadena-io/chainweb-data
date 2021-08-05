@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chainweb.Gaps ( gaps, dedupeTables ) where
+module Chainweb.Gaps ( gaps ) where
 
 import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
@@ -127,30 +127,6 @@ dropIndexes :: P.Pool Connection -> [(String, String)] -> IO ()
 dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname) -> P.withResource pool $ \conn ->
   execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s CASCADE;" tablename indexname
 
-dedupeEventsTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeEventsTable pool logger = do
-    logger Info "Deduping events table"
-    P.withResource pool $ \conn ->
-      void $ execute_ conn dedupestmt
-  where
-    dedupestmt =
-      "DELETE FROM events WHERE (requestkey,chainid,height,idx,ctid) IN (SELECT\
-      \ requestkey,chainid,height,idx,ctid FROM (SELECT\
-      \ requestkey,chainid,height,idx,ctid,row_number() OVER (PARTITION BY\
-      \ requestkey,chainid,height,idx) AS row_num FROM events) t WHERE t.row_num >1);"
-
-dedupeBlocksTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeBlocksTable pool logger = do
-    logger Info "Deduping blocks table"
-    P.withResource pool $ \conn ->
-      void $ execute_ conn dedupestmt
-  where
-    dedupestmt =
-      "DELETE FROM blocks WHERE (hash,ctid) IN (SELECT\
-      \ hash,ctid FROM (SELECT\
-      \ hash,ctid,row_number() OVER (PARTITION BY\
-      \ hash) AS row_num FROM blocks) t WHERE t.row_num >1);"
-
 dedupeMinerKeysTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
 dedupeMinerKeysTable pool logger = do
     logger Info "Deduping minerkeys table"
@@ -158,22 +134,10 @@ dedupeMinerKeysTable pool logger = do
       void $ execute_ conn dedupestmt
   where
     dedupestmt =
-      "DELETE FROM minerkeys WHERE (block,key,ctid) IN (SELECT\
-      \ block,key,ctid FROM (SELECT\
+      "DELETE FROM minerkeys WHERE ctid IN (SELECT\
+      \ ctid FROM (SELECT\
       \ block,key,ctid,row_number() OVER (PARTITION BY\
       \ block,key) AS row_num FROM minerkeys) t WHERE t.row_num >1);"
-
-dedupeTransactionsTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeTransactionsTable pool logger = do
-    logger Info "Deduping transactions table"
-    P.withResource pool $ \conn ->
-      void $ execute_ conn dedupestmt
-  where
-    dedupestmt =
-      "DELETE FROM transactions WHERE (requestkey,block,ctid) IN (SELECT\
-      \ requestkey,block,ctid FROM (SELECT\
-      \ requestkey,block,ctid,row_number() OVER (PARTITION BY\
-      \ requestkey,block) AS row_num FROM transactions) t WHERE t.row_num >1);"
 
 dedupeSignersTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
 dedupeSignersTable pool logger = do
@@ -182,17 +146,15 @@ dedupeSignersTable pool logger = do
       void $ execute_ conn dedupestmt
   where
     dedupestmt =
-      "DELETE FROM signers WHERE (requestkey,idx,ctid) IN (SELECT requestkey,idx,ctid\
+      "DELETE FROM signers WHERE ctid IN (SELECT ctid\
       \ FROM (SELECT requestkey,idx,ctid,row_number() OVER (PARTITION BY requestkey,idx)\
       \ AS row_num FROM signers) t WHERE t.row_num > 1);"
 
-dedupeTables :: Env -> IO ()
-dedupeTables env = do
-  let pool = _env_dbConnPool env
-      logger = _env_logger env
-  dedupeTransactionsTable pool logger
-  dedupeEventsTable pool logger
-  dedupeBlocksTable pool logger
+dedupeTables :: P.Pool Connection -> LogFunctionIO Text -> IO ()
+dedupeTables pool logger = do
+  -- We don't need to dedupe the following tables because their primary keys
+  -- should be unique across any data we might encounter:
+  -- events, transactions, blocks
   dedupeMinerKeysTable pool logger
   dedupeSignersTable pool logger
 
@@ -202,7 +164,7 @@ withDroppedIndexes pool logger action = do
     fmap fst $ generalBracket (dropIndexes pool indexInfos) release (const action)
   where
     release _ = \case
-      ExitCaseSuccess _ -> return () -- dedupeTables pool logger
+      ExitCaseSuccess _ -> dedupeTables pool logger
       _ -> return ()
 
 getBlockGaps :: Env -> M.Map Int64 (Maybe Int64) -> IO (M.Map Int64 [(Int64,Int64)])

@@ -171,7 +171,6 @@ data Command
     | Gaps GapArgs
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
-    | Dedupe
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
@@ -286,8 +285,6 @@ commands = hsubparser
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
        (progDesc "Event Worker - Fills missing events"))
-  <> command "dedupe" (info (pure Dedupe)
-       (progDesc "Dedupe database tables (sometimes needed after indexes are disabled)"))
   )
 
 progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a
