@@ -11,7 +11,7 @@ import           Chainweb.Backfill (backfill)
 import           Chainweb.Database (initializeTables)
 import           Chainweb.Env
 import           Chainweb.FillEvents (fillEvents)
-import           Chainweb.Gaps (gaps)
+import           Chainweb.Gaps
 import           Chainweb.Listen (listen)
 import           Chainweb.Lookups (getNodeInfo)
 import           Chainweb.RichList (richList)
@@ -76,6 +76,7 @@ main = do
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
                       Server serverEnv -> apiServer env serverEnv
+                      Dedupe -> dedupeTables env
   where
     opts = info ((richListP <|> envP) <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")

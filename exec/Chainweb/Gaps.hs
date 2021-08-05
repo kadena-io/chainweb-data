@@ -3,9 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
-module Chainweb.Gaps ( gaps ) where
+module Chainweb.Gaps ( gaps, dedupeTables ) where
 
-import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
@@ -17,7 +16,6 @@ import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           Control.Concurrent
 import           Control.Concurrent.Async
-import           Control.Concurrent.STM
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Scheduler
@@ -29,19 +27,15 @@ import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
 import           Data.String
 import           Data.Text (Text)
-import           Data.Vector (Vector)
-import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Types
-import           GHC.Natural (Natural)
 import           System.Logger hiding (logg)
 import           System.Exit (exitFailure)
 import           Text.Printf
 
 ---
-
 gaps :: Env -> GapArgs -> IO ()
 gaps env args = do
   ecut <- queryCut env
@@ -52,79 +46,54 @@ gaps env args = do
       logg Info $ fromString $ show e
     Right cutBS -> gapsCut env args cutBS
 
--- TODO Make this configurable?
-blockQueueSize :: Natural
-blockQueueSize = 30
-
 gapsCut :: Env -> GapArgs -> ByteString -> IO ()
 gapsCut env args cutBS = do
-  let curHeight = fromIntegral $ cutMaxHeight cutBS
-      cids = atBlockHeight curHeight $ _env_chainsAtHeight env
-  getBlockGaps env >>= \gapsByChain ->
+  minHeights <- getAndVerifyMinHeights env cutBS
+  getBlockGaps env minHeights >>= \gapsByChain ->
     if null gapsByChain
       then do
         logg Info $ fromString $ printf "No gaps detected."
         logg Info $ fromString $ printf "Either the database is empty or there are truly no gaps!"
       else do
-        minHeights <- withDb env chainMinHeights
-        when (M.size minHeights /= length cids) $ do
-          logg Error $ fromString $ printf "%d chains have block data, but we expected %d." (M.size minHeights) (length cids)
-          logg Error $ fromString $ printf "Please run a 'listen' first, and ensure that each chain has a least one block."
-          logg Error $ fromString $ printf "That should take about a minute, after which you can rerun 'gaps' separately."
-          exitFailure
         count <- newIORef 0
-        blockQueue <- newTBQueueIO blockQueueSize
-        let strat = maybe Seq (const Par') delay
-            gapSize (a,b) = case compare a b of
+        let gapSize (a,b) = case compare a b of
               LT -> b - a - 1
               _ -> 0
             isGap = (> 0) . gapSize
             total = sum $ fmap (sum . map (bool 0 1 . isGap)) gapsByChain :: Int
-            totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain :: Int
+            totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain
         logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
         logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
+        let doChain (cid, gs) = do
+              let ranges = concatMap (createRanges cid) gs
+              mapM_ (f logg count cid) ranges
         let gapFiller = do
-              race_ (progress logg count totalNumBlocks) $
-                traverseMapConcurrently_ Par' (\cid -> traverseConcurrently_ strat (f logg blockQueue count cid) . concatMap (createRanges cid)) gapsByChain
+              race_ (progress logg count totalNumBlocks)
+                    (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
               final <- readIORef count
               logg Info $ fromString $ printf "Filled in %d missing blocks." final
         if disableIndexesPred
           then withDroppedIndexes pool logg gapFiller
           else gapFiller
-        flushQueue blockQueue count
-        final <- readIORef count
-        logg Info $ fromString $ printf "Filled in %d missing blocks." final
   where
     pool = _env_dbConnPool env
     delay =  _gapArgs_delayMicros args
     disableIndexesPred =  _gapArgs_disableIndexes args
     gi = mkGenesisInfo $ _env_nodeInfo env
     logg = _env_logger env
-    traverseMapConcurrently_ comp g m =
-      withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
     createRanges cid (low, high)
       | low == high = []
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
       | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
-    flushQueue :: TBQueue (Vector BlockHeader) -> IORef Int -> IO ()
-    flushQueue blockQueue count =
-      atomically (tryReadTBQueue blockQueue) >>= \case
-        Nothing -> logg Debug "blockQueue fully flushed."
-        Just q -> do
-          writeBlocks env pool disableIndexesPred count (V.toList q)
-          flushQueue blockQueue count
 
-    f :: LogFunctionIO Text -> TBQueue (Vector BlockHeader) -> IORef Int -> Int64 -> (Low, High) -> IO ()
-    f logger blockQueue count cid (l, h) = do
+    f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Low, High) -> IO ()
+    f logger count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
+      --logger Debug $ fromString $ printf "Processing range %s" (show range)
       headersBetween env range >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> do
-          let vs = V.fromList hs
-          mq <- atomically (tryReadTBQueue blockQueue)
-          maybe mempty (writeBlocks env pool disableIndexesPred count . V.toList) mq
-          atomically $ writeTBQueue blockQueue vs
+        Right hs -> writeBlocks env pool disableIndexesPred count hs
       maybe mempty threadDelay delay
 
 listIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO [(String, String)]
@@ -201,8 +170,10 @@ dedupeSignersTable pool logger = do
       \ FROM (SELECT requestkey,idx,ctid,row_number() OVER (PARTITION BY requestkey,idx)\
       \ AS row_num FROM signers) t WHERE t.row_num > 1);"
 
-dedupeTables :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeTables pool logger = do
+dedupeTables :: Env -> IO ()
+dedupeTables env = do
+  let pool = _env_dbConnPool env
+      logger = _env_logger env
   dedupeTransactionsTable pool logger
   dedupeEventsTable pool logger
   dedupeBlocksTable pool logger
@@ -215,32 +186,27 @@ withDroppedIndexes pool logger action = do
     fmap fst $ generalBracket (dropIndexes pool indexInfos) release (const action)
   where
     release _ = \case
-      ExitCaseSuccess _ -> dedupeTables pool logger
+      ExitCaseSuccess _ -> return () -- dedupeTables pool logger
       _ -> return ()
 
-getBlockGaps :: Env -> IO (M.Map Int64 [(Int64,Int64)])
-getBlockGaps env = P.withResource (_env_dbConnPool env) $ \c -> do
-    runBeamPostgresDebug (liftIO . logg Debug) c $ do
-      let toMap = M.fromListWith (<>) . map (\(cid,a,b) -> (cid,[(a,b)]))
-      foundGaps <- fmap toMap $ runSelectReturningList $ selectWith $ do
-        foundGaps <- selecting $
-          withWindow_ (\b -> frame_ (partitionBy_ (_block_chainId b)) (orderPartitionBy_ $ asc_ $ _block_height b) noBounds_)
-                      (\b w -> (_block_chainId b, _block_height b, lead_ (_block_height b) (val_ (1 :: Int64)) `over_` w))
-                      (all_ $ _cddb_blocks database)
-        pure $ orderBy_ (\(cid,a,_) -> (desc_ a, asc_ cid)) $ do
-          res@(_,a,b) <- reuse foundGaps
-          guard_ ((b - a) >. val_ 1)
-          pure res
-      minHeights' <- chainMinHeights
-      let minHeights =
-            M.intersectionWith
-              maybeAppendGenesis
-              minHeights'
-              $ fmap toInt64 $ M.mapKeys toInt64 genesisInfo
-      unless (M.null minHeights) (liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights)
-      pure $ if M.null foundGaps
-        then M.mapMaybe (fmap pure) minHeights
-        else M.intersectionWith addStart minHeights foundGaps
+getBlockGaps :: Env -> M.Map Int64 (Maybe Int64) -> IO (M.Map Int64 [(Int64,Int64)])
+getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
+    let toMap = M.fromListWith (<>) . map (\(cid,a,b) -> (cid,[(a,b)]))
+    foundGaps <- fmap toMap $ runSelectReturningList $ selectWith $ do
+      foundGaps <- selecting $
+        withWindow_ (\b -> frame_ (partitionBy_ (_block_chainId b)) (orderPartitionBy_ $ asc_ $ _block_height b) noBounds_)
+                    (\b w -> (_block_chainId b, _block_height b, lead_ (_block_height b) (val_ (1 :: Int64)) `over_` w))
+                    (all_ $ _cddb_blocks database)
+      pure $ orderBy_ (\(cid,a,_) -> (desc_ a, asc_ cid)) $ do
+        res@(_,a,b) <- reuse foundGaps
+        guard_ ((b - a) >. val_ 1)
+        pure res
+    let minHeights = M.intersectionWith maybeAppendGenesis existingMinHeights
+          $ fmap toInt64 $ M.mapKeys toInt64 genesisInfo
+    unless (M.null minHeights) (liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights)
+    pure $ if M.null foundGaps
+      then M.mapMaybe (fmap pure) minHeights
+      else M.intersectionWith addStart minHeights foundGaps
   where
     logg level = _env_logger env level . fromString
     genesisInfo = getGenesisInfo $ mkGenesisInfo $ _env_nodeInfo env
@@ -263,3 +229,17 @@ chainMinHeights =
   $ runSelectReturningList
   $ select
   $ aggregate_ (\b -> (group_ (_block_chainId b), min_ (_block_height b))) (all_ $ _cddb_blocks database)
+
+getAndVerifyMinHeights :: Env -> ByteString -> IO (M.Map Int64 (Maybe Int64))
+getAndVerifyMinHeights env cutBS = do
+  minHeights <- withDbDebug env Debug chainMinHeights
+  let curHeight = fromIntegral $ cutMaxHeight cutBS
+      count = length minHeights
+      cids = atBlockHeight curHeight $ _env_chainsAtHeight env
+      logg = _env_logger env
+  when (count /= length cids) $ do
+    logg Error $ fromString $ printf "%d chains have, but we expected %d." count (length cids)
+    logg Error $ fromString $ printf "Please run 'listen' or 'server' first, and ensure that a block has been received on each chain."
+    logg Error $ fromString $ printf "That should take about a minute, after which you can rerun this command."
+    exitFailure
+  return minHeights
