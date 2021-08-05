@@ -5,6 +5,7 @@
 
 module Chainweb.Gaps ( gaps, dedupeTables ) where
 
+import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
@@ -65,8 +66,11 @@ gapsCut env args cutBS = do
         logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
         logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
         let doChain (cid, gs) = do
+              batcher <- newIORef (0,[])
               let ranges = concatMap (createRanges cid) gs
-              mapM_ (f logg count cid) ranges
+              mapM_ (f logg batcher count cid) ranges
+              (_,batch) <- readIORef batcher
+              unless (null batch) $ writeBlocks env pool disableIndexesPred count batch
         let gapFiller = do
               race_ (progress logg count totalNumBlocks)
                     (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
@@ -86,14 +90,26 @@ gapsCut env args cutBS = do
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
       | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
 
-    f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Low, High) -> IO ()
-    f logger count cid (l, h) = do
+    f :: LogFunctionIO Text -> IORef (Int, [BlockHeader]) -> IORef Int -> Int64 -> (Low, High) -> IO ()
+    f logger batcher count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
       --logger Debug $ fromString $ printf "Processing range %s" (show range)
       headersBetween env range >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> writeBlocks env pool disableIndexesPred count hs
+        Right hs -> do
+          (size, batch) <- readIORef batcher
+          let lenhs = length hs
+          case compare (size + lenhs) 1000 of
+            LT -> atomicModifyIORef' batcher (\(s,b) -> ((s + lenhs, b ++ hs), ()))
+            EQ -> do
+              writeBlocks env pool disableIndexesPred count (batch ++ hs)
+              atomicModifyIORef' batcher (\_ -> ((0,[]), ()))
+            GT -> do
+              case splitAt (size + lenhs - 1000) hs of
+                (keep,towrite) -> do
+                  writeBlocks env pool disableIndexesPred count (batch ++ towrite)
+                  atomicModifyIORef batcher (\_ -> ((size + lenhs - 1000, keep), ()))
       maybe mempty threadDelay delay
 
 listIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO [(String, String)]
