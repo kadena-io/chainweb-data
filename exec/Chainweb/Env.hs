@@ -31,7 +31,6 @@ import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Exception
-import           Control.Monad
 import           Data.ByteString (ByteString)
 import           Data.IORef
 import           Data.Map.Strict (Map)
@@ -289,17 +288,21 @@ commands = hsubparser
 
 progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a
 progress logg count total = do
-  start <- getPOSIXTime
-  forever $ do
-    threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
-    completed <- readIORef count
-    now <- getPOSIXTime
-    let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
-        elapsedMinutes = (now - start) / 60
-        blocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
-        estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
-        (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
-                              | otherwise = ("hours", estMinutesLeft `div` 60)
-    logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute."
-      completed total perc timeLeft timeUnits blocksPerMinute
-    hFlush stdout
+    start <- getPOSIXTime
+    let go lastTime lastCount = do
+          threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
+          completed <- readIORef count
+          now <- getPOSIXTime
+          let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
+              elapsedMinutes = (now - start) / 60
+              elapsedMinutesSinceLast = (now - lastTime) / 60
+              instantBlocksPerMinute = (fromIntegral (completed - lastCount) / realToFrac elapsedMinutesSinceLast) :: Double
+              totalBlocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
+              estMinutesLeft = floor (fromIntegral (total - completed) / instantBlocksPerMinute) :: Int
+              (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
+                                    | otherwise = ("hours", estMinutesLeft `div` 60)
+          logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f current items per minute (%.0f overall average)."
+            completed total perc timeLeft timeUnits instantBlocksPerMinute totalBlocksPerMinute
+          hFlush stdout
+          go now completed
+    go start 0
