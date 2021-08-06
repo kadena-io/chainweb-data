@@ -294,15 +294,16 @@ progress logg count total = do
           completed <- readIORef count
           now <- getPOSIXTime
           let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
-              elapsedMinutes = (now - start) / 60
-              elapsedMinutesSinceLast = (now - lastTime) / 60
-              instantBlocksPerMinute = (fromIntegral (completed - lastCount) / realToFrac elapsedMinutesSinceLast) :: Double
-              totalBlocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
-              estMinutesLeft = floor (fromIntegral (total - completed) / instantBlocksPerMinute) :: Int
-              (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
-                                    | otherwise = ("hours", estMinutesLeft `div` 60)
+              elapsedSeconds = now - start
+              elapsedSecondsSinceLast = now - lastTime
+              instantBlocksPerSecond = (fromIntegral (completed - lastCount) / realToFrac elapsedSecondsSinceLast) :: Double
+              totalBlocksPerSecond = (fromIntegral completed / realToFrac elapsedSeconds) :: Double
+              estSecondsLeft = floor (fromIntegral (total - completed) / instantBlocksPerSecond) :: Int
+              (timeUnits, timeLeft) | estSecondsLeft < 60 = ("seconds" :: String, estSecondsLeft)
+                                    | estSecondsLeft < 3600 = ("minutes" :: String, estSecondsLeft `div` 60)
+                                    | otherwise = ("hours", estSecondsLeft `div` 3600)
           logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f current items per minute (%.0f overall average)."
-            completed total perc timeLeft timeUnits instantBlocksPerMinute totalBlocksPerMinute
+            completed total perc timeLeft timeUnits instantBlocksPerSecond totalBlocksPerSecond
           hFlush stdout
           go now completed
     go start 0
