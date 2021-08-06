@@ -14,13 +14,13 @@ import           Chainweb.Worker (writeBlocks)
 import           ChainwebDb.Types.Block
 import           ChainwebData.Genesis
 import           ChainwebData.Types
+import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Scheduler
 import           Data.Bool
 import           Data.ByteString.Lazy (ByteString)
-import           Data.Function ((&))
 import           Data.IORef
 import           Data.Int
 import qualified Data.Map.Strict as M
@@ -34,10 +34,6 @@ import           Database.PostgreSQL.Simple.Types
 import           System.Logger hiding (logg)
 import           System.Exit (exitFailure)
 import           Text.Printf
-
--- Streaming imports
-import qualified Streaming.Prelude as S
-import           Streaming
 
 ---
 gaps :: Env -> GapArgs -> IO ()
@@ -70,7 +66,7 @@ gapsCut env args cutBS = do
         logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
         let doChain (cid, gs) = do
               let ranges = concatMap (createRanges cid) gs
-              f logg count cid ranges
+              mapM_ (f logg count cid) ranges
         let gapFiller = do
               race_ (progress logg count totalNumBlocks)
                     (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
@@ -85,23 +81,19 @@ gapsCut env args cutBS = do
     disableIndexesPred =  _gapArgs_disableIndexes args
     gi = mkGenesisInfo $ _env_nodeInfo env
     logg = _env_logger env
-    fi = fromIntegral
     createRanges cid (low, high)
       | low == high = []
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
       | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
 
-    f logger count cid gs =
-      S.each gs
-      & S.delay (maybe 0 (\d -> fi d / fi 1000000000) delay)
-      & S.mapM (\(l,h) -> let r = (ChainId (fromIntegral cid),l,h) in  fmap (\res -> first (\err -> (r,err)) res) $ headersBetween env r)
-      & S.partitionEithers
-      & S.chain (\(r,e) -> lift $ logger Error (fromString $ printf "ApiError for range %s" (show r) (show e)))
-      & S.effects
-      & S.concat
-      & chunksOf 1000
-      & mapped S.toList
-      & S.mapM_ (writeBlocks env pool disableIndexesPred count)
+    f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Low, High) -> IO ()
+    f logger count cid (l, h) = do
+      let range = (ChainId (fromIntegral cid), l, h)
+      headersBetween env range >>= \case
+        Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
+        Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
+        Right hs -> writeBlocks env pool disableIndexesPred count hs
+      maybe mempty threadDelay delay
 
 listIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO [(String, String)]
 listIndexes pool logger = P.withResource pool $ \conn -> do
