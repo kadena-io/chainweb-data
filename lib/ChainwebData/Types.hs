@@ -8,7 +8,6 @@ module ChainwebData.Types
     PowHeader(..)
   , asBlock
   , hashToDbHash
-  , dbHashToHash
   , Low(..)
   , High(..)
 
@@ -28,9 +27,7 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           Data.Aeson
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Control.Lens
 import           Data.Aeson.Lens
@@ -69,10 +66,6 @@ asBlock (PowHeader bh ph) m = Block
 -- | Convert to the "pretty" hash representation that URLs, etc., expect.
 hashToDbHash :: Hash -> DbHash t
 hashToDbHash = DbHash . hashB64U
-
--- inverse of hashToDbHash
-dbHashToHash :: DbHash t -> Either String Hash
-dbHashToHash = fmap Hash . B64U.decode . T.encodeUtf8 . unDbHash
 
 -- | Break a list into groups of @n@ elements. The last item in the result is
 -- not guaranteed to have the same length as the others.
