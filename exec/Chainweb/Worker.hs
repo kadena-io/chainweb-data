@@ -124,7 +124,7 @@ writeBlock env pool count bh = do
       let !m = _blockPayloadWithOutputs_minerData pl
           !b = asBlock (asPow bh) m
           !t = mkBlockTransactions b pl
-          !es = mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh) pl
+          !es = mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl
           !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
           !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
@@ -147,7 +147,7 @@ writeBlocks env pool disableIndexesPred count bhs = do
               !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
               !tss = M.intersectionWith (flip mkBlockTransactions) pls bs
               !ess = M.intersectionWith
-                  (\pl bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_parent bh) pl)
+                  (\pl bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl)
                   pls
                   (makeBlockMap bhs')
               !sss = M.intersectionWith (\pl _ -> concat $ mkTransactionSigners . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')

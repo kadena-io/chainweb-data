@@ -99,6 +99,9 @@ type TransactionId = PrimaryKey TransactionT Identity
 -- deriving instance Ord (PrimaryKey TransactionT Maybe)
 
 instance Table TransactionT where
+  -- The requestkey alone isn't sufficient as the primary key because
+  -- transactions can get reintroduced if the block they were initially in gets
+  -- orphaned.
   data PrimaryKey TransactionT f = TransactionId (C f (DbHash TxHash)) (PrimaryKey BlockT f)
     deriving stock (Generic)
     deriving anyclass (Beamable)

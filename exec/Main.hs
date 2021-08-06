@@ -11,7 +11,7 @@ import           Chainweb.Backfill (backfill)
 import           Chainweb.Database (initializeTables)
 import           Chainweb.Env
 import           Chainweb.FillEvents (fillEvents)
-import           Chainweb.Gaps (gaps)
+import           Chainweb.Gaps
 import           Chainweb.Listen (listen)
 import           Chainweb.Lookups (getNodeInfo)
 import           Chainweb.RichList (richList)

@@ -287,7 +287,7 @@ mkTxEvents height cid blk (tx,txo) = zipWith (mkEvent cid height blk (Just rk)) 
 mkEvent :: ChainId -> Int64 -> DbHash BlockHash -> Maybe (DbHash TxHash) -> Value -> Int64 -> Event
 mkEvent (ChainId chainid) height block requestkey ev idx = Event
     { _ev_requestkey = maybe RKCB_Coinbase RKCB_RequestKey requestkey
-    , _ev_block = block
+    , _ev_block = BlockId block
     , _ev_chainid = fromIntegral chainid
     , _ev_height = height
     , _ev_idx = idx
