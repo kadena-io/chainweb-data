@@ -94,9 +94,9 @@ gapsCut env args cutBS = do
     f logger count cid gs =
       S.each gs
       & S.delay (maybe 0 (\d -> fi d / fi 1000000000) delay)
-      & S.mapM (\(l,h) -> headersBetween env (ChainId (fromIntegral cid),l,h))
+      & S.mapM (\(l,h) -> let r = (ChainId (fromIntegral cid),l,h) in  fmap (\res -> first (\err -> (r,err)) res) $ headersBetween env r)
       & S.partitionEithers
-      & S.chain (\e -> lift $ logger Error (fromString $ printf "ApiError %s" (show e)))
+      & S.chain (\(r,e) -> lift $ logger Error (fromString $ printf "ApiError for range %s" (show r) (show e)))
       & S.effects
       & S.concat
       & chunksOf 1000
