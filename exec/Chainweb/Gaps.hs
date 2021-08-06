@@ -5,7 +5,6 @@
 
 module Chainweb.Gaps ( gaps ) where
 
-import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
@@ -15,13 +14,13 @@ import           Chainweb.Worker (writeBlocks)
 import           ChainwebDb.Types.Block
 import           ChainwebData.Genesis
 import           ChainwebData.Types
-import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Scheduler
 import           Data.Bool
 import           Data.ByteString.Lazy (ByteString)
+import           Data.Function ((&))
 import           Data.IORef
 import           Data.Int
 import qualified Data.Map.Strict as M
@@ -35,6 +34,10 @@ import           Database.PostgreSQL.Simple.Types
 import           System.Logger hiding (logg)
 import           System.Exit (exitFailure)
 import           Text.Printf
+
+-- Streaming imports
+import qualified Streaming.Prelude as S
+import           Streaming
 
 ---
 gaps :: Env -> GapArgs -> IO ()
@@ -66,11 +69,8 @@ gapsCut env args cutBS = do
         logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
         logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
         let doChain (cid, gs) = do
-              batcher <- newIORef (0,[])
               let ranges = concatMap (createRanges cid) gs
-              mapM_ (f logg batcher count cid) ranges
-              (_,batch) <- readIORef batcher
-              unless (null batch) $ writeBlocks env pool disableIndexesPred count batch
+              f logg count cid ranges
         let gapFiller = do
               race_ (progress logg count totalNumBlocks)
                     (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
@@ -85,32 +85,23 @@ gapsCut env args cutBS = do
     disableIndexesPred =  _gapArgs_disableIndexes args
     gi = mkGenesisInfo $ _env_nodeInfo env
     logg = _env_logger env
+    fi = fromIntegral
     createRanges cid (low, high)
       | low == high = []
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
       | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
 
-    f :: LogFunctionIO Text -> IORef (Int, [BlockHeader]) -> IORef Int -> Int64 -> (Low, High) -> IO ()
-    f logger batcher count cid (l, h) = do
-      let range = (ChainId (fromIntegral cid), l, h)
-      --logger Debug $ fromString $ printf "Processing range %s" (show range)
-      headersBetween env range >>= \case
-        Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
-        Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> do
-          (size, batch) <- readIORef batcher
-          let lenhs = length hs
-          case compare (size + lenhs) 1000 of
-            LT -> atomicModifyIORef' batcher (\(s,b) -> ((s + lenhs, b ++ hs), ()))
-            EQ -> do
-              writeBlocks env pool disableIndexesPred count (batch ++ hs)
-              atomicModifyIORef' batcher (\_ -> ((0,[]), ()))
-            GT -> do
-              case splitAt (size + lenhs - 1000) hs of
-                (keep,towrite) -> do
-                  writeBlocks env pool disableIndexesPred count (batch ++ towrite)
-                  atomicModifyIORef batcher (\_ -> ((size + lenhs - 1000, keep), ()))
-      maybe mempty threadDelay delay
+    f logger count cid gs =
+      S.each gs
+      & S.delay (maybe 0 (\d -> fi d / fi 1000000000) delay)
+      & S.mapM (\(l,h) -> headersBetween env (ChainId (fromIntegral cid),l,h))
+      & S.partitionEithers
+      & S.chain (\e -> lift $ logger Error (fromString $ printf "ApiError %s" (show e)))
+      & S.effects
+      & S.concat
+      & chunksOf 1000
+      & mapped S.toList
+      & S.mapM_ (writeBlocks env pool disableIndexesPred count)
 
 listIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO [(String, String)]
 listIndexes pool logger = P.withResource pool $ \conn -> do
