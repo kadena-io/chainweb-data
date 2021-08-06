@@ -302,7 +302,7 @@ progress logg count total = do
               (timeUnits, timeLeft) | estSecondsLeft < 60 = ("seconds" :: String, estSecondsLeft)
                                     | estSecondsLeft < 3600 = ("minutes" :: String, estSecondsLeft `div` 60)
                                     | otherwise = ("hours", estSecondsLeft `div` 3600)
-          logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f current items per minute (%.0f overall average)."
+          logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f current items per second (%.0f overall average)."
             completed total perc timeLeft timeUnits instantBlocksPerSecond totalBlocksPerSecond
           hFlush stdout
           go now completed
