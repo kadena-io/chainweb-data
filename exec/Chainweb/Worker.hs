@@ -133,6 +133,50 @@ writeBlock env pool count bh = do
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
 
+
+queryPayloadsByChain :: Env -> ChainId -> [BlockHeader] -> IO (Either ApiError ([(Hash,BlockPayloadWithOutputs)]))
+queryPayloadsByChain env chain bhs = retrying policy  check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs)))
+  where
+    ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
+
+    policy :: RetryPolicyM IO
+    policy = exponentialBackoff 250_000 <> limitRetries 3
+
+writePayloads :: P.Pool Connection -> Bool -> IORef Int -> Int -> [BlockHeader] -> [(Hash, BlockPayloadWithOutputs)] -> IO ()
+writePayloads pool disableIndexesPred count numWrites bhs' pls' = do
+      let !pls = M.fromList pls'
+          !ms = _blockPayloadWithOutputs_minerData <$> pls
+          !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
+          !tss = M.intersectionWith (flip mkBlockTransactions) pls bs
+          !ess = M.intersectionWith
+              (\pl bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl)
+              pls
+              (makeBlockMap bhs')
+          !sss = M.intersectionWith (\pl _ -> concat $ mkTransactionSigners . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')
+          !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
+      batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss)
+      atomicModifyIORef' count (\n -> (n + numWrites, ()))
+  where
+    makeBlockMap = M.fromList . fmap (\bh -> (_blockHeader_hash bh, bh))
+
+{- This just shows how we can use the functions queryPayloadsByChain and writePayloads. -}
+_writeBlocks :: Env -> P.Pool Connection -> Bool -> IORef Int -> [BlockHeader] -> IO ()
+_writeBlocks env pool disableIndexesPred count bhs =
+    iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
+      queryPayloadsByChain env chain bhs' >>= \case
+        Left e -> do
+          logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
+          print e
+        Right pls' -> writePayloads pool disableIndexesPred count numWrites bhs' pls'
+  where
+    logger = _env_logger env
+
+    blocksByChainId =
+      M.fromListWith mappend
+        $ bhs
+        <&> \bh -> (_blockHeader_chainId bh, (Sum (1 :: Int), [bh]))
+
+
 writeBlocks :: Env -> P.Pool Connection -> Bool -> IORef Int -> [BlockHeader] -> IO ()
 writeBlocks env pool disableIndexesPred count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
