@@ -13,7 +13,6 @@ module Chainweb.Backfill
 
 import           BasePrelude hiding (insert, range, second)
 
-import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Database
@@ -27,14 +26,12 @@ import           ChainwebDb.Types.Block
 
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
-import           Control.Concurrent.STM
 import           Control.Scheduler hiding (traverse_)
 
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import qualified Data.Vector as V
 import           Data.Witherable.Class (wither)
 
 
@@ -73,15 +70,10 @@ backfillBlocksCut env args cutBS = do
       let strat = case delay of
                     Nothing -> Par'
                     Just _ -> Seq
-      blockQueue <- newTBQueueIO 20
       race_ (progress logg counter $ foldl' (+) 0 mins)
-        $ traverseMapConcurrently_ Par' (\k -> traverseConcurrently_ strat (f blockQueue counter) . map (toTriple k)) $ toChainMap $ lookupPlan genesisInfo mins
+        $ traverseConcurrently_ strat (f counter) $ lookupPlan genesisInfo mins
   where
-    traverseMapConcurrently_ comp g m =
-      withScheduler_ comp $ \s -> scheduleWork s $ void $ M.traverseWithKey (\k -> scheduleWork s . void . g k) m
     delay = _backfillArgs_delayMicros args
-    toTriple k (v1,v2) = (k,v1,v2)
-    toChainMap = M.fromListWith (flip (<>)) . map (\(cid,l,h) -> (cid,[(l,h)]))
     logg = _env_logger env
     pool = _env_dbConnPool env
     allCids = _env_chainsAtHeight env
@@ -90,18 +82,12 @@ backfillBlocksCut env args cutBS = do
       case delay of
         Nothing -> pure ()
         Just d -> threadDelay d
-    f :: TBQueue (V.Vector BlockHeader) -> IORef Int -> (ChainId, Low, High) -> IO ()
-    f blockQueue count range = do
+    f :: IORef Int -> (ChainId, Low, High) -> IO ()
+    f count range = do
       headersBetween env range >>= \case
         Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> do
-          let vs = V.fromList hs
-          atomically (tryReadTBQueue blockQueue) >>= \case
-            Nothing -> atomically $ writeTBQueue blockQueue vs
-            Just q -> do
-              writeBlocks env pool False count (V.toList q)
-              atomically $ writeTBQueue blockQueue vs
+        Right hs -> traverse_ (writeBlock env pool count) hs
       delayFunc
 
 -- | For all blocks written to the DB, find the shortest (in terms of block
