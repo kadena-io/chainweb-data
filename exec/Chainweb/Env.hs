@@ -264,7 +264,7 @@ bfArgsP = BackfillArgs
 fillArgsP :: Parser FillArgs
 fillArgsP = FillArgs
   <$> delayP
-  <*> flag False True (long "disable-indexes" <> short 'd' <> help "Disable indexes on tables while filling on gaps.")
+  <*> flag False True (long "disable-indexes" <> short 'd' <> help "Disable indexes on tables while filling.")
 
 data EventType = CoinbaseAndTx | OnlyTx
   deriving (Eq,Ord,Show,Read,Enum,Bounded)
