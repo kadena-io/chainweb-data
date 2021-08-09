@@ -193,7 +193,9 @@ scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
     logg Info "Updated rich list"
 
     when runFill $ do
+      logg Info "Filling missing blocks"
       gaps env (FillArgs fillDelay False)
+      logg Info "Fill finished"
   where
     micros = 1000000
     logg = _env_logger env
