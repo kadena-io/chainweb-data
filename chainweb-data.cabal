@@ -67,6 +67,8 @@ library
     ChainwebDb.Types.MinerKey
     ChainwebDb.Types.Signer
     ChainwebDb.Types.Transaction
+  build-depends:
+    base64-bytestring        ^>=1.0
 
   if flag(ghc-flags)
     build-tool-depends: hsinspect:hsinspect -any
@@ -106,6 +108,8 @@ executable chainweb-data
     , servant-client
     , servant-client-core
     , servant-server
+    , stm
+    , stm-chans
     , streaming                ^>=0.2
     , streaming-events
     , strict-tuple             ^>=0.1

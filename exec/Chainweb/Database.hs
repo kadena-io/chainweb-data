@@ -105,7 +105,7 @@ database = defaultDbSettings `withDbModification` dbModification
   , _cddb_events = modifyEntityName modTableName <>
     modifyTableFields tableModification
     { _ev_requestkey = "requestkey"
-    , _ev_block = "block"
+    , _ev_block = BlockId "block"
     , _ev_chainid = "chainid"
     , _ev_height = "height"
     , _ev_idx = "idx"
@@ -153,6 +153,7 @@ initializeTables logg migrateStatus conn = do
       case migrateStatus of
         RunMigration -> do
           BA.tryRunMigrationsWithEditUpdate annotatedDb conn
+          logg Info "Done with database migration."
         DontMigrate -> do
           logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
           showMigration conn

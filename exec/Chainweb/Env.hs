@@ -18,6 +18,7 @@ module Chainweb.Env
   , ChainwebVersion(..)
   , Command(..)
   , BackfillArgs(..)
+  , GapArgs(..)
   , envP
   , richListP
   , NodeDbPath(..)
@@ -30,7 +31,6 @@ import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Exception
-import           Control.Monad
 import           Data.ByteString (ByteString)
 import           Data.IORef
 import           Data.Map.Strict (Map)
@@ -167,7 +167,7 @@ data Command
     = Server ServerEnv
     | Listen
     | Backfill BackfillArgs
-    | Gaps (Maybe Int)
+    | Gaps GapArgs
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
     deriving (Show)
@@ -176,6 +176,11 @@ data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
   , _backfillArgs_eventChunkSize :: Maybe Integer
   } deriving (Eq,Ord,Show)
+
+data GapArgs = GapArgs
+  { _gapArgs_delayMicros :: Maybe Int
+  , _gapArgs_disableIndexes :: Bool
+  } deriving (Eq, Ord, Show)
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
@@ -253,6 +258,11 @@ bfArgsP = BackfillArgs
   <$> delayP
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
 
+gapArgsP :: Parser GapArgs
+gapArgsP = GapArgs
+  <$> delayP
+  <*> flag False True (long "disable-indexes" <> short 'd' <> help "Disable indexes on tables while filling on gaps.")
+
 data EventType = CoinbaseAndTx | OnlyTx
   deriving (Eq,Ord,Show,Read,Enum,Bounded)
 
@@ -266,7 +276,7 @@ commands = hsubparser
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
   <> command "backfill" (info (Backfill <$> bfArgsP)
        (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
-  <> command "gaps" (info (Gaps <$> delayP)
+  <> command "gaps" (info (Gaps <$> gapArgsP)
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
@@ -278,18 +288,22 @@ commands = hsubparser
 
 progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a
 progress logg count total = do
-  start <- getPOSIXTime
-  forever $ do
-    threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
-    completed <- readIORef count
-    now <- getPOSIXTime
-    let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
-        elapsedMinutes = (now - start) / 60
-        blocksPerMinute = (fromIntegral completed / realToFrac elapsedMinutes) :: Double
-        estMinutesLeft = floor (fromIntegral (total - completed) / blocksPerMinute) :: Int
-        (timeUnits, timeLeft) | estMinutesLeft < 60 = ("minutes" :: String, estMinutesLeft)
-                              | otherwise = ("hours", estMinutesLeft `div` 60)
-    logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f items per minute."
-      completed total perc timeLeft timeUnits blocksPerMinute
-    hFlush stdout
-
+    start <- getPOSIXTime
+    let go lastTime lastCount = do
+          threadDelay 30_000_000  -- 30 seconds. TODO Make configurable?
+          completed <- readIORef count
+          now <- getPOSIXTime
+          let perc = (100 * fromIntegral completed / fromIntegral total) :: Double
+              elapsedSeconds = now - start
+              elapsedSecondsSinceLast = now - lastTime
+              instantBlocksPerSecond = (fromIntegral (completed - lastCount) / realToFrac elapsedSecondsSinceLast) :: Double
+              totalBlocksPerSecond = (fromIntegral completed / realToFrac elapsedSeconds) :: Double
+              estSecondsLeft = floor (fromIntegral (total - completed) / instantBlocksPerSecond) :: Int
+              (timeUnits, timeLeft) | estSecondsLeft < 60 = ("seconds" :: String, estSecondsLeft)
+                                    | estSecondsLeft < 3600 = ("minutes" :: String, estSecondsLeft `div` 60)
+                                    | otherwise = ("hours", estSecondsLeft `div` 3600)
+          logg Info $ fromString $ printf "Progress: %d/%d (%.2f%%), ~%d %s remaining at %.0f current items per second (%.0f overall average)."
+            completed total perc timeLeft timeUnits instantBlocksPerSecond totalBlocksPerSecond
+          hFlush stdout
+          go now completed
+    go start 0
