@@ -6,13 +6,18 @@
 * Table of Contents                                       :TOC_4_gh:noexport:
 - [[#overview][Overview]]
 - [[#requirements][Requirements]]
+- [[#building][Building]]
 - [[#usage][Usage]]
   - [[#connecting-to-the-database][Connecting to the Database]]
     - [[#via-flags][via Flags]]
     - [[#via-a-postgres-connection-string][via a Postgres Connection String]]
   - [[#connecting-to-a-node][Connecting to a Node]]
+    - [[#configuring-the-node][Configuring the Node]]
   - [[#commands][Commands]]
     - [[#listen][listen]]
+    - [[#server][server]]
+      - [[#endpoints][endpoints]]
+    - [[#fill][fill]]
     - [[#backfill][backfill]]
     - [[#gaps][gaps]]
     - [[#single][single]]
@@ -78,6 +83,16 @@ chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbuser=joe --d
 chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbstring="host=localhost port=5432..."
 #+end_example
 
+When running chainweb-data for the first time you should run ~chainweb-data
+server -m~ (with the necessary DB and node options of course). This will create
+the database and start filling the database with blocks. Wait a couple minutes,
+then hit Ctrl-c to stop the server process. Next run ~chainweb-data fill
+--disable-indexes~ (again with the necessary options). If you want to leave the
+server running while you run ~fill~, you should not use ~--disable-indexes~.
+This will take longer but will allow the server to stay running. After the
+~fill~ operation finishes, you can run ~server~ again with the ~-f~ option and it
+will automatically run fill once a day to populate the DB with missing blocks.
+
 ** Connecting to a Node
 
 ~chainweb-data~ syncs its data from a running ~chainweb-node~. The node's
@@ -129,12 +144,26 @@ few endpoints for doing common queries.
 
 - ~/txs/recent~ gets a list of recent transactions
 - ~/txs/search?search=foo&limit=20&offset=40~ searches for transactions containing the string ~foo~
+- ~/txs/tx?requestkey=<request-key>~ gets the details of a transaction with the given request key
+- ~/txs/events?search=foo&limit=20&offset=40~ gets the details of a transaction with the given request key
 - ~/stats~ returns a few stats such as transaction count and coins in circulation
 - ~/coins~ returns just the coins in circulation
 
 For more detailed information, see the API definition [[https://github.com/kadena-io/chainweb-api/blob/master/lib/ChainwebData/Api.hs#L24][here]].
 
+*** fill
+
+~fill~ fills in missing blocks. This command used to be called ~gaps~ but it has
+been improved to encompass all block filling operations.
+
+#+begin_example
+  > chainweb-data fill --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+#+end_example
+
 *** backfill
+
+*Deprecated:* The backfill command is deprecated and will be removed in future
+releases. Use the ~fill~ command instead.
 
 ~backfill~ rapidly fills the database downward from the lowest block height it
 can find for each chain.
@@ -154,6 +183,9 @@ empty chains, it won't proceed.
 ~backfill~ will stop when it reaches height 0.
 
 *** gaps
+
+*Deprecated:* The backfill command is deprecated and will be removed in future
+releases. Use the ~fill~ command instead.
 
 ~gaps~ fills in missing blocks that may have been missed during ~listen~ or
 ~backfill~. Such gaps will naturally occur if you turn ~listen~ off or use

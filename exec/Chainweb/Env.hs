@@ -18,7 +18,7 @@ module Chainweb.Env
   , ChainwebVersion(..)
   , Command(..)
   , BackfillArgs(..)
-  , GapArgs(..)
+  , FillArgs(..)
   , envP
   , richListP
   , NodeDbPath(..)
@@ -62,8 +62,7 @@ data MigrateStatus = RunMigration | DontMigrate
 
 data Args
   = Args Command Connect UrlScheme Url LogLevel MigrateStatus
-    -- ^ arguments for the Listen, Backfill, Gaps, Single,
-    -- and Server cmds
+    -- ^ arguments for all but the richlist command
   | RichListArgs NodeDbPath LogLevel
     -- ^ arguments for the Richlist command
   deriving (Show)
@@ -167,7 +166,7 @@ data Command
     = Server ServerEnv
     | Listen
     | Backfill BackfillArgs
-    | Gaps GapArgs
+    | Fill FillArgs
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
     deriving (Show)
@@ -177,13 +176,15 @@ data BackfillArgs = BackfillArgs
   , _backfillArgs_eventChunkSize :: Maybe Integer
   } deriving (Eq,Ord,Show)
 
-data GapArgs = GapArgs
-  { _gapArgs_delayMicros :: Maybe Int
-  , _gapArgs_disableIndexes :: Bool
+data FillArgs = FillArgs
+  { _fillArgs_delayMicros :: Maybe Int
+  , _fillArgs_disableIndexes :: Bool
   } deriving (Eq, Ord, Show)
 
 data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
+  , _serverEnv_runFill :: Bool
+  , _serverEnv_fillDelay :: Maybe Int
   } deriving (Eq,Ord,Show)
 
 envP :: Parser Args
@@ -249,6 +250,8 @@ singleP = Single
 serverP :: Parser ServerEnv
 serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
+  <*> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
+  <*> delayP
 
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
@@ -258,8 +261,8 @@ bfArgsP = BackfillArgs
   <$> delayP
   <*> optional (option auto (long "chunk-size" <> metavar "CHUNK_SIZE" <> help "Number of transactions to query at a time"))
 
-gapArgsP :: Parser GapArgs
-gapArgsP = GapArgs
+fillArgsP :: Parser FillArgs
+fillArgsP = FillArgs
   <$> delayP
   <*> flag False True (long "disable-indexes" <> short 'd' <> help "Disable indexes on tables while filling on gaps.")
 
@@ -275,9 +278,11 @@ commands = hsubparser
   (  command "listen" (info (pure Listen)
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
   <> command "backfill" (info (Backfill <$> bfArgsP)
-       (progDesc "Backfill Worker - Backfills blocks from before DB was started"))
-  <> command "gaps" (info (Gaps <$> gapArgsP)
-       (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen"))
+       (progDesc "Backfill Worker - Backfills blocks from before DB was started (DEPRECATED)"))
+  <> command "fill" (info (Fill <$> fillArgsP)
+       (progDesc "Fills the DB with  missing blocks"))
+  <> command "gaps" (info (Fill <$> fillArgsP)
+       (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen (DEPRECATED)"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   <> command "server" (info (Server <$> serverP)
