@@ -57,6 +57,7 @@ import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Coins
 import           Chainweb.Database
 import           Chainweb.Env
+import           Chainweb.Gaps
 import           Chainweb.Listen
 import           Chainweb.Lookups
 import           Chainweb.RichList
@@ -147,7 +148,7 @@ apiServerCut env senv cutBS = do
   numTxs <- getTransactionCount logg pool
   ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
   logg Info $ fromString $ "Total number of transactions: " <> show numTxs
-  _ <- forkIO $ scheduledUpdates env pool ssRef
+  _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
   _ <- forkIO $ listenWithHandler env $ serverHeaderHandler env pool ssRef
   logg Info $ fromString "Starting chainweb-data server"
   let serverApp req =
@@ -167,8 +168,10 @@ scheduledUpdates
   :: Env
   -> P.Pool Connection
   -> IORef ServerState
+  -> Bool
+  -> Maybe Int
   -> IO ()
-scheduledUpdates env pool ssRef = forever $ do
+scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
     threadDelay (60 * 60 * 24 * micros)
 
     now <- getCurrentTime
@@ -188,6 +191,11 @@ scheduledUpdates env pool ssRef = forever $ do
     h <- getHomeDirectory
     richList logg (h </> ".local/share")
     logg Info "Updated rich list"
+
+    when runFill $ do
+      logg Info "Filling missing blocks"
+      gaps env (FillArgs fillDelay False)
+      logg Info "Fill finished"
   where
     micros = 1000000
     logg = _env_logger env

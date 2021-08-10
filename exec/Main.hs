@@ -72,7 +72,7 @@ main = do
                     case c of
                       Listen -> listen env
                       Backfill as -> backfill env as
-                      Gaps as -> gaps env as
+                      Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
                       Server serverEnv -> apiServer env serverEnv
@@ -83,7 +83,7 @@ main = do
       & loggerConfigThreshold .~ level
     backendConfig = defaultHandleBackendConfig
     isIndexedDisabled = \case
-      Gaps (GapArgs _ p) -> p
+      Fill (FillArgs _ p) -> p
       _ -> False
     getLevel = \case
       Args _ _ _ _ level _ -> level
