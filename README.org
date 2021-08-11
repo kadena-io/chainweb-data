@@ -13,6 +13,7 @@
     - [[#via-a-postgres-connection-string][via a Postgres Connection String]]
   - [[#connecting-to-a-node][Connecting to a Node]]
     - [[#configuring-the-node][Configuring the Node]]
+  - [[#how-to-run-chainweb-data][How to run chainweb-data]]
   - [[#commands][Commands]]
     - [[#listen][listen]]
     - [[#server][server]]
@@ -83,16 +84,6 @@ chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbuser=joe --d
 chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbstring="host=localhost port=5432..."
 #+end_example
 
-When running chainweb-data for the first time you should run ~chainweb-data
-server -m~ (with the necessary DB and node options of course). This will create
-the database and start filling the database with blocks. Wait a couple minutes,
-then hit Ctrl-c to stop the server process. Next run ~chainweb-data fill
---disable-indexes~ (again with the necessary options). If you want to leave the
-server running while you run ~fill~, you should not use ~--disable-indexes~.
-This will take longer but will allow the server to stay running. After the
-~fill~ operation finishes, you can run ~server~ again with the ~-f~ option and it
-will automatically run fill once a day to populate the DB with missing blocks.
-
 ** Connecting to a Node
 
 ~chainweb-data~ syncs its data from a running ~chainweb-node~. The node's
@@ -118,6 +109,18 @@ chainweb:
   throttling:
     global: 1000
 #+end_example
+
+** How to run chainweb-data
+   
+When running chainweb-data for the first time you should run ~chainweb-data
+server -m~ (with the necessary DB and node options of course). This will create
+the database and start filling the database with blocks. Wait a couple minutes,
+then hit Ctrl-c to stop the server process. Next run ~chainweb-data fill
+--disable-indexes~ (again with the necessary options). If you want to leave the
+server running while you run ~fill~, you should not use ~--disable-indexes~.
+This will take longer but will allow the server to stay running. After the
+~fill~ operation finishes, you can run ~server~ again with the ~-f~ option and it
+will automatically run fill once a day to populate the DB with missing blocks.
 
 ** Commands
 
