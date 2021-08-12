@@ -1,74 +1,140 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Chainweb.Coins where
 
 ------------------------------------------------------------------------------
 import           Control.Error
 import           Control.Lens
-import           Data.Aeson
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Csv as CSV
 import           Data.Decimal
+import           Data.FileEmbed
+import           Data.Map (Map)
+import qualified Data.Map as M
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           Pact.ApiReq
-import           Pact.Server.API
-import           Pact.Types.API
-import           Pact.Types.ChainId
-import           Pact.Types.ChainMeta
-import           Pact.Types.Command
-import           Pact.Types.Exp
-import           Pact.Types.Hash
-import           Pact.Types.PactValue
-import           Servant.API
-import           Servant.Client hiding (Scheme)
-import           Text.Printf
-------------------------------------------------------------------------------
-import           Chainweb.Api.ChainId (unChainId)
-import           Chainweb.Api.Common (BlockHeight)
-import           Chainweb.Api.NodeInfo
-import           Chainweb.Env hiding (Command)
+import           Data.Time
+import           Data.Text.Encoding
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
+import           Data.Word
+import           GHC.Generics
+import           Text.Read
 ------------------------------------------------------------------------------
 
-coinQuery :: Text
-coinQuery =
-  "(fold (+) 0 (map (at 'balance) (map (read coin.coin-table) (keys coin.coin-table))))"
+-- | Read in the reward csv via TH for deployment purposes.
+--
+rawMinerRewards :: ByteString
+rawMinerRewards = $(embedFile "data/miner_rewards.csv")
+{-# NOINLINE rawMinerRewards #-}
 
-queryCirculatingCoins :: Env -> BlockHeight -> IO (Either String Double)
-queryCirculatingCoins env curHeight = do
-  echains <- mapM (sendCoinQuery env . unChainId) (atBlockHeight curHeight $ _env_chainsAtHeight env)
-  return $ do
-    chains <- sequence echains
-    return $ realToFrac $ sum chains
+rawAllocations :: ByteString
+rawAllocations = $(embedFile "data/token_payments.csv")
 
-sendCoinQuery :: Env -> Int -> IO (Either String Decimal)
-sendCoinQuery env chain = do
-  let (UrlScheme s (Url h p)) = _env_serviceUrlScheme env
-      network = _nodeInfo_chainwebVer $ _env_nodeInfo env
-      path = printf "/chainweb/0.0/%s/chain/%d/pact" network chain
-      cenv = mkClientEnv (_env_httpManager env) (BaseUrl (toServantScheme s) h p path)
-  cmd <- mkPactCommand (NetworkId network) (ChainId $ T.pack $ show chain) coinQuery
-  eres <- runClientM (pactLocal cmd) cenv
-  return $ do
-    cr <- fmapL (("Network error: " <>) . show) eres
-    let PactResult pr = _crResult cr
-    pv <- fmapL (("Pact error: " <>) . show) pr
-    case pv of
-      PLiteral l -> note "Unexpected literal" $ l ^? _LDecimal
-      _ -> Left "Unexpected pact value"
+newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
+    deriving newtype (Eq, Ord, Show, Read)
 
-mkPublicMeta :: ChainId -> TxCreationTime -> PublicMeta
-mkPublicMeta chain ct =
-  PublicMeta chain "nosender" 10000000 0.000000000001 600 (ct - 60)
+instance CSV.FromField CsvDecimal where
+    parseField f = either fail pure ev
+      where
+        ev = readEither =<< bimap show T.unpack (decodeUtf8' f)
 
-mkPactCommand :: NetworkId -> ChainId -> Text -> IO (Command Text)
-mkPactCommand network chain code = do
-    ct <- getCurrentCreationTime
-    let pm = mkPublicMeta chain ct
-    mkExec code Null pm [] (Just network) Nothing
+newtype CsvTime = CsvTime { _csvTime :: UTCTime }
+    deriving newtype (Eq, Ord, Show, Read)
+
+instance CSV.FromField CsvTime where
+    parseField f = either fail pure ev
+      where
+        ev = fmap CsvTime . parseTimeM True defaultTimeLocale "%FT%TZ" =<<
+          bimap show T.unpack (decodeUtf8' f)
+
+newtype MinerRewards = MinerRewards
+    { _minerRewards :: Map Word64 Decimal
+      -- ^ The map of blockheight thresholds to miner rewards
+    } deriving newtype (Eq, Ord, Show)
 
 
-pactSend :: SubmitBatch -> ClientM RequestKeys
-pactPoll :: Poll -> ClientM PollResponses
-pactListen :: ListenerRequest -> ClientM ListenResponse
-pactLocal :: Command Text -> ClientM (CommandResult Hash)
+-- | Rewards table mapping 3-month periods to their rewards
+-- according to the calculated exponential decay over 120 year period
+--
+minerRewardMap :: MinerRewards
+minerRewardMap =
+    case CSV.decode CSV.NoHeader (BL.fromStrict rawMinerRewards) of
+      Left e -> error
+        $ "cannot construct miner reward map: "
+        <> show e
+      Right vs -> MinerRewards $ M.fromList . V.toList . V.map formatRow $ vs
+  where
+    formatRow :: (Word64, CsvDecimal) -> (Word64, Decimal)
+    formatRow (!a,!b) = (a, _csvDecimal b)
 
-pactSend :<|> pactPoll :<|> pactListen :<|> pactLocal = client apiV1API
+data AllocationEntry = AllocationEntry
+    { _allocationName :: Text
+    , _allocationTime :: CsvTime
+    , _allocationKeysetName :: Text
+    , _allocationAmount :: CsvDecimal
+    , _allocationChain :: Text
+    } deriving (Eq, Ord, Show, Generic)
+
+instance CSV.FromRecord AllocationEntry
+
+decodeAllocations
+  :: ByteString
+  -> Vector AllocationEntry
+decodeAllocations bs =
+  case CSV.decode CSV.HasHeader (BL.fromStrict bs) of
+    Left e -> error
+      $ "cannot construct genesis allocations: "
+      <> show e
+    Right as -> as
+
+getCirculatingCoins :: Word64 -> UTCTime -> Decimal
+getCirculatingCoins blockHeight blockTime =
+  getTotalMiningRewards blockHeight + getTotalAllocations blockTime
+
+getTotalAllocations :: UTCTime -> Decimal
+getTotalAllocations blockTime =
+    maybe 0 snd $ M.lookupLE blockTime cumulativeAllocations
+
+cumulativeAllocations :: Map UTCTime Decimal
+cumulativeAllocations = M.fromList $ go 0 0
+  where
+    v = decodeAllocations rawAllocations
+    go total ind = case v V.!? ind of
+      Nothing -> []
+      Just a ->
+        let time = _csvTime $ _allocationTime a
+            amount = _csvDecimal $ _allocationAmount a
+            (sectionTotal, nextInd) = getSection time amount (ind+1)
+            newTotal = total + sectionTotal
+         in (time, newTotal) : go newTotal nextInd
+    getSection time total ind = case v V.!? ind of
+      Nothing -> (total, ind)
+      Just a -> if time == _csvTime (_allocationTime a)
+                  then getSection time (total + _csvDecimal (_allocationAmount a)) (ind+1)
+                  else (total, ind)
+
+getTotalMiningRewards :: Word64 -> Decimal
+getTotalMiningRewards height =
+    lastTotal + fromIntegral (height - lastHeight) * reward
+  where
+    (lastHeight, (lastTotal, reward)) =
+      fromMaybe (error msg) $ M.lookupLE height cumulativeRewards
+    msg = "Error in getCirculatingCoins.  This shouldn't happen!"
+
+cumulativeRewards :: Map Word64 (Decimal, Decimal)
+cumulativeRewards = M.fromList $ go 0 0 $ M.toList $ _minerRewards minerRewardMap
+  where
+    go lastHeight total [] = [(lastHeight, (total, 0))]
+    go lastHeight total ((height,reward):rs) = (lastHeight, (total, reward)) : go height t2 rs
+      where
+        t2 = total + fromIntegral (height - lastHeight) * reward
