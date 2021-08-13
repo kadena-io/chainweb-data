@@ -47,3 +47,5 @@ write-ghc-environment-files: never
 
 constraints:
     sbv == 8.8
+
+allow-newer: gargoyle:base
