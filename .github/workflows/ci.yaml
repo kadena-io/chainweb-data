@@ -70,13 +70,13 @@ jobs:
 
     # Upload artifacts
     - name: Copy build artifact
-      run: cp `cabal list-bin exe:keychain` .
+      run: cp `cabal list-bin exe:chainweb-data` .
     - name: Stripping binary
-      run: strip keychain
+      run: strip chainweb-data
     - uses: actions/upload-artifact@v2
       with:
-        name: keychain-build-${{ matrix.os }}
-        path: keychain
+        name: chainweb-data-build-${{ matrix.os }}
+        path: chainweb-data
 
     # Test
     - name: Test
