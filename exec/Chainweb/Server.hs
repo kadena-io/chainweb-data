@@ -7,6 +7,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -22,6 +23,7 @@ import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
+import           Control.Retry
 import           Data.Aeson hiding (Error)
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Coerce
@@ -149,7 +151,7 @@ apiServerCut env senv cutBS = do
   ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
   logg Info $ fromString $ "Total number of transactions: " <> show numTxs
   _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
-  _ <- forkIO $ listenWithHandler env $ serverHeaderHandler env pool ssRef
+  _ <- forkIO $ retryingListener env ssRef
   logg Info $ fromString "Starting chainweb-data server"
   let serverApp req =
         ( ( recentTxsHandler ssRef
@@ -163,6 +165,19 @@ apiServerCut env senv cutBS = do
           :<|> richlistHandler
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
     serve theApi (serverApp req) req f
+
+retryingListener :: Env -> IORef ServerState -> IO ()
+retryingListener env ssRef = do
+  let logg = _env_logger env
+      delay = 10_000_000
+      policy = constantDelay delay
+      check _ _ = do
+        logg Warn $ fromString $ printf "Retrying node listener in %.1f seconds"
+          (fromIntegral delay / 1_000_000 :: Double)
+        return True
+  retrying policy check $ \_ -> do
+    logg Info "Starting node listener"
+    listenWithHandler env $ serverHeaderHandler env ssRef
 
 scheduledUpdates
   :: Env
@@ -223,8 +238,9 @@ statsHandler ssRef = liftIO $ do
 recentTxsHandler :: IORef ServerState -> Handler [TxSummary]
 recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ readIORef ss
 
-serverHeaderHandler :: Env -> P.Pool Connection -> IORef ServerState -> PowHeader -> IO ()
-serverHeaderHandler env pool ssRef ph@(PowHeader h _) = do
+serverHeaderHandler :: Env -> IORef ServerState -> PowHeader -> IO ()
+serverHeaderHandler env ssRef ph@(PowHeader h _) = do
+  let pool = _env_dbConnPool env
   let chain = _blockHeader_chainId h
   let height = _blockHeader_height h
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
