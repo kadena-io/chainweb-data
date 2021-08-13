@@ -30,7 +30,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/obsidiansystems/gargoyle
-    tag: b0bf855cc91f7cc3b986083af8fbc9da59c86b56
+    tag: df0068f9572c1371bed7aa416af84d462c3574c0
     subdir:
       gargoyle
       gargoyle-postgresql
