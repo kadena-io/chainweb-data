@@ -1,47 +1,66 @@
-name: Build
-on:
-  pull_request:
-  push:
-    branches:
-      - master
+name: Build project
+
+on: push
 
 jobs:
   build:
-    name: CI
-    runs-on: ubuntu-latest
+    name: Build master with ${{ matrix.ghc }} / ${{ matrix.cabal }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: ['8.8.4']
+        cabal: ['3.4']
+        os: ['ubuntu-18.04', 'ubuntu-20.04', 'macOS-latest']
+
     steps:
-      - name: 'GitHub actions env workaround'
-        run: 'echo "ACTIONS_ALLOW_UNSECURE_COMMANDS=true" >> $GITHUB_ENV'
+    - name: 'GitHub actions env workaround'
+      run: 'echo "ACTIONS_ALLOW_UNSECURE_COMMANDS=true" >> $GITHUB_ENV'
 
-      - name: Install non-Haskell dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git zlib1g-dev libtinfo-dev libsqlite3-dev libz3-dev
+    # Setup
+    - name: Checkout repository
+      uses: actions/checkout@v1
 
-      - name: Setup Z3
-        uses: pavpanchekha/setup-z3@1.2.2
-        with:
-          version: "4.8.7"
-          architecture: "x64"
+    # Haskell Setup
+    - name: Install GHC and Cabal
+      uses: haskell/actions/setup@v1.2.3
+      with:
+         ghc-version: ${{ matrix.ghc }}
+         cabal-version: ${{ matrix.cabal }}
+    - name: Confirm GHC and Cabal installation
+      run: |
+        ghc --version
+        cabal --version
+    # Project Setup
+    - uses: actions/cache@v2
+      name: Cache dist-newstyle
+      with:
+        path: |
+          ~/.cabal/packages
+          ~/.cabal/store
+          dist-newstyle
+        key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
 
-      - name: Setup GHC
-        uses: actions/setup-haskell@v1
-        with:
-          ghc-version: "8.8.3"
+    # Build
+    - name: Update package database
+      run: cabal update
+    - name: Display outdated packages
+      run: cabal outdated
+    - name: Install build dependencies
+      run: cabal build --only-dependencies
+    - name: Build
+      run: cabal build
 
-      - name: Setup Stack
-        uses: mstksg/setup-stack@master
+    # Upload artifacts
+    - name: Copy build artifact
+      run: cp `cabal list-bin exe:chainweb-data` .
+    - name: Stripping binary
+      run: strip chainweb-data
+    - uses: actions/upload-artifact@v2
+      with:
+        name: chainweb-data-build-${{ matrix.os }}
+        path: chainweb-data
 
-      - name: Clone project
-        uses: actions/checkout@v2
-
-      - name: Cache dependencies
-        uses: actions/cache@v1
-        with:
-          path: ~/.stack
-          key: ${{ runner.os }}-${{ hashFiles('stack.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-
-
-      - name: Build and run tests
-        run: "stack test --fast --no-terminal"
+    # Test
+    - name: Test
+      run: cabal v2-test
