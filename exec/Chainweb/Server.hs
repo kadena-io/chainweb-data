@@ -27,6 +27,7 @@ import           Control.Retry
 import           Data.Aeson hiding (Error)
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Coerce
+import           Data.Decimal
 import           Data.Foldable
 import           Data.Int
 import           Data.IORef
@@ -84,7 +85,7 @@ data ServerState = ServerState
     { _ssRecentTxs :: RecentTxs
     , _ssHighestBlockHeight :: BlockHeight
     , _ssTransactionCount :: Maybe Int64
-    , _ssCirculatingCoins :: Maybe Double
+    , _ssCirculatingCoins :: Decimal
     } deriving (Eq,Show)
 
 ssRecentTxs
@@ -113,7 +114,7 @@ ssTransactionCount = lens _ssTransactionCount setter
 
 ssCirculatingCoins
     :: Functor f
-    => (Maybe Double -> f (Maybe Double))
+    => (Decimal -> f Decimal)
     -> ServerState -> f ServerState
 ssCirculatingCoins = lens _ssCirculatingCoins setter
   where
@@ -143,12 +144,13 @@ apiServerCut :: Env -> ServerEnv -> ByteString -> IO ()
 apiServerCut env senv cutBS = do
   let curHeight = cutMaxHeight cutBS
       logg = _env_logger env
-  circulatingCoins <- queryCirculatingCoins env (fromIntegral curHeight)
+  t <- getCurrentTime
+  let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
   recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs logg pool
   numTxs <- getTransactionCount logg pool
-  ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
+  ssRef <- newIORef $ ServerState recentTxs 0 numTxs circulatingCoins
   logg Info $ fromString $ "Total number of transactions: " <> show numTxs
   _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
   _ <- forkIO $ retryingListener env ssRef
@@ -193,9 +195,9 @@ scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
     logg Info $ fromString $ show now
     logg Info "Recalculating coins in circulation:"
     height <- _ssHighestBlockHeight <$> readIORef ssRef
-    circulatingCoins <- queryCirculatingCoins env height
+    let circulatingCoins = getCirculatingCoins (fromIntegral height) now
     logg Info $ fromString $ show circulatingCoins
-    let f ss = (ss & ssCirculatingCoins %~ (hush circulatingCoins <|>), ())
+    let f ss = (ss & ssCirculatingCoins .~ circulatingCoins, ())
     atomicModifyIORef' ssRef f
 
     numTxs <- getTransactionCount logg pool
@@ -226,14 +228,14 @@ richlistHandler = do
 coinsHandler :: IORef ServerState -> Handler Text
 coinsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
   where
-    mkStats ss = maybe "" (T.pack . show) $ _ssCirculatingCoins ss
+    mkStats ss = T.pack $ show $ _ssCirculatingCoins ss
 
 statsHandler :: IORef ServerState -> Handler ChainwebDataStats
 statsHandler ssRef = liftIO $ do
     fmap mkStats $ readIORef ssRef
   where
     mkStats ss = ChainwebDataStats (fromIntegral <$> _ssTransactionCount ss)
-                                   (_ssCirculatingCoins ss)
+                                   (Just $ realToFrac $ _ssCirculatingCoins ss)
 
 recentTxsHandler :: IORef ServerState -> Handler [TxSummary]
 recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ readIORef ss
