@@ -54,7 +54,7 @@ newtype CsvTime = CsvTime { _csvTime :: UTCTime }
 instance CSV.FromField CsvTime where
     parseField f = either fail pure ev
       where
-        ev = fmap CsvTime . parseTimeM True defaultTimeLocale "%FT%TZ" =<<
+        ev = either fail (pure . CsvTime) . parseTimeM True defaultTimeLocale "%FT%TZ" =<<
           bimap show T.unpack (decodeUtf8' f)
 
 newtype MinerRewards = MinerRewards
