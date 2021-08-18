@@ -286,31 +286,38 @@ searchTxs
 searchTxs _ _ _ _ _ Nothing = throw404 "You must specify a search string"
 searchTxs logger pool req limit offset (Just search) = do
     liftIO $ logger Info $ fromString $ printf "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
-    liftIO $ P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug (logger Debug . fromString) c $
-        runSelectReturningList $ select $ do
-        limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
+    liftIO $ P.withResource pool $ \c ->
+      fmap (fmap mkSummary)
+        $ runBeamPostgresDebug (logger Debug . fromString) c
+        $ runSelectReturningList
+        $ select
+        $ limit_ lim
+        $ offset_ off
+        $ orderBy_ (desc_ . _block_height . view _2)
+        $ do
           tx <- all_ (_cddb_transactions database)
+          tx2 <- leftJoin_
+              (all_ $ _cddb_transactions database)
+              (\tx2 -> (_tx_pactId tx2 ==. just_ (_tx_requestKey tx)) &&.
+                       (_tx_code tx2 `like_` val_ (Just searchString)))
           blk <- all_ (_cddb_blocks database)
           guard_ (_tx_block tx `references_` blk)
           guard_ (_tx_code tx `like_` val_ (Just searchString))
-          return
-             ( (_tx_chainId tx)
-             , (_block_height blk)
-             , (unBlockId $ _tx_block tx)
-             , (_tx_creationTime tx)
-             , (_tx_requestKey tx)
-             , (_tx_sender tx)
-             , ((_tx_code tx)
-             , (_tx_continuation tx)
-             , (_tx_goodResult tx)
-             ))
-      return $ mkSummary <$> res
+          return (tx,blk,tx2)
   where
     lim = maybe 10 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
-    getHeight (_,a,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+    mkSummary (tx,blk,tx2) = TxSummary
+      { _txSummary_chain = fromIntegral (_tx_chainId tx)
+      , _txSummary_height = fromIntegral (_block_height blk)
+      , _txSummary_blockHash = unDbHash (unBlockId $ _tx_block tx)
+      , _txSummary_creationTime = (_tx_creationTime tx)
+      , _txSummary_requestKey = unDbHash (_tx_requestKey tx)
+      , _txSummary_sender = (_tx_sender tx)
+      , _txSummary_code = maybe (maybe Nothing _tx_code tx2) Just $ _tx_code tx
+      , _txSummary_continuation = unPgJsonb <$> (_tx_continuation tx)
+      , _txSummary_result = maybe TxFailed (const TxSucceeded) (_tx_goodResult tx)
+      }
     searchString = "%" <> search <> "%"
 
 throw404 :: MonadError ServerError m => ByteString -> m a
@@ -340,7 +347,7 @@ txHandler logger pool (Just (RequestKey rk)) =
         , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
         , _txDetail_gasPrice = _tx_gasPrice tx
         , _txDetail_nonce = _tx_nonce tx
-        , _txDetail_pactId = _tx_pactId tx
+        , _txDetail_pactId = unDbHash <$> _tx_pactId tx
         , _txDetail_rollback = _tx_rollback tx
         , _txDetail_step = fromIntegral <$> _tx_step tx
         , _txDetail_data = unMaybeValue $ _tx_data tx

@@ -40,7 +40,7 @@ data TransactionT f = Transaction
   , _tx_sender :: C f Text
   , _tx_nonce :: C f Text
   , _tx_code :: C f (Maybe Text)
-  , _tx_pactId :: C f (Maybe Text)
+  , _tx_pactId :: C f (Maybe (DbHash TxHash))
   , _tx_rollback :: C f (Maybe Bool)
   , _tx_step :: C f (Maybe Int64)
   , _tx_data :: C f (Maybe (PgJSONB Value))
