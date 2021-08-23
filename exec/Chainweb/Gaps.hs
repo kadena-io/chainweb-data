@@ -36,7 +36,7 @@ import           System.Exit (exitFailure)
 import           Text.Printf
 
 ---
-gaps :: Env -> GapArgs -> IO ()
+gaps :: Env -> FillArgs -> IO ()
 gaps env args = do
   ecut <- queryCut env
   case ecut of
@@ -46,7 +46,7 @@ gaps env args = do
       logg Info $ fromString $ show e
     Right cutBS -> gapsCut env args cutBS
 
-gapsCut :: Env -> GapArgs -> ByteString -> IO ()
+gapsCut :: Env -> FillArgs -> ByteString -> IO ()
 gapsCut env args cutBS = do
   minHeights <- getAndVerifyMinHeights env cutBS
   getBlockGaps env minHeights >>= \gapsByChain ->
@@ -77,8 +77,8 @@ gapsCut env args cutBS = do
           else gapFiller
   where
     pool = _env_dbConnPool env
-    delay =  _gapArgs_delayMicros args
-    disableIndexesPred =  _gapArgs_disableIndexes args
+    delay =  _fillArgs_delayMicros args
+    disableIndexesPred =  _fillArgs_disableIndexes args
     gi = mkGenesisInfo $ _env_nodeInfo env
     logg = _env_logger env
     createRanges cid (low, high)

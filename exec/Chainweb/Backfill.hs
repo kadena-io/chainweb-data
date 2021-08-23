@@ -34,7 +34,6 @@ import           Data.ByteString.Lazy (ByteString)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import qualified Data.Vector as V
 import           Data.Witherable.Class (wither)
 
 
@@ -95,13 +94,7 @@ backfillBlocksCut env args cutBS = do
       headersBetween env range >>= \case
         Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> do
-          let vs = V.fromList hs
-          atomically (tryReadTBQueue blockQueue) >>= \case
-            Nothing -> atomically $ writeTBQueue blockQueue vs
-            Just q -> do
-              writeBlocks env pool False count (V.toList q)
-              atomically $ writeTBQueue blockQueue vs
+        Right hs -> writeBlocks env pool False count hs
       delayFunc
 
 -- | For all blocks written to the DB, find the shortest (in terms of block

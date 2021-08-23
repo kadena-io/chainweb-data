@@ -39,6 +39,13 @@ import           Text.Printf
 listen :: Env -> IO ()
 listen e = listenWithHandler e (getOutputsAndInsert e)
 
+-- | This function does not do any exception handling because it is used in
+-- multiple contexts.  When running via the 'listen' command we want it to fail
+-- fast so the failure will be visible to the calling context and appropriate
+-- action can be taken.  But when running via the 'server' command we want the
+-- server to be tolerant of failures.  To accomplish both of these goals we
+-- fail fast here and let the server logic be ressponsible for handling
+-- failures and retrying appropriately.
 listenWithHandler :: Env -> (PowHeader -> IO a) -> IO ()
 listenWithHandler env handler = handle onError $
     withEvents (mkRequest us cv) mgr $ SP.mapM_ handler . dataOnly @PowHeader

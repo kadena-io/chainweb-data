@@ -7,6 +7,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -22,9 +23,11 @@ import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
 import           Control.Monad.Except
+import           Control.Retry
 import           Data.Aeson hiding (Error)
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Coerce
+import           Data.Decimal
 import           Data.Foldable
 import           Data.Int
 import           Data.IORef
@@ -57,6 +60,7 @@ import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Coins
 import           Chainweb.Database
 import           Chainweb.Env
+import           Chainweb.Gaps
 import           Chainweb.Listen
 import           Chainweb.Lookups
 import           Chainweb.RichList
@@ -81,7 +85,7 @@ data ServerState = ServerState
     { _ssRecentTxs :: RecentTxs
     , _ssHighestBlockHeight :: BlockHeight
     , _ssTransactionCount :: Maybe Int64
-    , _ssCirculatingCoins :: Maybe Double
+    , _ssCirculatingCoins :: Decimal
     } deriving (Eq,Show)
 
 ssRecentTxs
@@ -110,7 +114,7 @@ ssTransactionCount = lens _ssTransactionCount setter
 
 ssCirculatingCoins
     :: Functor f
-    => (Maybe Double -> f (Maybe Double))
+    => (Decimal -> f Decimal)
     -> ServerState -> f ServerState
 ssCirculatingCoins = lens _ssCirculatingCoins setter
   where
@@ -140,15 +144,16 @@ apiServerCut :: Env -> ServerEnv -> ByteString -> IO ()
 apiServerCut env senv cutBS = do
   let curHeight = cutMaxHeight cutBS
       logg = _env_logger env
-  circulatingCoins <- queryCirculatingCoins env (fromIntegral curHeight)
+  t <- getCurrentTime
+  let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
   recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs logg pool
   numTxs <- getTransactionCount logg pool
-  ssRef <- newIORef $ ServerState recentTxs 0 numTxs (hush circulatingCoins)
+  ssRef <- newIORef $ ServerState recentTxs 0 numTxs circulatingCoins
   logg Info $ fromString $ "Total number of transactions: " <> show numTxs
-  _ <- forkIO $ scheduledUpdates env pool ssRef
-  _ <- forkIO $ listenWithHandler env $ serverHeaderHandler env pool ssRef
+  _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
+  _ <- forkIO $ retryingListener env ssRef
   logg Info $ fromString "Starting chainweb-data server"
   let serverApp req =
         ( ( recentTxsHandler ssRef
@@ -163,21 +168,36 @@ apiServerCut env senv cutBS = do
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
     serve theApi (serverApp req) req f
 
+retryingListener :: Env -> IORef ServerState -> IO ()
+retryingListener env ssRef = do
+  let logg = _env_logger env
+      delay = 10_000_000
+      policy = constantDelay delay
+      check _ _ = do
+        logg Warn $ fromString $ printf "Retrying node listener in %.1f seconds"
+          (fromIntegral delay / 1_000_000 :: Double)
+        return True
+  retrying policy check $ \_ -> do
+    logg Info "Starting node listener"
+    listenWithHandler env $ serverHeaderHandler env ssRef
+
 scheduledUpdates
   :: Env
   -> P.Pool Connection
   -> IORef ServerState
+  -> Bool
+  -> Maybe Int
   -> IO ()
-scheduledUpdates env pool ssRef = forever $ do
+scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
     threadDelay (60 * 60 * 24 * micros)
 
     now <- getCurrentTime
     logg Info $ fromString $ show now
     logg Info "Recalculating coins in circulation:"
     height <- _ssHighestBlockHeight <$> readIORef ssRef
-    circulatingCoins <- queryCirculatingCoins env height
+    let circulatingCoins = getCirculatingCoins (fromIntegral height) now
     logg Info $ fromString $ show circulatingCoins
-    let f ss = (ss & ssCirculatingCoins %~ (hush circulatingCoins <|>), ())
+    let f ss = (ss & ssCirculatingCoins .~ circulatingCoins, ())
     atomicModifyIORef' ssRef f
 
     numTxs <- getTransactionCount logg pool
@@ -188,6 +208,11 @@ scheduledUpdates env pool ssRef = forever $ do
     h <- getHomeDirectory
     richList logg (h </> ".local/share")
     logg Info "Updated rich list"
+
+    when runFill $ do
+      logg Info "Filling missing blocks"
+      gaps env (FillArgs fillDelay False)
+      logg Info "Fill finished"
   where
     micros = 1000000
     logg = _env_logger env
@@ -203,20 +228,21 @@ richlistHandler = do
 coinsHandler :: IORef ServerState -> Handler Text
 coinsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
   where
-    mkStats ss = maybe "" (T.pack . show) $ _ssCirculatingCoins ss
+    mkStats ss = T.pack $ show $ _ssCirculatingCoins ss
 
 statsHandler :: IORef ServerState -> Handler ChainwebDataStats
 statsHandler ssRef = liftIO $ do
     fmap mkStats $ readIORef ssRef
   where
     mkStats ss = ChainwebDataStats (fromIntegral <$> _ssTransactionCount ss)
-                                   (_ssCirculatingCoins ss)
+                                   (Just $ realToFrac $ _ssCirculatingCoins ss)
 
 recentTxsHandler :: IORef ServerState -> Handler [TxSummary]
 recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ readIORef ss
 
-serverHeaderHandler :: Env -> P.Pool Connection -> IORef ServerState -> PowHeader -> IO ()
-serverHeaderHandler env pool ssRef ph@(PowHeader h _) = do
+serverHeaderHandler :: Env -> IORef ServerState -> PowHeader -> IO ()
+serverHeaderHandler env ssRef ph@(PowHeader h _) = do
+  let pool = _env_dbConnPool env
   let chain = _blockHeader_chainId h
   let height = _blockHeader_height h
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
