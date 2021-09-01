@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -45,8 +46,10 @@ import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           Control.Applicative
 import           Control.Error.Util (hush)
+import           Control.Exception
 import           Control.Lens
 import           Control.Monad
+import           Control.Retry
 import           Data.Aeson
 import           Data.Aeson.Lens
 import           Data.ByteString.Lazy (ByteString,toStrict)
@@ -66,28 +69,41 @@ import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Network.HTTP.Client hiding (Proxy)
 import           Network.HTTP.Types
+import           System.Logger.Types hiding (logg)
 import           Text.Printf
 
 data ErrorType = RateLimiting | ClientError | ServerError | OtherError T.Text
   deriving (Eq,Ord,Show)
 
-data ApiError = ApiError
-  { apiError_type :: ErrorType
-  , apiError_status :: Status
-  , apiError_body :: ByteString
-  } deriving (Eq,Ord,Show)
+data ApiError
+  = ApiError ErrorType Status ByteString
+  | ConnectionError T.Text
+  deriving (Eq,Ord,Show)
 
-handleRequest :: Request -> Manager -> IO (Either ApiError (Response ByteString))
-handleRequest req mgr = do
-  res <- httpLbs req mgr
-  let mkErr t = ApiError t (responseStatus res) (responseBody res)
-      checkErr s
-        | statusCode s == 429 || statusCode s == 403 = Left $ mkErr RateLimiting
-        | statusIsClientError s = Left $ mkErr ClientError
-        | statusIsServerError s = Left $ mkErr ServerError
-        | statusIsSuccessful s = Right res
-        | otherwise = Left $ mkErr $ OtherError "unknown error"
-  pure $ checkErr (responseStatus res)
+handleRequest :: Env -> Request -> IO (Either ApiError (Response ByteString))
+handleRequest env req = do
+  res <- handle onEx $ recoverAll policy $ \rs -> do
+    when (rsIterNumber rs > 0) $ do
+      let msg = "Caught exception on request to " <> T.pack (show $ getUri req) <>
+                  (if rsIterNumber rs == numRetries then "" else " retrying...")
+      _env_logger env Warn msg
+    Right <$> httpLbs req mgr
+  pure $ checkErr =<< res
+  where
+    mgr = _env_httpManager env
+    numRetries = 5
+    policy = exponentialBackoff 1_000_000 <> limitRetries numRetries
+    onEx :: SomeException -> IO (Either ApiError (Response ByteString))
+    onEx e = pure $ Left $ ConnectionError (T.pack $ show e)
+    checkErr resp = go (responseStatus resp)
+      where
+        mkErr t = ApiError t (responseStatus resp) (responseBody resp)
+        go s
+          | statusCode s == 429 || statusCode s == 503 = Left $ mkErr RateLimiting
+          | statusIsClientError s = Left $ mkErr ClientError
+          | statusIsServerError s = Left $ mkErr ServerError
+          | statusIsSuccessful s = Right resp
+          | otherwise = Left $ mkErr $ OtherError "unknown error"
 
 --------------------------------------------------------------------------------
 -- Endpoints
@@ -99,8 +115,7 @@ headersBetween
   -> IO (Either ApiError [BlockHeader])
 headersBetween env (cid, Low low, High up) = do
   req <- parseRequest url
-  eresp <- handleRequest (req { requestHeaders = requestHeaders req <> encoding })
-                     (_env_httpManager env)
+  eresp <- handleRequest env (req { requestHeaders = requestHeaders req <> encoding })
   pure $ (^.. key "items" . values . _String . to f . _Just) . responseBody <$> eresp
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
@@ -120,7 +135,7 @@ payloadWithOutputsBatch
 payloadWithOutputsBatch env (ChainId cid) m = do
     initReq <- parseRequest url
     let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
-    eresp <- handleRequest req (_env_httpManager env)
+    eresp <- handleRequest env req
     let res = do
           resp <- eresp
           case eitherDecode' (responseBody resp) of
@@ -145,7 +160,7 @@ payloadWithOutputs
   -> IO (Either ApiError BlockPayloadWithOutputs)
 payloadWithOutputs env (T2 cid0 hsh0) = do
   req <- parseRequest url
-  eresp <- handleRequest req (_env_httpManager env)
+  eresp <- handleRequest env req
   let res = do
         resp <- eresp
         case eitherDecode' (responseBody resp) of
@@ -171,11 +186,10 @@ getNodeInfo m us = do
 queryCut :: Env -> IO (Either ApiError ByteString)
 queryCut e = do
   let v = _nodeInfo_chainwebVer $ _env_nodeInfo e
-      m = _env_httpManager e
       u = _env_p2pUrl e
       url = printf "%s/chainweb/0.0/%s/cut" (showUrlScheme $ UrlScheme Https u) (T.unpack v)
   req <- parseRequest url
-  res <- handleRequest req m
+  res <- handleRequest e req
   pure $ responseBody <$> res
 
 cutMaxHeight :: ByteString -> Integer

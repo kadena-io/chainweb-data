@@ -92,9 +92,9 @@ fillEventsCut env args et cutBS = do
                 Right headers -> do
                   let payloadHashes = M.fromList $ map (\header -> (hashToDbHash $ _blockHeader_payloadHash header, header)) headers
                   payloadWithOutputsBatch env (ChainId $ fromIntegral chain) payloadHashes >>= \case
-                    Left e -> do
+                    Left e@(ApiError t _ _) -> do
                       -- TODO Possibly also check for "key not found" message
-                      if (apiError_type e == ClientError)
+                      if (t == ClientError)
                         then do
                           forM_ (filter (\header -> curHeight - (fromIntegral $ _blockHeader_height header) > 120) headers) $ \header -> do
                             logg Debug $ fromString $ printf "Setting numEvents to 0 for all transactions with block hash %s" (unDbHash $ hashToDbHash $ _blockHeader_hash header)
@@ -105,7 +105,10 @@ fillEventsCut env args et cutBS = do
                                     (\tx -> _tx_numEvents tx <-. val_ (Just 0))
                                     (\tx -> _tx_block tx ==. val_ (BlockId (hashToDbHash $ _blockHeader_hash header)))
                             logg Debug $ fromString $ show e
-                        else logg Error $ fromString $ printf "no payloads for header range (%d, %d) on chain %d" (coerce chunkLow :: Int) (coerce chunkHigh :: Int) chain
+                        else logg Error $ fromString $ printf "no payloads for header range (%d, %d) on chain %d"
+                               (coerce chunkLow :: Int) (coerce chunkHigh :: Int) chain
+                    Left (ConnectionError t) -> do
+                      logg Warn $ fromString $ printf "Error connecting to node: %s" t
                     Right bpwos -> do
                       let write header bpwo = do
                             let curHash = hashToDbHash $ _blockHeader_hash header

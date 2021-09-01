@@ -171,7 +171,7 @@ writeBlocks env pool disableIndexesPred count bhs = do
 check :: RetryStatus -> Either ApiError a -> IO Bool
 check _ ev = pure $
   case ev of
-    Left e -> apiError_type e == RateLimiting
+    Left (ApiError t _ _) -> t == RateLimiting
     _ -> False
 
 -- | Writes all of the events from a block payload to the events table.
