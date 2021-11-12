@@ -15,8 +15,8 @@ import           BasePrelude hiding (insert, range, second)
 
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
-import           Chainweb.Database
-import           Chainweb.Env
+import           ChainwebDb.Database
+import           ChainwebData.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Backfill

@@ -8,17 +8,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
-module Chainweb.Database
+module ChainwebDb.Database
   ( ChainwebDataDb(..)
   , database
   , initializeTables
+  , bench_initializeTables
 
   , withDb
   , withDbDebug
   ) where
 
-import           Chainweb.Env
+import           ChainwebData.Env
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.MinerKey
@@ -142,22 +144,46 @@ showMigration conn =
 -- | Create the DB tables if necessary.
 initializeTables :: LogFunctionIO Text -> MigrateStatus -> Connection -> IO ()
 initializeTables logg migrateStatus conn = do
-  diff <- BA.calcMigrationSteps annotatedDb conn
-  case diff of
-    Left err -> do
-        logg Error "Error detecting database migration requirements: "
-        logg Error $ fromString $ show err
-    Right [] -> logg Info "No database migration needed.  Continuing..."
-    Right _ -> do
-      logg Info "Database migration needed."
-      case migrateStatus of
-        RunMigration -> do
-          BA.tryRunMigrationsWithEditUpdate annotatedDb conn
-          logg Info "Done with database migration."
-        DontMigrate -> do
-          logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
-          showMigration conn
-          exitFailure
+    diff <- BA.calcMigrationSteps annotatedDb conn
+    case diff of
+      Left err -> do
+          logg Error "Error detecting database migration requirements: "
+          logg Error $ fromString $ show err
+      Right [] -> logg Info "No database migration needed.  Continuing..."
+      Right _ -> do
+        logg Info "Database migration needed."
+        case migrateStatus of
+          RunMigration -> do
+            BA.tryRunMigrationsWithEditUpdate annotatedDb conn
+            logg Info "Done with database migration."
+          DontMigrate -> do
+            logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
+            showMigration conn
+            exitFailure
+
+bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
+bench_initializeTables migrate loggInfo loggError conn = do
+    diff <- BA.calcMigrationSteps annotatedDb conn
+    case diff of
+      Left err -> do
+          loggError "Error detecting database migration requirements: "
+          loggError $ fromString $ show err
+          return False
+      Right [] -> do
+        loggInfo "No database migration needed.  Continuing..."
+        return True
+      Right _ -> do
+        loggInfo "Database migration needed."
+        case migrate of
+          True -> do
+            BA.tryRunMigrationsWithEditUpdate annotatedDb conn
+            loggInfo "Done with database migration."
+            return True
+          False -> do
+            loggInfo "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
+            showMigration conn
+            return False
+
 
 withDb :: Env -> Pg b -> IO b
 withDb env qry = P.withResource (_env_dbConnPool env) $ \c -> runBeamPostgres c qry

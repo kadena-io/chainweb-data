@@ -15,8 +15,8 @@ import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
-import           Chainweb.Database
-import           Chainweb.Env
+import           ChainwebDb.Database
+import           ChainwebData.Env
 import           Chainweb.Lookups
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block

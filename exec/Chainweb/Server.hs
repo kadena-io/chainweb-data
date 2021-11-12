@@ -26,7 +26,6 @@ import           Control.Monad.Except
 import           Control.Retry
 import           Data.Aeson hiding (Error)
 import           Data.ByteString.Lazy (ByteString)
-import           Data.Coerce
 import           Data.Decimal
 import           Data.Foldable
 import           Data.Int
@@ -58,8 +57,9 @@ import           Text.Printf
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Coins
-import           Chainweb.Database
-import           Chainweb.Env
+import           ChainwebDb.Database
+import           ChainwebDb.Queries
+import           ChainwebData.Env
 import           Chainweb.Gaps
 import           Chainweb.Listen
 import           Chainweb.Lookups
@@ -287,31 +287,10 @@ searchTxs _ _ _ _ _ Nothing = throw404 "You must specify a search string"
 searchTxs logger pool req limit offset (Just search) = do
     liftIO $ logger Info $ fromString $ printf "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
     liftIO $ P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug (logger Debug . fromString) c $
-        runSelectReturningList $ select $ do
-        limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
-          tx <- all_ (_cddb_transactions database)
-          blk <- all_ (_cddb_blocks database)
-          guard_ (_tx_block tx `references_` blk)
-          guard_ (_tx_code tx `like_` val_ (Just searchString))
-          return
-             ( (_tx_chainId tx)
-             , (_block_height blk)
-             , (unBlockId $ _tx_block tx)
-             , (_tx_creationTime tx)
-             , (_tx_requestKey tx)
-             , (_tx_sender tx)
-             , ((_tx_code tx)
-             , (_tx_continuation tx)
-             , (_tx_goodResult tx)
-             ))
+      res <- runBeamPostgresDebug (logger Debug . fromString) c $ runSelectReturningList $ searchTxsQueryStmt limit offset search
       return $ mkSummary <$> res
   where
-    lim = maybe 10 (min 100 . unLimit) limit
-    off = maybe 0 unOffset offset
-    getHeight (_,a,_,_,_,_,_) = a
     mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
-    searchString = "%" <> search <> "%"
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
@@ -383,21 +362,7 @@ evHandler
   -> Handler [EventDetail]
 evHandler logger pool limit offset qSearch qParam qName =
   liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $
-      runSelectReturningList $ select $
-        limit_ lim $ offset_ off $ orderBy_ getOrder $ do
-          tx <- all_ (_cddb_transactions database)
-          blk <- all_ (_cddb_blocks database)
-          ev <- all_ (_cddb_events database)
-          guard_ (_tx_block tx `references_` blk)
-          guard_ (TransactionId (coerce $ _ev_requestkey ev) (_tx_block tx) `references_` tx)
-          whenArg qSearch $ \s -> guard_
-            ((_ev_qualName ev `like_` val_ (searchString s)) ||.
-             (_ev_paramText ev `like_` val_ (searchString s))
-            )
-          whenArg qName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
-          whenArg qParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
-          return (tx,blk,ev)
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName
     return $ (`map` r) $ \(tx,blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
       , _evDetail_params = unPgJsonb $ _ev_params ev
@@ -409,16 +374,6 @@ evHandler logger pool limit offset qSearch qParam qName =
       , _evDetail_requestKey = unDbHash $ _tx_requestKey tx
       , _evDetail_idx = fromIntegral $ _ev_idx ev
       }
-  where
-    whenArg p a = maybe (return ()) a p
-    lim = maybe 10 (min 100 . unLimit) limit
-    off = maybe 0 unOffset offset
-    getOrder (tx,blk,ev) =
-      (desc_ $ _block_height blk
-      ,asc_ $ _tx_chainId tx
-      ,desc_ $ _tx_txid tx
-      ,asc_ $ _ev_idx ev)
-    searchString search = "%" <> search <> "%"
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
 infixr 3 :.

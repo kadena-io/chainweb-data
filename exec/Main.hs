@@ -8,8 +8,8 @@ module Main where
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Backfill (backfill)
-import           Chainweb.Database (initializeTables)
-import           Chainweb.Env
+import           ChainwebDb.Database (initializeTables)
+import           ChainwebData.Env
 import           Chainweb.FillEvents (fillEvents)
 import           Chainweb.Gaps
 import           Chainweb.Listen (listen)

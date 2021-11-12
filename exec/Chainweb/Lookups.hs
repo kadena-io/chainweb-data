@@ -36,7 +36,7 @@ import           Chainweb.Api.Payload
 import           Chainweb.Api.Sig
 import qualified Chainweb.Api.Signer as CW
 import qualified Chainweb.Api.Transaction as CW
-import           Chainweb.Env
+import           ChainwebData.Env
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash

@@ -2,7 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
-module Chainweb.Env
+module ChainwebData.Env
   ( MigrateStatus(..)
   , Args(..)
   , Env(..)
