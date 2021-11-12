@@ -54,13 +54,13 @@ data Args = Args
   }
 
 infoPrint :: String -> IO ()
-infoPrint = printf "[INFO] %s"
+infoPrint = printf "[INFO] %s\n"
 
 debugPrint :: String -> IO ()
-debugPrint = printf "[DEBUG] %s"
+debugPrint = printf "[DEBUG] %s\n"
 
 errorPrint :: String -> IO ()
-errorPrint = printf "[ERROR] %s"
+errorPrint = printf "[ERROR] %s\n"
 
 argsP :: Parser Args
 argsP = Args <$> connectInfoParser <*> migrationP
