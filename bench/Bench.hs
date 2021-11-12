@@ -43,6 +43,8 @@ main = do
             infoPrint "Table check done"
             infoPrint "Running benchmarks for code search queries"
             searchTxsBench pool >>= V.mapM_ print
+            infoPrint "Running benchmarks for event search queries"
+            eventsBench pool >>= V.mapM_ print
   where
     opts = info (argsP <**> helper)
       (fullDesc <> header "chainweb-data benchmarks")
@@ -100,6 +102,20 @@ searchTxsBench pool =
     benchParams =
       V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- (Just . Offset) <$> [20], s <- take 1 searchExamples ]
 
+
+eventsBench :: Pool Connection -> IO (Vector BenchResult)
+eventsBench pool =
+  withResource pool $ \conn ->
+    V.forM benchParams $ \(l,o,s) -> do
+      let stmt' = prependExplainAnalyze (stmt l o s)
+      res <- query_ @([ByteString]) conn stmt'
+      return $ BenchResult stmt' res
+  where
+    stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing Nothing
+    prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
+    benchParams =
+      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- (Just . Offset) <$> [20], s <- Just <$> drop 2 searchExamples ]
+
 selectStmtString s = case s of
   SqlSelect ss -> pgRenderSyntaxScript $ fromPgSelect $ ss
 
@@ -110,4 +126,4 @@ data BenchResult = BenchResult
   } deriving Show
 
 searchExamples :: [Text]
-searchExamples = ["module", "hat", "emmanuel"]
+searchExamples = ["module", "hat", "coin"]
