@@ -49,7 +49,7 @@ main = do
             infoPrint "Running benchmarks for event search queries"
             eventsBench pool >>= V.mapM_ (bool printTimes print pr)
   where
-    printTimes (BenchResult {..}) = BC.putStrLn $ BC.concat [coerce bench_query, bench_planning_time, bench_execution_time]
+    printTimes (BenchResult {..}) = BC.putStrLn $ BC.unlines [coerce bench_query, bench_planning_time, bench_execution_time]
     opts = info (argsP <**> helper)
       (fullDesc <> header "chainweb-data benchmarks")
 
