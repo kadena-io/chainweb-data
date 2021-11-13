@@ -94,7 +94,7 @@ searchTxsBench pool =
     withResource pool $ \conn -> do
       V.forM benchParams $ \(l,o,s) -> do
         let stmt' = prependExplainAnalyze (stmt l o s)
-        res <- query_ @([ByteString]) conn stmt'
+        res <- query_ @(Only ByteString) conn stmt'
         return $ BenchResult stmt' res
   where
     stmt l o s = Query $ toS $ selectStmtString $ searchTxsQueryStmt l o s
@@ -102,13 +102,12 @@ searchTxsBench pool =
     benchParams =
       V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- (Just . Offset) <$> [20], s <- take 1 searchExamples ]
 
-
 eventsBench :: Pool Connection -> IO (Vector BenchResult)
 eventsBench pool =
   withResource pool $ \conn ->
     V.forM benchParams $ \(l,o,s) -> do
       let stmt' = prependExplainAnalyze (stmt l o s)
-      res <- query_ @([ByteString]) conn stmt'
+      res <- query_ @(Only ByteString) conn stmt'
       return $ BenchResult stmt' res
   where
     stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing Nothing
@@ -122,7 +121,7 @@ selectStmtString s = case s of
 data BenchResult = BenchResult
   {
     bench_query :: Query
-  , bench_explain_analyze_report :: [[ByteString]]
+  , bench_explain_analyze_report :: [Only ByteString]
   } deriving Show
 
 searchExamples :: [Text]
