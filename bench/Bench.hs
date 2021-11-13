@@ -1,25 +1,28 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 module Main where
 
 import           Control.Concurrent
 import           Control.Exception
+import           Data.Bool
 import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL (ByteString)
+import           Data.Coerce
 import           Data.Pool
-import           Data.String
 import           Data.String.Conv
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           Data.Time.Clock
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
 import           Database.PostgreSQL.Simple
 import           Database.PostgreSQL.Simple.Types
+import           Database.Beam.Backend.SQL
 import           Database.Beam
-import qualified Database.Beam.AutoMigrate as BA
+-- import qualified Database.Beam.AutoMigrate as BA
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Syntax
 import           Options.Applicative
@@ -32,7 +35,7 @@ import           ChainwebDb.Queries
 
 main :: IO ()
 main = do
-    execParser opts >>= \(Args pgc ms) -> do
+    execParser opts >>= \(Args pgc ms pr) -> do
       infoPrint "Running query benchmarks"
       withPool pgc $ \pool -> do
         withResource pool (bench_initializeTables ms (infoPrint . T.unpack) (errorPrint . T.unpack)) >>= \case
@@ -42,10 +45,11 @@ main = do
           True -> do
             infoPrint "Table check done"
             infoPrint "Running benchmarks for code search queries"
-            searchTxsBench pool >>= V.mapM_ print
+            searchTxsBench pool >>= V.mapM_ (bool printTimes print pr)
             infoPrint "Running benchmarks for event search queries"
-            eventsBench pool >>= V.mapM_ print
+            eventsBench pool >>= V.mapM_ (bool printTimes print pr)
   where
+    printTimes (BenchResult {..}) = BC.putStrLn $ BC.concat [coerce bench_query, bench_planning_time, bench_execution_time]
     opts = info (argsP <**> helper)
       (fullDesc <> header "chainweb-data benchmarks")
 
@@ -53,6 +57,7 @@ data Args = Args
   {
     args_connectInfo :: ConnectInfo
   , args_migrate :: Bool
+  , args_print_report :: Bool
   }
 
 infoPrint :: String -> IO ()
@@ -65,11 +70,16 @@ errorPrint :: String -> IO ()
 errorPrint = printf "[ERROR] %s\n"
 
 argsP :: Parser Args
-argsP = Args <$> connectInfoParser <*> migrationP
+argsP = Args <$> connectInfoParser <*> migrationP <*> printReportP
+
+printReportP :: Parser Bool
+printReportP =
+  flag False True (short 'p' <> long "print-query-report" <> help "print query report")
 
 migrationP :: Parser Bool
 migrationP =
   flag True False (short 'm' <> long "migrate" <> help "Run DB migration")
+
 
 connectInfoParser :: Parser ConnectInfo
 connectInfoParser = ConnectInfo
@@ -95,7 +105,7 @@ searchTxsBench pool =
       V.forM benchParams $ \(l,o,s) -> do
         let stmt' = prependExplainAnalyze (stmt l o s)
         res <- query_ @(Only ByteString) conn stmt'
-        return $ BenchResult stmt' res
+        return $ getBenchResult stmt' res
   where
     stmt l o s = Query $ toS $ selectStmtString $ searchTxsQueryStmt l o s
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
@@ -108,20 +118,40 @@ eventsBench pool =
     V.forM benchParams $ \(l,o,s) -> do
       let stmt' = prependExplainAnalyze (stmt l o s)
       res <- query_ @(Only ByteString) conn stmt'
-      return $ BenchResult stmt' res
+      return $ getBenchResult stmt' res
   where
     stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing Nothing
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
     benchParams =
       V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- (Just . Offset) <$> [20], s <- Just <$> drop 2 searchExamples ]
 
+
+getBenchResult :: Query -> [Only ByteString] -> BenchResult
+getBenchResult q = go . fmap fromOnly . reverse
+  where
+    go (pl: ex: report) =
+      BenchResult
+        {
+          bench_query = q
+        , bench_explain_analyze_report = BC.unlines $ reverse report
+        , bench_planning_time = getTime pl
+        , bench_execution_time = getTime ex
+        }
+    go _ = error "getBenchResult: impossible"
+
+selectStmtString :: (Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax) => SqlSelect be a -> BL.ByteString
 selectStmtString s = case s of
   SqlSelect ss -> pgRenderSyntaxScript $ fromPgSelect $ ss
+
+getTime :: ByteString -> ByteString
+getTime  = BC.concat . drop 1 . BC.words
 
 data BenchResult = BenchResult
   {
     bench_query :: Query
-  , bench_explain_analyze_report :: [Only ByteString]
+  , bench_explain_analyze_report :: ByteString
+  , bench_planning_time :: ByteString
+  , bench_execution_time :: ByteString
   } deriving Show
 
 searchExamples :: [Text]
