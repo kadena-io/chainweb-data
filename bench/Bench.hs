@@ -134,17 +134,14 @@ getBenchResult q = go . fmap fromOnly . reverse
         {
           bench_query = q
         , bench_explain_analyze_report = BC.unlines $ reverse report
-        , bench_planning_time = getTime pl
-        , bench_execution_time = getTime ex
+        , bench_planning_time = pl
+        , bench_execution_time = ex
         }
     go _ = error "getBenchResult: impossible"
 
 selectStmtString :: (Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax) => SqlSelect be a -> BL.ByteString
 selectStmtString s = case s of
   SqlSelect ss -> pgRenderSyntaxScript $ fromPgSelect $ ss
-
-getTime :: ByteString -> ByteString
-getTime  = BC.concat . drop 1 . BC.words
 
 data BenchResult = BenchResult
   {
