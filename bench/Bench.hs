@@ -7,11 +7,10 @@ module Main where
 
 import           Control.Concurrent
 import           Control.Exception
-import           Data.Bool
+import           Data.Char
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL (ByteString)
-import           Data.Coerce
 import           Data.Pool
 import           Data.String.Conv
 import           Data.Text (Text)
@@ -45,20 +44,31 @@ main = do
           True -> do
             infoPrint "Table check done"
             infoPrint "Running benchmarks for code search queries"
-            searchTxsBench pool >>= V.mapM_ (bool printTimes print pr)
+            searchTxsBench pool >>= V.mapM_ (`printReport` pr)
             infoPrint "Running benchmarks for event search queries"
-            eventsBench pool >>= V.mapM_ (bool printTimes print pr)
+            eventsBench pool >>= V.mapM_ (`printReport` pr)
   where
-    printTimes (BenchResult {..}) = BC.putStrLn $ BC.unlines [coerce bench_query, bench_planning_time, bench_execution_time]
     opts = info (argsP <**> helper)
       (fullDesc <> header "chainweb-data benchmarks")
+
+printReport :: BenchResult -> ReportFormat -> IO ()
+printReport br@(BenchResult {..}) = \case
+    Raw -> print br
+    Simple -> do
+      BC.putStrLn "----------RESULT----------"
+      BC.putStrLn $ "Query: " <> bench_query
+      BC.putStrLn bench_execution_time
+      BC.putStrLn bench_planning_time
+      BC.putStrLn "----------RESULT----------"
 
 data Args = Args
   {
     args_connectInfo :: ConnectInfo
   , args_migrate :: Bool
-  , args_print_report :: Bool
+  , args_print_report :: ReportFormat
   }
+
+data ReportFormat = Simple | Raw
 
 infoPrint :: String -> IO ()
 infoPrint = printf "[INFO] %s\n"
@@ -72,14 +82,17 @@ errorPrint = printf "[ERROR] %s\n"
 argsP :: Parser Args
 argsP = Args <$> connectInfoParser <*> migrationP <*> printReportP
 
-printReportP :: Parser Bool
-printReportP =
-  flag False True (short 'p' <> long "print-query-report" <> help "print query report")
+printReportP :: Parser ReportFormat
+printReportP = option go (short 'q' <> long "query-report-format (raw|simple)" <> value Simple <> help "print query report")
+  where
+    go = eitherReader $ \s -> case toLower <$> s of
+      "raw" -> Right Raw
+      "simple" -> Right Simple
+      _ -> Left $ printf "not a valid option (%s)" s
 
 migrationP :: Parser Bool
 migrationP =
   flag True False (short 'm' <> long "migrate" <> help "Run DB migration")
-
 
 connectInfoParser :: Parser ConnectInfo
 connectInfoParser = ConnectInfo
@@ -105,7 +118,7 @@ searchTxsBench pool =
       V.forM benchParams $ \(l,o,s) -> do
         let stmt' = prependExplainAnalyze (stmt l o s)
         res <- query_ @(Only ByteString) conn stmt'
-        return $ getBenchResult stmt' res
+        return $ getBenchResult "Code search" stmt' res
   where
     stmt l o s = Query $ toS $ selectStmtString $ searchTxsQueryStmt l o s
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
@@ -118,7 +131,7 @@ eventsBench pool =
     V.forM benchParams $ \(l,o,s) -> do
       let stmt' = prependExplainAnalyze (stmt l o s)
       res <- query_ @(Only ByteString) conn stmt'
-      return $ getBenchResult stmt' res
+      return $ getBenchResult "Event search" stmt' res
   where
     stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing Nothing
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
@@ -126,13 +139,14 @@ eventsBench pool =
       V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- (Just . Offset) <$> [20], s <- Just <$> drop 2 searchExamples ]
 
 
-getBenchResult :: Query -> [Only ByteString] -> BenchResult
-getBenchResult q = go . fmap fromOnly . reverse
+getBenchResult :: ByteString -> Query -> [Only ByteString] -> BenchResult
+getBenchResult name q = go . fmap fromOnly . reverse
   where
     go (pl: ex: report) =
       BenchResult
         {
-          bench_query = q
+          bench_query = name
+        , bench_raw_query = q
         , bench_explain_analyze_report = BC.unlines $ reverse report
         , bench_planning_time = pl
         , bench_execution_time = ex
@@ -145,11 +159,15 @@ selectStmtString s = case s of
 
 data BenchResult = BenchResult
   {
-    bench_query :: Query
+    bench_query :: ByteString
+  , bench_raw_query :: Query
   , bench_explain_analyze_report :: ByteString
   , bench_planning_time :: ByteString
   , bench_execution_time :: ByteString
   } deriving Show
 
 searchExamples :: [Text]
-searchExamples = ["module", "hat", "coin"]
+searchExamples = ["module"
+                 , "hat"
+                 , "99cb7008d7d70c94f138cc366a825f0d9c83a8a2f4ba82c86c666e0ab6fecf3a"
+                 , "40ab110e52d0221ec8237d16f4b415fa52b8df97b26e6ae5d3518854a4a8d30f"]
