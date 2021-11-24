@@ -7,6 +7,7 @@ module Main where
 
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Monad (unless)
 import           Data.Char
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
@@ -34,7 +35,7 @@ import           ChainwebDb.Queries
 
 main :: IO ()
 main = do
-    execParser opts >>= \(Args pgc ms pr) -> do
+    execParser opts >>= \(Args pgc ms rb pr) -> do
       infoPrint "Running query benchmarks"
       withPool pgc $ \pool -> do
         withResource pool (bench_initializeTables ms (infoPrint . T.unpack) (errorPrint . T.unpack)) >>= \case
@@ -43,10 +44,12 @@ main = do
             exitFailure
           True -> do
             infoPrint "Table check done"
-            infoPrint "Running benchmarks for code search queries"
-            searchTxsBench pool >>= V.mapM_ (`printReport` pr)
-            infoPrint "Running benchmarks for event search queries"
-            eventsBench pool >>= V.mapM_ (`printReport` pr)
+            unless (onlyCodePredicate rb) $ do
+              infoPrint "Running benchmarks for code search queries"
+              searchTxsBench pool >>= V.mapM_ (`printReport` pr)
+            unless (onlyEventPredicate rb) $ do
+              infoPrint "Running benchmarks for event search queries"
+              eventsBench pool >>= V.mapM_ (`printReport` pr)
   where
     opts = info (argsP <**> helper)
       (fullDesc <> header "chainweb-data benchmarks")
@@ -65,8 +68,23 @@ data Args = Args
   {
     args_connectInfo :: ConnectInfo
   , args_migrate :: Bool
+  , args_run_benches :: RunBenches
   , args_print_report :: ReportFormat
   }
+
+
+data RunBenches = OnlyEvent | OnlyCode | Both
+
+onlyEventPredicate :: RunBenches -> Bool
+onlyEventPredicate = \case
+  OnlyEvent -> True
+  _ -> False
+
+onlyCodePredicate :: RunBenches -> Bool
+onlyCodePredicate = \case
+  OnlyCode -> True
+  _ -> False
+
 
 data ReportFormat = Simple | Raw
 
@@ -80,7 +98,16 @@ errorPrint :: String -> IO ()
 errorPrint = printf "[ERROR] %s\n"
 
 argsP :: Parser Args
-argsP = Args <$> connectInfoParser <*> migrationP <*> printReportP
+argsP = Args <$> connectInfoParser <*> migrationP <*> runBenchesP <*> printReportP
+
+runBenchesP :: Parser RunBenches
+runBenchesP = option go (short 'b' <> long "run-benches-option (only-event|only-code|both)" <> value Both <> help "specify which queries to run")
+  where
+    go = eitherReader $ \s -> case toLower <$> s of
+      "only-event" -> Right OnlyEvent
+      "only-code" -> Right OnlyCode
+      "both" -> Right Both
+      _ -> Left $ printf "not a valid option (%s)" s
 
 printReportP :: Parser ReportFormat
 printReportP = option go (short 'q' <> long "query-report-format (raw|simple)" <> value Simple <> help "print query report")
@@ -123,7 +150,7 @@ searchTxsBench pool =
     stmt l o s = Query $ toS $ selectStmtString $ searchTxsQueryStmt l o s
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
     benchParams =
-      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- (Just . Offset) <$> [20], s <- take 1 searchExamples ]
+      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- [Nothing], s <- take 2 searchExamples ]
 
 eventsBench :: Pool Connection -> IO (Vector BenchResult)
 eventsBench pool =
@@ -136,7 +163,7 @@ eventsBench pool =
     stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing Nothing
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
     benchParams =
-      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- (Just . Offset) <$> [20], s <- Just <$> drop 2 searchExamples ]
+      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- [Nothing], s <- Just <$> drop 2 searchExamples ]
 
 
 getBenchResult :: ByteString -> Query -> [Only ByteString] -> BenchResult
@@ -167,7 +194,9 @@ data BenchResult = BenchResult
   } deriving Show
 
 searchExamples :: [Text]
-searchExamples = ["module"
+searchExamples = [ "receiver-guard"
+                 , "transfer-crosschain"
+                 , "module"
                  , "hat"
                  , "99cb7008d7d70c94f138cc366a825f0d9c83a8a2f4ba82c86c666e0ab6fecf3a"
                  , "40ab110e52d0221ec8237d16f4b415fa52b8df97b26e6ae5d3518854a4a8d30f"]
