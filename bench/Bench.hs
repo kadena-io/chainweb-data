@@ -7,7 +7,6 @@ module Main where
 
 import           Control.Concurrent
 import           Control.Exception
-import           Control.Monad (unless)
 import           Data.Char
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
@@ -44,12 +43,18 @@ main = do
             exitFailure
           True -> do
             infoPrint "Table check done"
-            unless (onlyCodePredicate rb) $ do
-              infoPrint "Running benchmarks for code search queries"
-              searchTxsBench pool >>= V.mapM_ (`printReport` pr)
-            unless (onlyEventPredicate rb) $ do
-              infoPrint "Running benchmarks for event search queries"
-              eventsBench pool >>= V.mapM_ (`printReport` pr)
+            case rb of
+              OnlyEvent es -> do
+                infoPrint "Running benchmarks for event search queries"
+                eventsBench pool es >>= V.mapM_ (`printReport` pr)
+              OnlyCode cs -> do
+                infoPrint "Running benchmarks for code search queries"
+                searchTxsBench pool cs >>= V.mapM_ (`printReport` pr)
+              Both es cs -> do
+                infoPrint "Running benchmarks for code search queries"
+                searchTxsBench pool cs >>= V.mapM_ (`printReport` pr)
+                infoPrint "Running benchmarks for event search queries"
+                eventsBench pool es >>= V.mapM_ (`printReport` pr)
   where
     opts = info (argsP <**> helper)
       (fullDesc <> header "chainweb-data benchmarks")
@@ -73,18 +78,7 @@ data Args = Args
   }
 
 
-data RunBenches = OnlyEvent | OnlyCode | Both
-
-onlyEventPredicate :: RunBenches -> Bool
-onlyEventPredicate = \case
-  OnlyEvent -> True
-  _ -> False
-
-onlyCodePredicate :: RunBenches -> Bool
-onlyCodePredicate = \case
-  OnlyCode -> True
-  _ -> False
-
+data RunBenches = OnlyEvent [Text] | OnlyCode [Text] | Both [Text] [Text]
 
 data ReportFormat = Simple | Raw
 
@@ -101,13 +95,17 @@ argsP :: Parser Args
 argsP = Args <$> connectInfoParser <*> migrationP <*> runBenchesP <*> printReportP
 
 runBenchesP :: Parser RunBenches
-runBenchesP = option go (short 'b' <> long "run-benches-option (only-event|only-code|both)" <> value Both <> help "specify which queries to run")
+runBenchesP = go <$> many eventBenchP <*> many codeBenchP
   where
-    go = eitherReader $ \s -> case toLower <$> s of
-      "only-event" -> Right OnlyEvent
-      "only-code" -> Right OnlyCode
-      "both" -> Right Both
-      _ -> Left $ printf "not a valid option (%s)" s
+    go xs [] = OnlyEvent xs
+    go [] ys = OnlyCode ys
+    go xs ys = Both xs ys
+
+eventBenchP :: Parser Text
+eventBenchP = strOption (short 'e' <> long "event-search-query" <> metavar "STRING" <> help "event search query")
+
+codeBenchP :: Parser Text
+codeBenchP = strOption (short 'c' <> long "code-search-query" <> metavar "STRING" <> help "code search query")
 
 printReportP :: Parser ReportFormat
 printReportP = option go (short 'q' <> long "query-report-format (raw|simple)" <> value Simple <> help "print query report")
@@ -139,8 +137,8 @@ getPool getConn = do
   caps <- getNumCapabilities
   createPool getConn close 1 5 caps
 
-searchTxsBench :: Pool Connection -> IO (Vector BenchResult)
-searchTxsBench pool =
+searchTxsBench :: Pool Connection -> [Text] -> IO (Vector BenchResult)
+searchTxsBench pool qs =
     withResource pool $ \conn -> do
       V.forM benchParams $ \(l,o,s) -> do
         let stmt' = prependExplainAnalyze (stmt l o s)
@@ -150,10 +148,15 @@ searchTxsBench pool =
     stmt l o s = Query $ toS $ selectStmtString $ searchTxsQueryStmt l o s
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
     benchParams =
-      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- [Nothing], s <- take 2 searchExamples ]
+      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- [Nothing], s <- qs `onNull` (take 2 searchExamples) ]
 
-eventsBench :: Pool Connection -> IO (Vector BenchResult)
-eventsBench pool =
+onNull :: [a] -> [a] -> [a]
+onNull xs ys = case xs of
+  [] -> ys
+  _ -> xs
+
+eventsBench :: Pool Connection -> [Text] -> IO (Vector BenchResult)
+eventsBench pool qs =
   withResource pool $ \conn ->
     V.forM benchParams $ \(l,o,s) -> do
       let stmt' = prependExplainAnalyze (stmt l o s)
@@ -163,7 +166,7 @@ eventsBench pool =
     stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing Nothing
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
     benchParams =
-      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- [Nothing], s <- Just <$> drop 2 searchExamples ]
+      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- [Nothing], s <- Just <$> qs `onNull` drop 2 searchExamples ]
 
 
 getBenchResult :: ByteString -> Query -> [Only ByteString] -> BenchResult
