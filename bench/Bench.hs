@@ -143,7 +143,7 @@ searchTxsBench pool qs =
       V.forM benchParams $ \(l,o,s) -> do
         let stmt' = prependExplainAnalyze (stmt l o s)
         res <- query_ @(Only ByteString) conn stmt'
-        return $ getBenchResult "Code search" stmt' res
+        return $ getBenchResult (Just s) "Code search" stmt' res
   where
     stmt l o s = Query $ toS $ selectStmtString $ searchTxsQueryStmt l o s
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
@@ -161,7 +161,7 @@ eventsBench pool qs =
     V.forM benchParams $ \(l,o,s) -> do
       let stmt' = prependExplainAnalyze (stmt l o s)
       res <- query_ @(Only ByteString) conn stmt'
-      return $ getBenchResult "Event search" stmt' res
+      return $ getBenchResult s "Event search" stmt' res
   where
     stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing Nothing
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
@@ -169,14 +169,15 @@ eventsBench pool qs =
       V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- [Nothing], s <- Just <$> qs `onNull` drop 2 searchExamples ]
 
 
-getBenchResult :: ByteString -> Query -> [Only ByteString] -> BenchResult
-getBenchResult name q = go . fmap fromOnly . reverse
+getBenchResult :: Maybe Text -> ByteString -> Query -> [Only ByteString] -> BenchResult
+getBenchResult simple_param name q = go . fmap fromOnly . reverse
   where
     go (pl: ex: report) =
       BenchResult
         {
           bench_query = name
         , bench_raw_query = q
+        , bench_simplified_query = simple_param
         , bench_explain_analyze_report = BC.unlines $ reverse report
         , bench_planning_time = pl
         , bench_execution_time = ex
@@ -191,6 +192,7 @@ data BenchResult = BenchResult
   {
     bench_query :: ByteString
   , bench_raw_query :: Query
+  , bench_simplified_query :: Maybe Text
   , bench_explain_analyze_report :: ByteString
   , bench_planning_time :: ByteString
   , bench_execution_time :: ByteString
