@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeFamilies #-}
 -- |
 
-module ChainwebDb.Queries (eventsQueryStmt, searchTxsQueryStmt) where
+module ChainwebDb.Queries (eventsQueryStmt, searchTxsQueryStmt, unsafeEventsQueryStmt, getBlockTimes) where
 
 ------------------------------------------------------------------------------
 import           Data.Aeson hiding (Error)
@@ -65,6 +65,51 @@ searchTxsQueryStmt limit offset search =
     off = maybe 0 unOffset offset
     getHeight (_,a,_,_,_,_,_) = a
     searchString = "%" <> search <> "%"
+
+
+-- eventsKnowFieldQueryStmt :: Maybe Limit -> Maybe Offset -> Maybe Text -> Maybe EventParam -> Maybe EventName
+--                 -> SqlSelect
+--                    Postgres
+--                    (QExprToIdentity
+--                     (TransactionT (QGenExpr QValueContext Postgres QBaseScope)
+--                     , BlockT (QGenExpr QValueContext Postgres QBaseScope)
+--                     , EventT (QGenExpr QValueContext Postgres QBaseScope)))
+-- eventsKnowFieldQueryStmt limit offset
+
+getBlockTimes :: [DbHash BlockHash] -> SqlSelect Postgres UTCTime
+getBlockTimes hashes =
+  select $ do
+    blk <- all_ (_cddb_blocks database)
+    guard_ $ (_block_hash blk `in_` (val_ <$> hashes))
+    return $ _block_creationTime blk
+
+unsafeEventsQueryStmt :: Maybe Limit -> Maybe Offset -> Maybe Text -> Maybe EventParam -> Maybe EventName
+                -> SqlSelect
+                   Postgres
+                   (QExprToIdentity
+                    (TransactionT (QGenExpr QValueContext Postgres QBaseScope), EventT (QGenExpr QValueContext Postgres QBaseScope)))
+unsafeEventsQueryStmt limit offset qSearch qParam qName =
+  select $
+    limit_ lim $ offset_ off $ orderBy_ getOrder $ do
+      tx <- all_ (_cddb_transactions database)
+      ev <- all_ (_cddb_events database)
+      whenArg qSearch $ \s -> guard_
+        ((_ev_qualName ev `like_` val_ (searchString s)) ||.
+         (_ev_paramText ev `like_` val_ (searchString s))
+        )
+      whenArg qName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
+      whenArg qParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
+      return (tx, ev)
+  where
+    whenArg p a = maybe (return ()) a p
+    lim = maybe 10 (min 100 . unLimit) limit
+    off = maybe 0 unOffset offset
+    getOrder (tx, ev) =
+      (desc_ $ _ev_height ev
+      , asc_ $ _ev_chainid ev
+      , desc_ $ _tx_txid tx
+      , asc_ $ _ev_idx ev)
+    searchString search = "%" <> search <> "%"
 
 eventsQueryStmt :: Maybe Limit -> Maybe Offset -> Maybe Text -> Maybe EventParam -> Maybe EventName
                 -> SqlSelect

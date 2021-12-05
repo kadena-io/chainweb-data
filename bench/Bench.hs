@@ -28,6 +28,7 @@ import           Options.Applicative
 import           Text.Printf
 import           System.Exit
 --------------------------------------------------------------------------------
+import           ChainwebData.Api
 import           ChainwebData.Pagination
 import           ChainwebDb.Database
 import           ChainwebDb.Queries
@@ -155,6 +156,20 @@ onNull xs ys = case xs of
   [] -> ys
   _ -> xs
 
+
+unsafeEventsBench :: Pool Connection -> [Text] -> IO (Vector BenchResult)
+unsafeEventsBench pool qs =
+  withResource pool $ \conn ->
+      V.forM benchParams $ \(l,o,s) -> do
+        let stmt' = prependExplainAnalyze (stmt l o s)
+        res <- query_ @(Only ByteString) conn stmt'
+        return $ getBenchResult s "Unsafe event searh" stmt' res
+  where
+    stmt l o s = Query $ toS $ selectStmtString $ unsafeEventsQueryStmt l o s Nothing (Just $ EventName "coin.TRANSFER")
+    prependExplainAnalyze = ("EXPLAIN (ANALYZE)" <>)
+    benchParams =
+      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40], o <- [Nothing] , s <- Just <$> qs `onNull` drop 2 searchExamples]
+
 eventsBench :: Pool Connection -> [Text] -> IO (Vector BenchResult)
 eventsBench pool qs =
   withResource pool $ \conn ->
@@ -163,7 +178,7 @@ eventsBench pool qs =
       res <- query_ @(Only ByteString) conn stmt'
       return $ getBenchResult s "Event search" stmt' res
   where
-    stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing Nothing
+    stmt l o s = Query $ toS $ selectStmtString $ eventsQueryStmt l o s Nothing (Just $ EventName "coin.TRANSFER")
     prependExplainAnalyze = ("EXPLAIN (ANALYZE) " <>)
     benchParams =
       V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40] , o <- [Nothing], s <- Just <$> qs `onNull` drop 2 searchExamples ]

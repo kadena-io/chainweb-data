@@ -362,6 +362,19 @@ evHandler
   -> Handler [EventDetail]
 evHandler logger pool limit offset qSearch qParam qName =
   liftIO $ P.withResource pool $ \c -> do
+    -- r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ unsafeEventsQueryStmt limit offset qSearch qParam qName
+    -- blockTimes <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ getBlockTimes (unBlockId . _ev_block . snd <$> r)
+    -- return $ (`map` (zip r blockTimes)) $ \((tx,ev), blockTime) -> EventDetail
+    --   { _evDetail_name = _ev_qualName ev
+    --   , _evDetail_params = unPgJsonb $ _ev_params ev
+    --   , _evDetail_moduleHash = _ev_moduleHash ev
+    --   , _evDetail_chain = fromIntegral $ _ev_chainid ev
+    --   , _evDetail_height = fromIntegral $ _ev_height ev
+    --   , _evDetail_blockTime = blockTime
+    --   , _evDetail_blockHash = unDbHash $ unBlockId $ _ev_block ev
+    --   , _evDetail_requestKey = unDbHash $ _tx_requestKey tx
+    --   , _evDetail_idx = fromIntegral $ _ev_idx ev
+    --   }
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName
     return $ (`map` r) $ \(tx,blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
