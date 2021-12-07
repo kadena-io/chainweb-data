@@ -44,13 +44,11 @@ searchTxsQueryStmt limit offset search =
     select $ do
         limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
                 tx <- all_ (_cddb_transactions database)
-                blk <- all_ (_cddb_blocks database)
-                guard_ (_tx_block tx `references_` blk)
                 guard_ (isJust_ $ _tx_code tx)
                 guard_ (fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ searchString)
                 return
                         ( (_tx_chainId tx)
-                        , (_block_height blk)
+                        , (_tx_height tx)
                         , (unBlockId $ _tx_block tx)
                         , (_tx_creationTime tx)
                         , (_tx_requestKey tx)

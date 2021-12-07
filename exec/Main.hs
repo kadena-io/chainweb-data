@@ -22,7 +22,9 @@ import           Control.Monad (unless)
 import           Data.Bifunctor
 import qualified Data.Pool as P
 import           Data.String
-import           Network.Connection
+import           Data.Text (Text)
+import           Database.PostgreSQL.Simple
+import           Network.Connection hiding (Connection)
 import           Network.HTTP.Client hiding (withConnection)
 import           Network.HTTP.Client.TLS
 import           Options.Applicative
@@ -57,7 +59,11 @@ main = do
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
           withPool pgc $ \pool -> do
-            P.withResource pool (unless (isIndexedDisabled c) . initializeTables logg ms)
+            P.withResource pool $ \conn ->
+              unless (isIndexedDisabled c) $ do
+                initializeTables logg ms conn
+                addTransactionsHeightIndex logg conn
+                addEventsHeightChainIdIdxIndex logg conn
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -89,6 +95,21 @@ main = do
       Args _ _ _ _ level _ -> level
       RichListArgs _ level -> level
 
+addTransactionsHeightIndex :: LogFunctionIO Text -> Connection -> IO ()
+addTransactionsHeightIndex logg conn = do
+    logg Info "Adding height index on transactions table"
+    _ <- execute_ conn stmt
+    return ()
+  where
+    stmt = "CREATE INDEX ON transactions(height);" :: Query
+
+addEventsHeightChainIdIdxIndex :: LogFunctionIO Text -> Connection -> IO ()
+addEventsHeightChainIdIdxIndex logg conn = do
+    logg Info "Adding (height, chainid, idx) index on events table"
+    _ <- execute_ conn stmt
+    return ()
+  where
+    stmt = "CREATE INDEX ON events(height DESC, chainid ASC, idx ASC);" :: Query
 
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
