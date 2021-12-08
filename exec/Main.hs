@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main where
 
@@ -21,6 +22,7 @@ import           Control.Lens
 import           Control.Monad (unless)
 import           Data.Bifunctor
 import qualified Data.Pool as P
+import           Data.Int (Int64)
 import           Data.String
 import           Data.Text (Text)
 import           Database.PostgreSQL.Simple
@@ -98,18 +100,30 @@ main = do
 addTransactionsHeightIndex :: LogFunctionIO Text -> Connection -> IO ()
 addTransactionsHeightIndex logg conn = do
     logg Info "Adding height index on transactions table"
+    query_ @(Only Int64) conn checkIndex >>= \case
+      [Only 1] -> return ()
+      [Only 0] -> do
+        _ <- execute_ conn stmt
+        return ()
+      _ -> fail "addTransactionsHeightIndex: impossible"
     _ <- execute_ conn stmt
     return ()
   where
-    stmt = "CREATE INDEX ON transactions(height);" :: Query
+    stmt = "CREATE INDEX ON transactions(height);"
+    checkIndex = "SELECT COUNT(1) FROM pg_stat_user_indexes WHERE indexrelname = 'transactions_height_idx';"
 
 addEventsHeightChainIdIdxIndex :: LogFunctionIO Text -> Connection -> IO ()
 addEventsHeightChainIdIdxIndex logg conn = do
     logg Info "Adding (height, chainid, idx) index on events table"
-    _ <- execute_ conn stmt
-    return ()
+    query_ @(Only Int64) conn checkIndex >>= \case
+      [Only 1] -> return ()
+      [Only 0] -> do
+        _ <- execute_ conn stmt
+        return ()
+      _ -> fail "addEventsHeightChainIdIdxIndex: impossible"
   where
-    stmt = "CREATE INDEX ON events(height DESC, chainid ASC, idx ASC);" :: Query
+    stmt = "CREATE INDEX ON events(height DESC, chainid ASC, idx ASC);"
+    checkIndex = "SELECT COUNT(1) FROM pg_stat_user_indexes WHERE indexrelname = 'events_height_chainid_idx_idx';"
 
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
