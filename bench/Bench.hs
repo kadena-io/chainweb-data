@@ -156,20 +156,6 @@ onNull xs ys = case xs of
   [] -> ys
   _ -> xs
 
-
-unsafeEventsBench :: Pool Connection -> [Text] -> IO (Vector BenchResult)
-unsafeEventsBench pool qs =
-  withResource pool $ \conn ->
-      V.forM benchParams $ \(l,o,s) -> do
-        let stmt' = prependExplainAnalyze (stmt l o s)
-        res <- query_ @(Only ByteString) conn stmt'
-        return $ getBenchResult s "Unsafe event searh" stmt' res
-  where
-    stmt l o s = Query $ toS $ selectStmtString $ unsafeEventsQueryStmt l o s Nothing (Just $ EventName "coin.TRANSFER")
-    prependExplainAnalyze = ("EXPLAIN (ANALYZE)" <>)
-    benchParams =
-      V.fromList [ (l,o,s) | l <- (Just . Limit) <$> [40], o <- [Nothing] , s <- Just <$> qs `onNull` drop 2 searchExamples]
-
 eventsBench :: Pool Connection -> [Text] -> IO (Vector BenchResult)
 eventsBench pool qs =
   withResource pool $ \conn ->
