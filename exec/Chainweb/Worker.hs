@@ -87,18 +87,19 @@ batchWrites pool indexesDisabled bs kss tss ess sss = P.withResource pool $ \c -
         $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
         $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-    withSavepoint c $ runBeamPostgres c $ do
-      -- Write the TXs if unique
-      runInsert
-        $ insert (_cddb_transactions database) (insertValues $ concat tss)
-        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+    withSavepoint c $ do
+      runBeamPostgres c $ do
+        -- Write the TXs if unique
+        runInsert
+          $ insert (_cddb_transactions database) (insertValues $ concat tss)
+          $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-      runInsert
-        $ insert (_cddb_events database) (insertValues $ concat ess)
-        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-      runInsert
-        $ insert (_cddb_signers database) (insertValues $ concat sss)
-        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        runInsert
+          $ insert (_cddb_events database) (insertValues $ concat ess)
+          $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        runInsert
+          $ insert (_cddb_signers database) (insertValues $ concat sss)
+          $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   where
     {- the type system won't allow me to simply inline the "other" expression -}
     actionOnConflict other = if indexesDisabled

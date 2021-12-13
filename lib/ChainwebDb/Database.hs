@@ -34,6 +34,7 @@ import           Data.String
 import           Database.Beam
 import qualified Database.Beam.AutoMigrate as BA
 import           Database.Beam.Postgres
+import           Database.PostgreSQL.Simple
 import           System.Exit
 import           System.Logger hiding (logg)
 
@@ -98,6 +99,7 @@ database = defaultDbSettings `withDbModification` dbModification
     , _tx_continuation = "continuation"
     , _tx_txid = "txid"
     , _tx_numEvents = "num_events"
+    , _tx_code_ts = "code_ts"
     }
   , _cddb_minerkeys = modifyEntityName modTableName <>
     modifyTableFields tableModification
@@ -156,10 +158,18 @@ initializeTables logg migrateStatus conn = do
           RunMigration -> do
             BA.tryRunMigrationsWithEditUpdate annotatedDb conn
             logg Info "Done with database migration."
+            migrateCodeTs conn
           DontMigrate -> do
             logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
             showMigration conn
             exitFailure
+
+migrateCodeTs :: Connection -> IO ()
+migrateCodeTs c = withTransaction c $ do
+    _ <- execute_ c "ALTER TABLE transactions DROP COLUMN code_ts;"
+    _ <- execute_ c "ALTER TABLE transactions ADD COLUMN code_ts tsvector GENERATED ALWAYS AS (to_tsvector('english', code)) STORED;"
+    _ <- execute_ c "CREATE INDEX code_ts_idx ON transactions USING GIN(code_ts);"
+    return ()
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
 bench_initializeTables migrate loggInfo loggError conn = do

@@ -263,6 +263,7 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_continuation = PgJSONB <$> _toutContinuation txo
   , _tx_txid = fromIntegral <$> _toutTxId txo
   , _tx_numEvents = Just $ fromIntegral $ length $ _toutEvents txo
+  , _tx_code_ts = Nothing
   }
   where
     cmd = CW._transaction_cmd tx

@@ -7,6 +7,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
@@ -17,10 +18,13 @@ module ChainwebDb.Types.Transaction where
 ------------------------------------------------------------------------------
 import BasePrelude
 import Data.Aeson
+import Data.ByteString (ByteString)
+import Data.Coerce (coerce)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import Database.Beam
-import Database.Beam.Postgres (PgJSONB)
+import Database.Beam.Postgres (PgJSONB, TsVector)
+import Database.Beam.AutoMigrate (HasColumnType(..))
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
 import ChainwebDb.Types.DbHash
@@ -54,6 +58,7 @@ data TransactionT f = Transaction
   , _tx_continuation :: C f (Maybe (PgJSONB Value))
   , _tx_txid :: C f (Maybe Int64)
   , _tx_numEvents :: C f (Maybe Int64)
+  , _tx_code_ts :: C f (Maybe TsVector)
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -83,10 +88,14 @@ Transaction
   (LensFor tx_continuation)
   (LensFor tx_txid)
   (LensFor tx_numEvents)
+  (LensFor tx_code_ts)
   = tableLenses
 
 type Transaction = TransactionT Identity
 type TransactionId = PrimaryKey TransactionT Identity
+
+instance HasColumnType TsVector where
+  defaultColumnType = defaultColumnType @ByteString . coerce
 
 -- deriving instance Eq (PrimaryKey TransactionT Identity)
 -- deriving instance Eq (PrimaryKey TransactionT Maybe)
