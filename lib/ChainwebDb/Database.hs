@@ -99,7 +99,6 @@ database = defaultDbSettings `withDbModification` dbModification
     , _tx_continuation = "continuation"
     , _tx_txid = "txid"
     , _tx_numEvents = "num_events"
-    , _tx_code_ts = "code_ts"
     }
   , _cddb_minerkeys = modifyEntityName modTableName <>
     modifyTableFields tableModification

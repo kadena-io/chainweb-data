@@ -125,6 +125,23 @@ addEventsHeightChainIdIdxIndex logg conn = do
     stmt = "CREATE INDEX ON events(height DESC, chainid ASC, idx ASC);"
     checkIndex = "SELECT COUNT(1) FROM pg_stat_user_indexes WHERE indexrelname = 'events_height_chainid_idx_idx';"
 
+
+-- this is roughly "events_height_name_expr_expr1_idx" btree (height, name,
+-- (params ->> 0), (params ->> 1)) WHERE name::text = 'TRANSFER'::text
+
+addEventsHeightNameParamsIndex :: LogFunctionIO Text -> Connection -> IO ()
+addEventsHeightNameParamsIndex logg conn = do
+    logg Info "Adding \"(height,name,(params ->> 0),(params ->> 1)) WHERE name = 'TRANSFER'\" index"
+    query_ @(Only Int64) conn checkIndex >>= \case
+      [Only 1] -> return ()
+      [Only 0] -> do
+        _ <- execute_ conn stmt
+        return ()
+      _ -> fail "addEventsHeightNameParamsIndex: impossible"
+  where
+    stmt = "CREATE INDEX on events (height desc, name, (params ->> 0), (params ->> 1)) WHERE name = 'TRANSFER';"
+    checkIndex = "SELECT COUNT(1) FROM pg_stat_user_indexes WHERE indexrelname = 'events_height_name_expr_expr1_idx';"
+
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
 λ> :main single --chain 0 --height 1494311 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
