@@ -19,10 +19,9 @@ import           Chainweb.RichList (richList)
 import           Chainweb.Server (apiServer)
 import           Chainweb.Single (single)
 import           Control.Lens
-import           Control.Monad (unless)
+import           Control.Monad (unless,void)
 import           Data.Bifunctor
 import qualified Data.Pool as P
-import           Data.Int (Int64)
 import           Data.String
 import           Data.Text (Text)
 import           Database.PostgreSQL.Simple
@@ -100,30 +99,16 @@ main = do
 addTransactionsHeightIndex :: LogFunctionIO Text -> Connection -> IO ()
 addTransactionsHeightIndex logg conn = do
     logg Info "Adding height index on transactions table"
-    query_ @(Only Int64) conn checkIndex >>= \case
-      [Only 1] -> return ()
-      [Only 0] -> do
-        _ <- execute_ conn stmt
-        return ()
-      _ -> fail "addTransactionsHeightIndex: impossible"
-    _ <- execute_ conn stmt
-    return ()
+    void $ execute_ conn stmt
   where
-    stmt = "CREATE INDEX ON transactions(height);"
-    checkIndex = "SELECT COUNT(1) FROM pg_stat_user_indexes WHERE indexrelname = 'transactions_height_idx';"
+    stmt = "CREATE INDEX IF NOT EXISTS transactions_height_idx ON transactions(height);"
 
 addEventsHeightChainIdIdxIndex :: LogFunctionIO Text -> Connection -> IO ()
 addEventsHeightChainIdIdxIndex logg conn = do
     logg Info "Adding (height, chainid, idx) index on events table"
-    query_ @(Only Int64) conn checkIndex >>= \case
-      [Only 1] -> return ()
-      [Only 0] -> do
-        _ <- execute_ conn stmt
-        return ()
-      _ -> fail "addEventsHeightChainIdIdxIndex: impossible"
+    void $ execute_ conn stmt
   where
-    stmt = "CREATE INDEX ON events(height DESC, chainid ASC, idx ASC);"
-    checkIndex = "SELECT COUNT(1) FROM pg_stat_user_indexes WHERE indexrelname = 'events_height_chainid_idx_idx';"
+    stmt = "CREATE INDEX IF NOT EXISTS events_height_chainid_idx_idx ON events(height DESC, chainid ASC, idx ASC);"
 
 
 -- this is roughly "events_height_name_expr_expr1_idx" btree (height, name,
@@ -132,15 +117,16 @@ addEventsHeightChainIdIdxIndex logg conn = do
 addEventsHeightNameParamsIndex :: LogFunctionIO Text -> Connection -> IO ()
 addEventsHeightNameParamsIndex logg conn = do
     logg Info "Adding \"(height,name,(params ->> 0),(params ->> 1)) WHERE name = 'TRANSFER'\" index"
-    query_ @(Only Int64) conn checkIndex >>= \case
-      [Only 1] -> return ()
-      [Only 0] -> do
-        _ <- execute_ conn stmt
-        return ()
-      _ -> fail "addEventsHeightNameParamsIndex: impossible"
+    void $ execute_ conn stmt
   where
-    stmt = "CREATE INDEX on events (height desc, name, (params ->> 0), (params ->> 1)) WHERE name = 'TRANSFER';"
-    checkIndex = "SELECT COUNT(1) FROM pg_stat_user_indexes WHERE indexrelname = 'events_height_name_expr_expr1_idx';"
+    stmt = "CREATE INDEX IF NOT EXISTS events_height_name_expr_expr1_idx ON events (height desc, name, (params ->> 0), (params ->> 1)) WHERE name = 'TRANSFER';"
+
+addTransactionsCodeTsIndex :: LogFunctionIO Text -> Connection -> IO ()
+addTransactionsCodeTsIndex logg conn = do
+    logg Info "Adding gin(height, to_tsvector('english',coalesce(code, ''))) index on transactions table"
+    void $ execute_ conn stmt
+  where
+    stmt = "CREATE INDEX IF NOT EXISTS transactions_codets_index ON transactions USING gin(height, to_tsvector('english', coalesce(code,'')));"
 
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https

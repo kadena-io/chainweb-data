@@ -44,8 +44,7 @@ searchTxsQueryStmt limit offset search =
     select $ do
         limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
                 tx <- all_ (_cddb_transactions database)
-                guard_ (isJust_ $ _tx_code tx)
-                guard_ (fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ searchString)
+                guard_ (toTsVector (Just english) (fromMaybe_ (val_ "") $ _tx_code tx) @@ toTsQuery (Just english) (val_ search))
                 return
                         ( (_tx_chainId tx)
                         , (_tx_height tx)
@@ -61,7 +60,6 @@ searchTxsQueryStmt limit offset search =
     lim = maybe 10 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
     getHeight (_,a,_,_,_,_,_) = a
-    searchString = "%" <> search <> "%"
 
 eventsQueryStmt :: Maybe Limit -> Maybe Offset -> Maybe Text -> Maybe EventParam -> Maybe EventName
                 -> SqlSelect
