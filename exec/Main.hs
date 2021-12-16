@@ -126,6 +126,7 @@ addEventsHeightNameParamsIndex logg conn = do
 addTransactionsCodeTsIndex :: LogFunctionIO Text -> Connection -> IO ()
 addTransactionsCodeTsIndex logg conn = do
     logg Info "Adding gin(height, to_tsvector('english',coalesce(code, ''))) index on transactions table"
+    void $ execute_ conn "CREATE EXTENSION btree_gin;"
     void $ execute_ conn stmt
   where
     stmt = "CREATE INDEX IF NOT EXISTS transactions_codets_index ON transactions USING gin(height, to_tsvector('english', coalesce(code,'')));"
