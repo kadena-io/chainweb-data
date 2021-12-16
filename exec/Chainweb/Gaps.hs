@@ -110,6 +110,13 @@ dropIndexes :: P.Pool Connection -> [(String, String)] -> IO ()
 dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname) -> P.withResource pool $ \conn ->
   execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s CASCADE;" tablename indexname
 
+dropExtensions :: P.Pool Connection -> IO ()
+dropExtensions pool = P.withResource pool $ \conn ->
+    mapM_ (execute_ conn . Query) stmts
+  where
+    stmts = map ("DROP EXTENSION " <>) ["btree_gin;"]
+
+
 dedupeMinerKeysTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
 dedupeMinerKeysTable pool logger = do
     logger Info "Deduping minerkeys table"
@@ -144,7 +151,7 @@ dedupeTables pool logger = do
 withDroppedIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO a -> IO a
 withDroppedIndexes pool logger action = do
     indexInfos <- listIndexes pool logger
-    fmap fst $ generalBracket (dropIndexes pool indexInfos) release (const action)
+    fmap fst $ generalBracket (dropIndexes pool indexInfos >> dropExtensions pool) release (const action)
   where
     release _ = \case
       ExitCaseSuccess _ -> dedupeTables pool logger
