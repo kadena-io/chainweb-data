@@ -65,6 +65,8 @@ main = do
                 initializeTables logg ms conn
                 addTransactionsHeightIndex logg conn
                 addEventsHeightChainIdIdxIndex logg conn
+                addEventsHeightNameParamsIndex logg conn
+                addTransactionsCodeTsIndex logg conn
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
