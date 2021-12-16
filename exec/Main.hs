@@ -110,7 +110,7 @@ addEventsHeightChainIdIdxIndex logg conn = do
     logg Info "Adding (height, chainid, idx) index on events table"
     void $ execute_ conn stmt
   where
-    stmt = "CREATE INDEX IF NOT EXISTS events_height_chainid_idx_idx ON events(height DESC, chainid ASC, idx ASC);"
+    stmt = "CREATE INDEX IF NOT EXISTS events_height_chainid_idx ON events(height DESC, chainid ASC, idx ASC);"
 
 
 -- this is roughly "events_height_name_expr_expr1_idx" btree (height, name,
