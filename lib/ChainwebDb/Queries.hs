@@ -90,9 +90,7 @@ eventsQueryStmt limit offset qSearch qParam qName =
       ,asc_ $ _ev_idx ev)
     searchString search = "%" <> search <> "%"
 
-type Account = Text
-
-transferQueryStmt :: Maybe Limit -> Maybe Offset -> Maybe Account -> Account -> Maybe EventName
+transferQueryStmt :: Maybe Limit -> Maybe Offset -> Maybe Text -> Maybe Text -> Maybe EventName
   -> SqlSelect
       Postgres
       (QExprToIdentity
@@ -105,7 +103,7 @@ transferQueryStmt limit offset fromAccount toAccount qName =
       ev <- all_ (_cddb_events database)
       guard_ (_ev_block ev `references_` blk)
       whenArg fromAccount $ \s -> guard_ ((_ev_params ev ->># val_ 0) ==. val_ s)
-      guard_ ((_ev_params ev ->># val_ 1) ==. val_ toAccount)
+      whenArg toAccount $ \s -> guard_ ((_ev_params ev ->># val_ 1) ==. val_ s)
       guard_ (_ev_name ev ==. val_ "TRANSFER")
       whenArg qName $ \(EventName n) -> guard_ (_ev_qualName ev ==. val_ n)
       return (blk, ev)
