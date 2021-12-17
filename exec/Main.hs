@@ -125,11 +125,11 @@ addEventsHeightNameParamsIndex logg conn = do
 
 addTransactionsCodeTsIndex :: LogFunctionIO Text -> Connection -> IO ()
 addTransactionsCodeTsIndex logg conn = do
-    logg Info "Adding gin(height, to_tsvector('english',coalesce(code, ''))) index on transactions table"
+    logg Info "Adding gin(height, to_tsvector('simple',coalesce(code, ''))) index on transactions table"
     void $ execute_ conn "CREATE EXTENSION btree_gin;"
     void $ execute_ conn stmt
   where
-    stmt = "CREATE INDEX IF NOT EXISTS transactions_codets_index ON transactions USING gin(height, to_tsvector('english', coalesce(code,'')));"
+    stmt = "CREATE INDEX IF NOT EXISTS transactions_codets_index ON transactions USING gin(height, to_tsvector('simple', coalesce(code,'')));"
 
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https

@@ -157,18 +157,10 @@ initializeTables logg migrateStatus conn = do
           RunMigration -> do
             BA.tryRunMigrationsWithEditUpdate annotatedDb conn
             logg Info "Done with database migration."
-            migrateCodeTs conn
           DontMigrate -> do
             logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
             showMigration conn
             exitFailure
-
-migrateCodeTs :: Connection -> IO ()
-migrateCodeTs c = withTransaction c $ do
-    _ <- execute_ c "ALTER TABLE transactions DROP COLUMN code_ts;"
-    _ <- execute_ c "ALTER TABLE transactions ADD COLUMN code_ts tsvector GENERATED ALWAYS AS (to_tsvector('english', code)) STORED;"
-    _ <- execute_ c "CREATE INDEX code_ts_idx ON transactions USING GIN(code_ts);"
-    return ()
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
 bench_initializeTables migrate loggInfo loggError conn = do

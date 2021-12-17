@@ -4,13 +4,16 @@
 {-# LANGUAGE TypeFamilies #-}
 -- |
 
-module ChainwebDb.Queries (eventsQueryStmt, searchTxsQueryStmt, transferQueryStmt) where
+module ChainwebDb.Queries (eventsQueryStmt, searchTxsQueryStmt, transferQueryStmt, escapeSearch) where
 
 ------------------------------------------------------------------------------
 import           Data.Aeson hiding (Error)
 import           Data.Int
+import           Data.Function ((&))
 import           Data.Text (Text)
+import qualified Data.Text as T
 import           Data.Time
+import           Data.String
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 ------------------------------------------------------------------------------
@@ -22,6 +25,11 @@ import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Transaction
 ------------------------------------------------------------------------------
+
+escapeSearch :: Text -> Text
+escapeSearch str = str
+  & T.replace " " "\\ "
+  & T.replace "(" "\\("
 
 searchTxsQueryStmt
   :: Maybe Limit
@@ -44,7 +52,7 @@ searchTxsQueryStmt limit offset search =
     select $ do
         limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
                 tx <- all_ (_cddb_transactions database)
-                guard_ (toTsVector (Just english) (fromMaybe_ (val_ "") $ _tx_code tx) @@ toTsQuery (Just english) (val_ search))
+                guard_ (toTsVector (Just $ fromString "simple") (fromMaybe_ (val_ "") $ _tx_code tx) @@ toTsQuery (Just $ fromString "simple") (val_ search))
                 return
                         ( (_tx_chainId tx)
                         , (_tx_height tx)
