@@ -139,3 +139,32 @@ cumulativeRewards = M.fromList $ go 0 0 $ M.toList $ _minerRewards minerRewardMa
     go lastHeight total ((height,reward):rs) = (lastHeight, (total, reward)) : go height t2 rs
       where
         t2 = total + fromIntegral (height - lastHeight) * reward
+
+-- Helper functions
+
+genesisDate :: UTCTime
+genesisDate = UTCTime (fromGregorian 2019 10 30) 0
+
+dateToHeight :: UTCTime -> Word64
+dateToHeight t = blockHeight
+  where
+    genesis = fromGregorian 2019 10 30
+    diff = diffUTCTime t (UTCTime genesis 0)
+    blockHeight = round $ diff / 30
+
+heightToDate :: Word64 -> UTCTime
+heightToDate height = addUTCTime (fromIntegral height * 30) genesisDate
+
+getCirculatingCoinsByDate :: UTCTime -> Decimal
+getCirculatingCoinsByDate t = getCirculatingCoins (dateToHeight t) t
+
+everyMonth :: [UTCTime]
+everyMonth = filter (> genesisDate) $ do
+  y <- [2019..2050]
+  m <- [1..12]
+  return $ UTCTime (fromGregorian y m 1) 0
+
+everyYear :: [UTCTime]
+everyYear = filter (> genesisDate) $ do
+  y <- [2020..2050]
+  return $ UTCTime (fromGregorian y 1 1) 0
