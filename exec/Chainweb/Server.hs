@@ -124,19 +124,9 @@ type RichlistEndpoint = "richlist.csv" :> Get '[PlainText] Text
 
 type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
 
-type TransferEndpoint =
-  "transfer"
-  :> LimitParam
-  :> OffsetParam
-  :> QueryParam "from-account" Text
-  :> QueryParam "to-account" Text
-  :> QueryParam "name" EventName
-  :> Get '[JSON] [EventDetail]
-
 type TheApi =
   ChainwebDataApi
   :<|> RichlistEndpoint
-  :<|> TransferEndpoint
 theApi :: Proxy TheApi
 theApi = Proxy
 
@@ -175,7 +165,6 @@ apiServerCut env senv cutBS = do
             :<|> coinsHandler ssRef
           )
           :<|> richlistHandler
-          :<|> transferHandler logg pool
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
     serve theApi (serverApp req) req f
 
@@ -374,33 +363,6 @@ evHandler
 evHandler logger pool limit offset qSearch qParam qName =
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName
-    let getTxHash = \case
-         RKCB_RequestKey txhash -> unDbHash txhash
-         RKCB_Coinbase -> "<coinbase>"
-    return $ (`map` r) $ \(blk,ev) -> EventDetail
-      { _evDetail_name = _ev_qualName ev
-      , _evDetail_params = unPgJsonb $ _ev_params ev
-      , _evDetail_moduleHash = _ev_moduleHash ev
-      , _evDetail_chain = fromIntegral $ _ev_chainid ev
-      , _evDetail_height = fromIntegral $ _block_height blk
-      , _evDetail_blockTime = _block_creationTime blk
-      , _evDetail_blockHash = unDbHash $ _block_hash blk
-      , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
-      , _evDetail_idx = fromIntegral $ _ev_idx ev
-      }
-
-transferHandler
-  :: LogFunctionIO Text
-  -> P.Pool Connection
-  -> Maybe Limit
-  -> Maybe Offset
-  -> Maybe Text -- ^ "from" account
-  -> Maybe Text -- ^ "to" account
-  -> Maybe EventName
-  -> Handler [EventDetail]
-transferHandler logger pool limit offset fromAccount toAccount qName =
-  liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ transferQueryStmt limit offset fromAccount toAccount qName
     let getTxHash = \case
          RKCB_RequestKey txhash -> unDbHash txhash
          RKCB_Coinbase -> "<coinbase>"

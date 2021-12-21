@@ -66,7 +66,6 @@ main = do
                 addTransactionsHeightIndex logg conn
                 addEventsHeightChainIdIdxIndex logg conn
                 addEventsHeightNameParamsIndex logg conn
-                addTransactionsCodeTsIndex logg conn
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -123,13 +122,6 @@ addEventsHeightNameParamsIndex logg conn = do
   where
     stmt = "CREATE INDEX IF NOT EXISTS events_height_name_expr_expr1_idx ON events (height desc, name, (params ->> 0), (params ->> 1)) WHERE name = 'TRANSFER';"
 
-addTransactionsCodeTsIndex :: LogFunctionIO Text -> Connection -> IO ()
-addTransactionsCodeTsIndex logg conn = do
-    logg Info "Adding gin(height, to_tsvector('simple',coalesce(code, ''))) index on transactions table"
-    void $ execute_ conn "CREATE EXTENSION btree_gin;"
-    void $ execute_ conn stmt
-  where
-    stmt = "CREATE INDEX IF NOT EXISTS transactions_codets_index ON transactions USING gin(height, to_tsvector('simple', coalesce(code,'')));"
 
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
