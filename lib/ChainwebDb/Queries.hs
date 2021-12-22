@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeFamilies #-}
 -- |
 
-module ChainwebDb.Queries (eventsQueryStmt, searchTxsQueryStmt) where
+module ChainwebDb.Queries (eventsQueryStmt, searchTxsQueryStmt, accountQueryStmt) where
 
 ------------------------------------------------------------------------------
 import           Data.Aeson hiding (Error)
@@ -90,3 +90,33 @@ eventsQueryStmt limit offset qSearch qParam qName =
       ,asc_ $ _ev_chainid ev
       ,asc_ $ _ev_idx ev)
     searchString search = "%" <> search <> "%"
+
+accountQueryStmt
+    :: Maybe Limit
+    -> Maybe Offset
+    -> Text
+    -> Text
+    -> Int
+    -> SqlSelect
+    Postgres
+    (QExprToIdentity
+    (BlockT (QGenExpr QValueContext Postgres QBaseScope)
+    , EventT (QGenExpr QValueContext Postgres QBaseScope)))
+accountQueryStmt limit offset token account chain =
+    select $
+      limit_ lim $ offset_ off $ orderBy_ getOrder $ do
+        blk <- all_ (_cddb_blocks database)
+        ev <- all_ (_cddb_events database)
+        guard_ (_ev_block ev `references_` blk)
+        guard_ ((_ev_params ev ->># val_ 0) ==. val_ account ||. (_ev_params ev ->># val_ 1) ==. val_ account)
+        guard_ (_ev_name ev ==. val_ "TRANSFER")
+        guard_ (_ev_qualName ev ==. val_ (token <> ".TRANSFER"))
+        guard_ (_ev_chainid ev ==. val_ (fromIntegral chain))
+        return (blk, ev)
+  where
+    lim = maybe 10 (min 100 . unLimit) limit
+    off = maybe 0 unOffset offset
+    getOrder (_,ev) =
+      (desc_ $ _ev_height ev
+      ,asc_ $ _ev_chainid ev
+      ,asc_ $ _ev_idx ev)

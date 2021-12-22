@@ -127,6 +127,7 @@ type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
 type TheApi =
   ChainwebDataApi
   :<|> RichlistEndpoint
+
 theApi :: Proxy TheApi
 theApi = Proxy
 
@@ -160,6 +161,7 @@ apiServerCut env senv cutBS = do
             :<|> searchTxs logg pool req
             :<|> evHandler logg pool req
             :<|> txHandler logg pool
+            :<|> accountHandler logg pool
           )
             :<|> statsHandler ssRef
             :<|> coinsHandler ssRef
@@ -350,6 +352,33 @@ txHandler logger pool (Just (RequestKey rk)) =
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
     may404 a = a >>= maybe (throw404 "Tx not found") return
+
+accountHandler
+  :: LogFunctionIO Text
+  -> P.Pool Connection
+  -> Text -- ^ token type
+  -> Text -- ^ account identifier
+  -> Int --  ^ chain identifier
+  -> Maybe Limit
+  -> Maybe Offset
+  -> Handler [EventDetail]
+accountHandler logger pool token account chain limit offset =
+  liftIO $ P.withResource pool $ \c -> do
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt limit offset token account chain
+    let getTxHash = \case
+         RKCB_RequestKey txhash -> unDbHash txhash
+         RKCB_Coinbase -> "<coinbase>"
+    return $ (`map` r) $ \(blk,ev) -> EventDetail
+      { _evDetail_name = _ev_qualName ev
+      , _evDetail_params = unPgJsonb $ _ev_params ev
+      , _evDetail_moduleHash = _ev_moduleHash ev
+      , _evDetail_chain = fromIntegral $ _ev_chainid ev
+      , _evDetail_height = fromIntegral $ _block_height blk
+      , _evDetail_blockTime = _block_creationTime blk
+      , _evDetail_blockHash = unDbHash $ _block_hash blk
+      , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
+      , _evDetail_idx = fromIntegral $ _ev_idx ev
+      }
 
 evHandler
   :: LogFunctionIO Text
