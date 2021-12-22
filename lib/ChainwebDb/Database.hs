@@ -34,7 +34,6 @@ import           Data.String
 import           Database.Beam
 import qualified Database.Beam.AutoMigrate as BA
 import           Database.Beam.Postgres
-import           Database.PostgreSQL.Simple
 import           System.Exit
 import           System.Logger hiding (logg)
 
