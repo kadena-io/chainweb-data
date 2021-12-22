@@ -158,7 +158,7 @@ apiServerCut env senv cutBS = do
   let serverApp req =
         ( ( recentTxsHandler ssRef
             :<|> searchTxs logg pool req
-            :<|> evHandler logg pool
+            :<|> evHandler logg pool req
             :<|> txHandler logg pool
           )
             :<|> statsHandler ssRef
@@ -354,13 +354,15 @@ txHandler logger pool (Just (RequestKey rk)) =
 evHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
+  -> Request
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text -- ^ fulltext search
   -> Maybe EventParam
   -> Maybe EventName
   -> Handler [EventDetail]
-evHandler logger pool limit offset qSearch qParam qName =
+evHandler logger pool req limit offset qSearch qParam qName = do
+  liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName
     let getTxHash = \case
