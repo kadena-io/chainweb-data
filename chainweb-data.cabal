@@ -40,6 +40,7 @@ common commons
     , directory
     , exceptions
     , filepath
+    , hashable           <=1.3.3.0
     , lens
     , lens-aeson
     , postgresql-simple
