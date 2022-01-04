@@ -14,7 +14,7 @@ import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (unChainId)
 import           Chainweb.Api.Hash
 import           Chainweb.Api.NodeInfo
-import           Chainweb.Env
+import           ChainwebData.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Types

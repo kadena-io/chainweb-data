@@ -79,7 +79,7 @@ Transaction
   (LensFor tx_badResult)
   (LensFor tx_goodResult)
   (LensFor tx_logs)
-  (LensFor tx_metadat)
+  (LensFor tx_metadata)
   (LensFor tx_continuation)
   (LensFor tx_txid)
   (LensFor tx_numEvents)

@@ -2,14 +2,15 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main where
 
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Backfill (backfill)
-import           Chainweb.Database (initializeTables)
-import           Chainweb.Env
+import           ChainwebDb.Database (initializeTables)
+import           ChainwebData.Env
 import           Chainweb.FillEvents (fillEvents)
 import           Chainweb.Gaps
 import           Chainweb.Listen (listen)
@@ -18,11 +19,13 @@ import           Chainweb.RichList (richList)
 import           Chainweb.Server (apiServer)
 import           Chainweb.Single (single)
 import           Control.Lens
-import           Control.Monad (unless)
+import           Control.Monad (unless,void)
 import           Data.Bifunctor
 import qualified Data.Pool as P
 import           Data.String
-import           Network.Connection
+import           Data.Text (Text)
+import           Database.PostgreSQL.Simple
+import           Network.Connection hiding (Connection)
 import           Network.HTTP.Client hiding (withConnection)
 import           Network.HTTP.Client.TLS
 import           Options.Applicative
@@ -57,7 +60,12 @@ main = do
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
           withPool pgc $ \pool -> do
-            P.withResource pool (unless (isIndexedDisabled c) . initializeTables logg ms)
+            P.withResource pool $ \conn ->
+              unless (isIndexedDisabled c) $ do
+                initializeTables logg ms conn
+                addTransactionsHeightIndex logg conn
+                addEventsHeightChainIdIdxIndex logg conn
+                addEventsHeightNameParamsIndex logg conn
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -88,6 +96,31 @@ main = do
     getLevel = \case
       Args _ _ _ _ level _ -> level
       RichListArgs _ level -> level
+
+addTransactionsHeightIndex :: LogFunctionIO Text -> Connection -> IO ()
+addTransactionsHeightIndex logg conn = do
+    logg Info "Adding height index on transactions table"
+    void $ execute_ conn stmt
+  where
+    stmt = "CREATE INDEX IF NOT EXISTS transactions_height_idx ON transactions(height);"
+
+addEventsHeightChainIdIdxIndex :: LogFunctionIO Text -> Connection -> IO ()
+addEventsHeightChainIdIdxIndex logg conn = do
+    logg Info "Adding (height, chainid, idx) index on events table"
+    void $ execute_ conn stmt
+  where
+    stmt = "CREATE INDEX IF NOT EXISTS events_height_chainid_idx ON events(height DESC, chainid ASC, idx ASC);"
+
+
+-- this is roughly "events_height_name_expr_expr1_idx" btree (height, name,
+-- (params ->> 0), (params ->> 1)) WHERE name::text = 'TRANSFER'::text
+
+addEventsHeightNameParamsIndex :: LogFunctionIO Text -> Connection -> IO ()
+addEventsHeightNameParamsIndex logg conn = do
+    logg Info "Adding \"(height,name,(params ->> 0),(params ->> 1)) WHERE name = 'TRANSFER'\" index"
+    void $ execute_ conn stmt
+  where
+    stmt = "CREATE INDEX IF NOT EXISTS events_height_name_expr_expr1_idx ON events (height desc, name, (params ->> 0), (params ->> 1)) WHERE name = 'TRANSFER';"
 
 
 {-

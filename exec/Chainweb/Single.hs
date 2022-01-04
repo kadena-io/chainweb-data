@@ -3,7 +3,7 @@ module Chainweb.Single ( single ) where
 
 import Chainweb.Api.ChainId (ChainId(..))
 import Chainweb.Api.Common (BlockHeight)
-import Chainweb.Env
+import ChainwebData.Env
 import Chainweb.Lookups
 import Chainweb.Worker (writeBlock)
 import ChainwebData.Types
