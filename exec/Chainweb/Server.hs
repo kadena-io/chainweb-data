@@ -299,12 +299,12 @@ txHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
   -> Maybe RequestKey
-  -> Handler TxDetail
+  -> Handler [TxDetail]
 txHandler _ _ Nothing = throw404 "You must specify a search string"
 txHandler logger pool (Just (RequestKey rk)) =
-  may404 $ liftIO $ P.withResource pool $ \c ->
+  liftIO $ P.withResource pool $ \c ->
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
-    r <- runSelectReturningOne $ select $ do
+    r <- runSelectReturningList $ select $ do
       tx <- all_ (_cddb_transactions database)
       blk <- all_ (_cddb_blocks database)
       guard_ (_tx_block tx `references_` blk)
@@ -349,7 +349,6 @@ txHandler logger pool (Just (RequestKey rk)) =
     unMaybeValue = maybe Null unPgJsonb
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
-    may404 a = a >>= maybe (throw404 "Tx not found") return
 
 evHandler
   :: LogFunctionIO Text
