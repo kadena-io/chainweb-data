@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "chainweb-api",
-  "branch": "master",
+  "branch": "emmanuel/make-tx-detail-api-a-list",
   "private": false,
-  "rev": "d6ad27ed16c060e18bd86213d04d15a360f88d35",
-  "sha256": "13hl6p2vr15wx7w1bsvl86hwj8zqcl8835pggbcxnfr66zacyrhf"
+  "rev": "17f673ca8e89ef3f74a921e0a599d587b056ec47",
+  "sha256": "0977qsqczy8rd4f576jjlhsgr0nk4v1v50biglgv8l8ybvcbn4y8"
 }

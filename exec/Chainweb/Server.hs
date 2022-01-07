@@ -302,7 +302,7 @@ txHandler
   -> Handler [TxDetail]
 txHandler _ _ Nothing = throw404 "You must specify a search string"
 txHandler logger pool (Just (RequestKey rk)) =
-  liftIO $ P.withResource pool $ \c ->
+  emptyList404 $ liftIO $ P.withResource pool $ \c ->
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
     r <- runSelectReturningList $ select $ do
       tx <- all_ (_cddb_transactions database)
@@ -346,6 +346,9 @@ txHandler logger pool (Just (RequestKey rk)) =
         }
 
   where
+    emptyList404 xs = xs >>= \case
+      [] -> throw404 "no txs not found"
+      ys ->  return ys
     unMaybeValue = maybe Null unPgJsonb
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
