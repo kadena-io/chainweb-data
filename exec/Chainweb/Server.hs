@@ -160,6 +160,7 @@ apiServerCut env senv cutBS = do
             :<|> searchTxs logg pool req
             :<|> evHandler logg pool req
             :<|> txHandler logg pool
+            :<|> txsHandler logg pool
           )
             :<|> statsHandler ssRef
             :<|> coinsHandler ssRef
@@ -350,6 +351,64 @@ txHandler logger pool (Just (RequestKey rk)) =
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
     may404 a = a >>= maybe (throw404 "Tx not found") return
+
+txsHandler
+  :: LogFunctionIO Text
+  -> P.Pool Connection
+  -> Maybe RequestKey
+  -> Handler [TxDetail]
+txsHandler _ _ Nothing = throw404 "You must specify a search string"
+txsHandler logger pool (Just (RequestKey rk)) =
+  emptyList404 $ liftIO $ P.withResource pool $ \c ->
+  runBeamPostgresDebug (logger Debug . T.pack) c $ do
+    r <- runSelectReturningList $ select $ do
+      tx <- all_ (_cddb_transactions database)
+      blk <- all_ (_cddb_blocks database)
+      guard_ (_tx_block tx `references_` blk)
+      guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
+      return (tx,blk)
+    evs <- runSelectReturningList $ select $ do
+       ev <- all_ (_cddb_events database)
+       guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
+       return ev
+    return $ (`fmap` r) $ \(tx,blk) -> TxDetail
+        { _txDetail_ttl = fromIntegral $ _tx_ttl tx
+        , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
+        , _txDetail_gasPrice = _tx_gasPrice tx
+        , _txDetail_nonce = _tx_nonce tx
+        , _txDetail_pactId = _tx_pactId tx
+        , _txDetail_rollback = _tx_rollback tx
+        , _txDetail_step = fromIntegral <$> _tx_step tx
+        , _txDetail_data = unMaybeValue $ _tx_data tx
+        , _txDetail_proof = _tx_proof tx
+        , _txDetail_gas = fromIntegral $ _tx_gas tx
+        , _txDetail_result =
+          maybe (unMaybeValue $ _tx_badResult tx) unPgJsonb $
+          _tx_goodResult tx
+        , _txDetail_logs = fromMaybe "" $ _tx_logs tx
+        , _txDetail_metadata = unMaybeValue $ _tx_metadata tx
+        , _txDetail_continuation = unPgJsonb <$> _tx_continuation tx
+        , _txDetail_txid = maybe 0 fromIntegral $ _tx_txid tx
+        , _txDetail_chain = fromIntegral $ _tx_chainId tx
+        , _txDetail_height = fromIntegral $ _block_height blk
+        , _txDetail_blockTime = _block_creationTime blk
+        , _txDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
+        , _txDetail_creationTime = _tx_creationTime tx
+        , _txDetail_requestKey = unDbHash $ _tx_requestKey tx
+        , _txDetail_sender = _tx_sender tx
+        , _txDetail_code = _tx_code tx
+        , _txDetail_success =
+          maybe False (const True) $ _tx_goodResult tx
+        , _txDetail_events = map toTxEvent evs
+        }
+
+  where
+    emptyList404 xs = xs >>= \case
+      [] -> throw404 "no txs not found"
+      ys ->  return ys
+    unMaybeValue = maybe Null unPgJsonb
+    toTxEvent ev =
+      TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
 
 evHandler
   :: LogFunctionIO Text
