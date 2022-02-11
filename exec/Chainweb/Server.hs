@@ -419,11 +419,12 @@ evHandler
   -> Maybe Text -- ^ fulltext search
   -> Maybe EventParam
   -> Maybe EventName
+  -> Maybe EventModuleName
   -> Handler [EventDetail]
-evHandler logger pool req limit offset qSearch qParam qName = do
+evHandler logger pool req limit offset qSearch qParam qName qModuleName = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
   liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName qModuleName
     let getTxHash = \case
          RKCB_RequestKey txhash -> unDbHash txhash
          RKCB_Coinbase -> "<coinbase>"

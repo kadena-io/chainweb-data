@@ -62,13 +62,18 @@ searchTxsQueryStmt limit offset search =
     getHeight (_,a,_,_,_,_,_) = a
     searchString = "%" <> search <> "%"
 
-eventsQueryStmt :: Maybe Limit -> Maybe Offset -> Maybe Text -> Maybe EventParam -> Maybe EventName
+eventsQueryStmt :: Maybe Limit
+                -> Maybe Offset
+                -> Maybe Text
+                -> Maybe EventParam
+                -> Maybe EventName
+                -> Maybe EventModuleName
                 -> SqlSelect
                    Postgres
                    (QExprToIdentity
                     (BlockT (QGenExpr QValueContext Postgres QBaseScope)
                     , EventT (QGenExpr QValueContext Postgres QBaseScope)))
-eventsQueryStmt limit offset qSearch qParam qName =
+eventsQueryStmt limit offset qSearch qParam qName qModuleName =
   select $
     limit_ lim $ offset_ off $ orderBy_ getOrder $ do
       blk <- all_ (_cddb_blocks database)
@@ -80,6 +85,7 @@ eventsQueryStmt limit offset qSearch qParam qName =
         )
       whenArg qName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
       whenArg qParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
+      whenArg qModuleName $ \(EventModuleName m) -> guard_ (_ev_module ev ==. val_ m)
       return (blk,ev)
   where
     whenArg p a = maybe (return ()) a p

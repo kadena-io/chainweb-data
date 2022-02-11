@@ -97,31 +97,56 @@ main = do
       Args _ _ _ _ level _ -> level
       RichListArgs _ level -> level
 
+
+data IndexCreationInfo = IndexCreationInfo
+  {
+    message :: Text
+  , statement :: Query
+  }
+
+addIndex :: IndexCreationInfo -> LogFunctionIO Text -> Connection -> IO ()
+addIndex (IndexCreationInfo m s) logg conn = do
+  logg Info m
+  void $ execute_ conn s
+
 addTransactionsHeightIndex :: LogFunctionIO Text -> Connection -> IO ()
-addTransactionsHeightIndex logg conn = do
-    logg Info "Adding height index on transactions table"
-    void $ execute_ conn stmt
-  where
-    stmt = "CREATE INDEX IF NOT EXISTS transactions_height_idx ON transactions(height);"
+addTransactionsHeightIndex =
+  addIndex $
+   IndexCreationInfo
+    {
+      message = "Adding height index on transactions table"
+    , statement = "CREATE INDEX IF NOT EXISTS transactions_height_idx ON transactions(height);"
+    }
 
 addEventsHeightChainIdIdxIndex :: LogFunctionIO Text -> Connection -> IO ()
-addEventsHeightChainIdIdxIndex logg conn = do
-    logg Info "Adding (height, chainid, idx) index on events table"
-    void $ execute_ conn stmt
-  where
-    stmt = "CREATE INDEX IF NOT EXISTS events_height_chainid_idx ON events(height DESC, chainid ASC, idx ASC);"
-
+addEventsHeightChainIdIdxIndex =
+  addIndex $
+    IndexCreationInfo
+    {
+      message = "Adding (height, chainid, idx) index on events table"
+    , statement = "CREATE INDEX IF NOT EXISTS events_height_chainid_idx ON events(height DESC, chainid ASC, idx ASC);"
+    }
 
 -- this is roughly "events_height_name_expr_expr1_idx" btree (height, name,
 -- (params ->> 0), (params ->> 1)) WHERE name::text = 'TRANSFER'::text
 
 addEventsHeightNameParamsIndex :: LogFunctionIO Text -> Connection -> IO ()
-addEventsHeightNameParamsIndex logg conn = do
-    logg Info "Adding \"(height,name,(params ->> 0),(params ->> 1)) WHERE name = 'TRANSFER'\" index"
-    void $ execute_ conn stmt
-  where
-    stmt = "CREATE INDEX IF NOT EXISTS events_height_name_expr_expr1_idx ON events (height desc, name, (params ->> 0), (params ->> 1)) WHERE name = 'TRANSFER';"
+addEventsHeightNameParamsIndex =
+  addIndex $
+    IndexCreationInfo
+    {
+      message = "Adding \"(height,name,(params ->> 0),(params ->> 1)) WHERE name = 'TRANSFER'\" index"
+    , statement = "CREATE INDEX IF NOT EXISTS events_height_name_expr_expr1_idx ON events (height desc, name, (params ->> 0), (params ->> 1)) WHERE name = 'TRANSFER';"
+    }
 
+addEventsModuleNameIndex :: LogFunctionIO Text -> Connection -> IO ()
+addEventsModuleNameIndex =
+  addIndex $
+    IndexCreationInfo
+    {
+      message = "Adding \"(height desc, chainid, module)\" index"
+    , statement = "CREATE INDEX IF NOT EXISTS events_height_chainid_module ON events (height DESC, chainid, module);"
+    }
 
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
