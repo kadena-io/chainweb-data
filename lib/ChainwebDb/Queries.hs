@@ -1,18 +1,23 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
 
-module ChainwebDb.Queries (eventsQueryStmt, searchTxsQueryStmt) where
+module ChainwebDb.Queries where
 
 ------------------------------------------------------------------------------
 import           Data.Aeson hiding (Error)
+import           Data.ByteString.Lazy (ByteString)
 import           Data.Int
 import           Data.Text (Text)
 import           Data.Time
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
+import           Database.Beam.Postgres.Syntax
+import           Database.Beam.Backend.SQL.SQL92
+import           Database.Beam.Backend.SQL
 ------------------------------------------------------------------------------
 import           ChainwebData.Api
 import           ChainwebDb.Database
@@ -96,3 +101,7 @@ eventsQueryStmt limit offset qSearch qParam qName qModuleName =
       ,asc_ $ _ev_chainid ev
       ,asc_ $ _ev_idx ev)
     searchString search = "%" <> search <> "%"
+
+_bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString
+_bytequery = \case
+  SqlSelect s -> pgRenderSyntaxScript $ fromPgSelect s
