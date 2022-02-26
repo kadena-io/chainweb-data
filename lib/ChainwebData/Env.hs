@@ -61,7 +61,7 @@ data MigrateStatus = RunMigration | DontMigrate
   deriving (Eq,Ord,Show,Read)
 
 data Args
-  = Args Command Connect UrlScheme Url LogLevel MigrateStatus
+  = Args Command Connect UrlScheme Url LogLevel MigrateStatus Bool
     -- ^ arguments for all but the richlist command
   | RichListArgs NodeDbPath LogLevel
     -- ^ arguments for the Richlist command
@@ -75,6 +75,7 @@ data Env = Env
   , _env_nodeInfo :: NodeInfo
   , _env_chainsAtHeight :: [(BlockHeight, [ChainId])]
   , _env_logger :: LogFunctionIO Text
+  , _env_queryDebugger :: Bool
   }
 
 chainStartHeights :: [(BlockHeight, [ChainId])] -> Map ChainId BlockHeight
@@ -195,6 +196,10 @@ envP = Args
   <*> urlParser "p2p" 443
   <*> logLevelParser
   <*> migrationP
+  <*> queryDebuggerP
+
+queryDebuggerP :: Parser Bool
+queryDebuggerP = flag False True (short 'q' <> long "query_debugger" <> help "Print raw queries")
 
 migrationP :: Parser MigrateStatus
 migrationP =

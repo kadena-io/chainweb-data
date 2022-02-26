@@ -156,10 +156,10 @@ apiServerCut env senv cutBS = do
   _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
   _ <- forkIO $ retryingListener env ssRef
   logg Info $ fromString "Starting chainweb-data server"
-  let serverApp req =
+  let serverApp req queryDebugger =
         ( ( recentTxsHandler ssRef
             :<|> searchTxs logg pool req
-            :<|> evHandler logg pool req
+            :<|> evHandler logg pool req queryDebugger
             :<|> txHandler logg pool
             :<|> txsHandler logg pool
           )
@@ -168,7 +168,7 @@ apiServerCut env senv cutBS = do
           )
           :<|> richlistHandler
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
-    serve theApi (serverApp req) req f
+    serve theApi (serverApp req (_env_queryDebugger env)) req f
 
 retryingListener :: Env -> IORef ServerState -> IO ()
 retryingListener env ssRef = do
@@ -415,6 +415,7 @@ evHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
   -> Request
+  -> Bool -- Query debugger
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text -- ^ fulltext search
@@ -422,10 +423,11 @@ evHandler
   -> Maybe EventName
   -> Maybe EventModuleName
   -> Handler [EventDetail]
-evHandler logger pool req limit offset qSearch qParam qName qModuleName = do
+evHandler logger pool req queryDebugger limit offset qSearch qParam qName qModuleName = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
-  liftIO $ logger Info $ fromString "Printing raw query"
-  liftIO $ logger Info $ toS $ _bytequery $ eventsQueryStmt limit offset qSearch qParam qName qModuleName
+  when queryDebugger $ do
+    liftIO $ logger Info $ fromString "Printing raw query"
+    liftIO $ logger Info $ toS $ _bytequery $ eventsQueryStmt limit offset qSearch qParam qName qModuleName
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName qModuleName
     let getTxHash = \case
