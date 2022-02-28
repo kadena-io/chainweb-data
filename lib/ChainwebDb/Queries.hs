@@ -73,12 +73,13 @@ eventsQueryStmt :: Maybe Limit
                 -> Maybe EventParam
                 -> Maybe EventName
                 -> Maybe EventModuleName
+                -> Maybe Int -- BlockHeight
                 -> SqlSelect
                    Postgres
                    (QExprToIdentity
                     (BlockT (QGenExpr QValueContext Postgres QBaseScope)
                     , EventT (QGenExpr QValueContext Postgres QBaseScope)))
-eventsQueryStmt limit offset qSearch qParam qName qModuleName =
+eventsQueryStmt limit offset qSearch qParam qName qModuleName bh =
   select $
     limit_ lim $ offset_ off $ orderBy_ getOrder $ do
       blk <- all_ (_cddb_blocks database)
@@ -91,6 +92,7 @@ eventsQueryStmt limit offset qSearch qParam qName qModuleName =
       whenArg qName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
       whenArg qParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
       whenArg qModuleName $ \(EventModuleName m) -> guard_ (_ev_module ev ==. val_ m)
+      whenArg bh $ \bh' -> guard_ (_ev_height ev >=. val_ (fromIntegral bh'))
       return (blk,ev)
   where
     whenArg p a = maybe (return ()) a p
