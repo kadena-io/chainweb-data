@@ -55,7 +55,7 @@ main = do
               logg Info $ "Constructing rich list using given db-path: " <> fromString fp
               return fp
           richList logg fp
-        Args c pgc us u _ ms qd -> do
+        Args c pgc us u _ ms -> do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
@@ -76,7 +76,7 @@ main = do
                 case mcids of
                   Nothing -> logg Error "Node did not have graph information" >> exitFailure
                   Just cids -> do
-                    let !env = Env m pool us u ni cids logg qd
+                    let !env = Env m pool us u ni cids logg
                     case c of
                       Listen -> listen env
                       Backfill as -> backfill env as
@@ -94,7 +94,7 @@ main = do
       Fill (FillArgs _ p) -> p
       _ -> False
     getLevel = \case
-      Args _ _ _ _ level _ _ -> level
+      Args _ _ _ _ level _ -> level
       RichListArgs _ level -> level
 
 
