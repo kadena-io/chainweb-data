@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "chainweb-api",
-  "branch": "emmanuel/add-event-module-name-event-search",
+  "branch": "master",
   "private": false,
-  "rev": "4d3d0ac5108254ac27408101903ee503702873ba",
-  "sha256": "1rhzsqc43lqqdl8lkkgks7bbpxk8l2ka8dv95dvmh02za5hv98ng"
+  "rev": "af6a13c10d6f186e1cd4b4d562f33101f894dec3",
+  "sha256": "1xv9hnad487a49lmqppidnmkc2jl3fbcsnm2p1aa4fp40c4gralb"
 }
