@@ -35,6 +35,7 @@ import           Data.Proxy
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as S
 import           Data.String
+import           Data.String.Conv (toS)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -419,11 +420,15 @@ evHandler
   -> Maybe Text -- ^ fulltext search
   -> Maybe EventParam
   -> Maybe EventName
+  -> Maybe EventModuleName
+  -> Maybe BlockHeight
   -> Handler [EventDetail]
-evHandler logger pool req limit offset qSearch qParam qName = do
+evHandler logger pool req limit offset qSearch qParam qName qModuleName bh = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
+  liftIO $ logger Debug $ fromString "Printing raw query"
+  liftIO $ logger Debug $ toS $ _bytequery $ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh
   liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh
     let getTxHash = \case
          RKCB_RequestKey txhash -> unDbHash txhash
          RKCB_Coinbase -> "<coinbase>"
