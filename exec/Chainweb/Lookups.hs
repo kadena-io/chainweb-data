@@ -17,6 +17,7 @@ module Chainweb.Lookups
   , mkBlockEvents'
   , mkCoinbaseEvents
   , mkTransactionSigners
+  , mkTransferRows
   , bpwoMinerKeys
 
   , ErrorType(..)
@@ -43,6 +44,7 @@ import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Transfer
 import           Control.Applicative
 import           Control.Error.Util (hush)
 import           Control.Lens
@@ -57,8 +59,10 @@ import           Data.Foldable
 import           Data.Int
 import           Data.Maybe
 import           Data.Serialize.Get (runGet)
+import           Data.Scientific (toRealFloat)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
@@ -204,10 +208,53 @@ mkBlockEvents' height cid blockhash pl =
     mkPair p = ( DbHash $ hashB64U $ CW._transaction_hash $ fst p
                , mkTxEvents height cid blockhash p)
 
+mkBlockEventsWithCreationTime :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [(DbHash TxHash, UTCTime, [Event])]
+mkBlockEventsWithCreationTime height cid blockhash pl = map mkTriple tos
+  where
+    tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
+    mkTriple p = (DbHash $ hashB64U $ CW._transaction_hash $ fst p
+                 , posixSecondsToUTCTime $ _chainwebMeta_creationTime $ _pactCommand_meta $ CW._transaction_cmd $ fst p
+                 , mkTxEvents height cid blockhash p)
+
 mkBlockEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
   where
     (cbes, txes) = mkBlockEvents' height cid blockhash pl
+
+mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> M.Map Int Int -> [Transfer]
+mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
+    let xs = mkBlockEventsWithCreationTime height cid blockhash pl
+    in case M.lookup cid' eventMinHeightMap of
+          Just minHeight | height >= fromIntegral minHeight -> concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) ->
+                            flip traverse evs $ \ev ->
+                              withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER") $
+                                    Transfer
+                                      {
+                                        _tr_creationtime = creationtime
+                                      , _tr_block = BlockId blockhash
+                                      , _tr_requestkey = txhash
+                                      , _tr_chainid = fromIntegral cid'
+                                      , _tr_height = height
+                                      , _tr_idx = _ev_idx ev
+                                      , _tr_name = _ev_module ev
+                                      , _tr_from_acct = case ith 0 <$> unwrap $ _ev_params ev of
+                                          Just (String s) -> s
+                                          _ -> error "mkTransferRows: from_account is not a string"
+                                      , _tr_to_acct = case ith 1 <$> unwrap $ _ev_params ev of
+                                          Just (String s) -> s
+                                          _ -> error "mkTransferRows: to_account is not a string"
+                                      , _tr_amount = case ith 2 <$> unwrap $ _ev_params ev of
+                                          Just (Number n) -> toRealFloat n
+                                          Just (Object o) -> case HM.lookup "decimal" o of
+                                            Just (Number v) -> toRealFloat v
+                                            _ -> error "mkTransferRows: amount is not a decimal"
+                                          _ -> error "mkTransferRows: amount is not a decimal"
+                                      }
+          _ -> []
+  where
+    unwrap (PgJSONB a) = a
+    ith n = listToMaybe . drop (min 0 $ pred n)
+    withJust p a = if p then Just a else Nothing
 
 mkTransactionSigners :: CW.Transaction -> [Signer]
 mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
