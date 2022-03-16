@@ -25,6 +25,7 @@ import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Transfer
 import           Control.Lens (iforM_)
 import           Control.Retry
 import qualified Data.ByteString as B
@@ -44,8 +45,8 @@ import           System.Logger hiding (logg)
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> [Signer] -> IO ()
-writes pool b ks ts es ss = P.withResource pool $ \c -> withTransaction c $ do
+writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> [Signer] -> [Transfer] -> IO ()
+writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ do
      runBeamPostgres c $ do
         -- Write the Block if unique --
         runInsert
@@ -69,14 +70,17 @@ writes pool b ks ts es ss = P.withResource pool $ \c -> withTransaction c $ do
         runInsert
           $ insert (_cddb_signers database) (insertValues ss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        runInsert
+          $ insert (_cddb_transfers database) (insertValues tf)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
         --   (_block_chainId b)
         --   (_block_height b)
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
-batchWrites :: P.Pool Connection -> Bool -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> IO ()
-batchWrites pool indexesDisabled bs kss tss ess sss = P.withResource pool $ \c -> withTransaction c $ do
+batchWrites :: P.Pool Connection -> Bool -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
+batchWrites pool indexesDisabled bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
     runBeamPostgres c $ do
       -- Write the Blocks if unique
       runInsert
@@ -99,6 +103,9 @@ batchWrites pool indexesDisabled bs kss tss ess sss = P.withResource pool $ \c -
           $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         runInsert
           $ insert (_cddb_signers database) (insertValues $ concat sss)
+          $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        runInsert
+          $ insert (_cddb_transfers database) (insertValues $ concat tfs)
           $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
   where
     {- the type system won't allow me to simply inline the "other" expression -}
@@ -127,9 +134,10 @@ writeBlock env pool count bh = do
           !t = mkBlockTransactions b pl
           !es = mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl
           !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
+          !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl undefined
           !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
-      writes pool b k t es ss
+      writes pool b k t es ss tf
   where
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
@@ -147,13 +155,17 @@ writeBlocks env pool disableIndexesPred count bhs = do
               !ms = _blockPayloadWithOutputs_minerData <$> pls
               !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
               !tss = M.intersectionWith (flip mkBlockTransactions) pls bs
+              !tfs = M.intersectionWith
+                      (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl undefined)
+                      pls
+                      (makeBlockMap bhs')
               !ess = M.intersectionWith
                   (\pl bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl)
                   pls
                   (makeBlockMap bhs')
               !sss = M.intersectionWith (\pl _ -> concat $ mkTransactionSigners . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
-          batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss)
+          batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
           atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 

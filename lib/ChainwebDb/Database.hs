@@ -26,6 +26,7 @@ import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Transfer
 import qualified Data.Pool as P
 import           Data.Proxy
 import           Data.Text (Text)
@@ -45,6 +46,7 @@ data ChainwebDataDb f = ChainwebDataDb
   , _cddb_minerkeys :: f (TableEntity MinerKeyT)
   , _cddb_events :: f (TableEntity EventT)
   , _cddb_signers :: f (TableEntity SignerT)
+  , _cddb_transfers :: f (TableEntity TransferT)
   }
   deriving stock (Generic)
   deriving anyclass (Database be)
@@ -127,6 +129,18 @@ database = defaultDbSettings `withDbModification` dbModification
     , _signer_addr = "addr"
     , _signer_caps = "caps"
     , _signer_sig = "sig"
+    }
+  , _cddb_transfers = modifyEntityName modTableName <>
+    modifyTableFields tableModification
+    { _tr_creationtime = "creationtime"
+    , _tr_requestkey = "requestkey"
+    , _tr_chainid = "chainid"
+    , _tr_height = "height"
+    , _tr_idx = "idx"
+    , _tr_name = "name"
+    , _tr_from_acct = "from_acct"
+    , _tr_to_acct = "to_acct"
+    , _tr_amount = "amount"
     }
   }
 
