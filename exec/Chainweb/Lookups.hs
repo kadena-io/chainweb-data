@@ -227,7 +227,7 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
     in case M.lookup cid' eventMinHeightMap of
           Just minHeight | height >= fromIntegral minHeight -> concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) ->
                             flip traverse evs $ \ev ->
-                              withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER") $
+                              withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && length (unwrap (_ev_params ev)) == 3) $
                                     Transfer
                                       {
                                         _tr_creationtime = creationtime
