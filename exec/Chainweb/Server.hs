@@ -246,6 +246,7 @@ recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ r
 serverHeaderHandler :: Env -> IORef ServerState -> PowHeader -> IO ()
 serverHeaderHandler env ssRef ph@(PowHeader h _) = do
   let pool = _env_dbConnPool env
+  let ni = _env_nodeInfo env
   let chain = _blockHeader_chainId h
   let height = _blockHeader_height h
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
@@ -272,7 +273,7 @@ serverHeaderHandler env ssRef ph@(PowHeader h _) = do
       mapM_ (logg Debug . fromString . show) tos
 
       atomicModifyIORef' ssRef f
-      insertNewHeader pool ph pl
+      insertNewHeader ni pool ph pl
 
 
 instance BeamSqlBackendIsString Postgres (Maybe Text)

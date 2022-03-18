@@ -23,6 +23,8 @@ module Chainweb.Lookups
   , ErrorType(..)
   , ApiError(..)
   , handleRequest
+  -- * Miscelaneous
+  , makeEventsMinHeightMap
   ) where
 
 import           Chainweb.Api.BlockHeader
@@ -221,13 +223,60 @@ mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
   where
     (cbes, txes) = mkBlockEvents' height cid blockhash pl
 
+makeEventsMinHeightMap :: T.Text -> M.Map Int Int
+makeEventsMinHeightMap "mainnet01" = M.fromList $ zip [0..19]
+        [ 1138112
+        , 1139138
+        , 1140236
+        , 1142680
+        , 1141799
+        , 1140911
+        , 1142677
+        , 1140909
+        , 1140021
+        , 1139393
+        , 1143563
+        , 1141795
+        , 1141798
+        , 1144460
+        , 1138269
+        , 1138267
+        , 1144454
+        , 1139140
+        , 1140032
+        , 1140026
+        ]
+makeEventsMinHeightMap "testnet04" = M.fromList $ zip [0..19]
+        [ 666936
+        , 725664
+        , 725664
+        , 725664
+        , 1951241
+        , 1951240
+        , 1951239
+        , 1951240
+        , 1951239
+        , 1951240
+        , 1951239
+        , 1951240
+        , 1951239
+        , 1951240
+        , 1951240
+        , 1951241
+        , 1951241
+        , 1951240
+        , 1951241
+        , 1951240
+        ]
+makeEventsMinHeightMap version = error $ printf "makeEventsMinHeightMap: canont make map with this version %s" (T.unpack version)
+
 mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> M.Map Int Int -> [Transfer]
 mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
     let xs = mkBlockEventsWithCreationTime height cid blockhash pl
     in case M.lookup cid' eventMinHeightMap of
           Just minHeight | height >= fromIntegral minHeight -> concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) ->
                             flip traverse evs $ \ev ->
-                              withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && length (unwrap (_ev_params ev)) == 3) $
+                              withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && fastLengthCheck 3 (unwrap (_ev_params ev))) $
                                     Transfer
                                       {
                                         _tr_creationtime = creationtime
@@ -237,13 +286,13 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
                                       , _tr_height = height
                                       , _tr_idx = _ev_idx ev
                                       , _tr_name = _ev_module ev
-                                      , _tr_from_acct = case ith 0 <$> unwrap $ _ev_params ev of
+                                      , _tr_from_acct = case ith 0 $ unwrap $ _ev_params ev of
                                           Just (String s) -> s
                                           _ -> error "mkTransferRows: from_account is not a string"
-                                      , _tr_to_acct = case ith 1 <$> unwrap $ _ev_params ev of
+                                      , _tr_to_acct = case ith 1 $ unwrap $ _ev_params ev of
                                           Just (String s) -> s
                                           _ -> error "mkTransferRows: to_account is not a string"
-                                      , _tr_amount = case ith 2 <$> unwrap $ _ev_params ev of
+                                      , _tr_amount = case ith 2 $ unwrap $ _ev_params ev of
                                           Just (Number n) -> toRealFloat n
                                           Just (Object o) -> case HM.lookup "decimal" o of
                                             Just (Number v) -> toRealFloat v
@@ -255,6 +304,7 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
     unwrap (PgJSONB a) = a
     ith n = listToMaybe . drop (min 0 $ pred n)
     withJust p a = if p then Just a else Nothing
+    fastLengthCheck n = null . drop n
 
 mkTransactionSigners :: CW.Transaction -> [Signer]
 mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]

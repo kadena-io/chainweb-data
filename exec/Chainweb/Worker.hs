@@ -15,6 +15,7 @@ import           Chainweb.Api.BlockHeader
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Hash
+import           Chainweb.Api.NodeInfo
 import           ChainwebDb.Database
 import           ChainwebData.Env
 import           Chainweb.Lookups
@@ -134,7 +135,8 @@ writeBlock env pool count bh = do
           !t = mkBlockTransactions b pl
           !es = mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl
           !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
-          !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl undefined
+          evmap = makeEventsMinHeightMap (_nodeInfo_chainwebVer $ _env_nodeInfo env)
+          !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl evmap
           !k = bpwoMinerKeys pl
       atomicModifyIORef' count (\n -> (n+1, ()))
       writes pool b k t es ss tf
@@ -155,8 +157,9 @@ writeBlocks env pool disableIndexesPred count bhs = do
               !ms = _blockPayloadWithOutputs_minerData <$> pls
               !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
               !tss = M.intersectionWith (flip mkBlockTransactions) pls bs
+              evmap = makeEventsMinHeightMap (_nodeInfo_chainwebVer $ _env_nodeInfo env)
               !tfs = M.intersectionWith
-                      (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl undefined)
+                      (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl evmap)
                       pls
                       (makeBlockMap bhs')
               !ess = M.intersectionWith
