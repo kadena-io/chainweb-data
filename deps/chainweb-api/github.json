@@ -3,6 +3,6 @@
   "repo": "chainweb-api",
   "branch": "accounts-events-on-db@tx-hashing",
   "private": false,
-  "rev": "5d24011a6ddbf30a925f707ef216496209ef04bb",
-  "sha256": "1ccndd7bs3pp4rg835r16ibbkin6mxxx3yvrvx5l93ai4ldxpzkq"
+  "rev": "a18389bb43f480238aee44398239e1b311adee41",
+  "sha256": "1gj10kz6qx0p7z4gb3bgzdlx40mb74l7sv0sgscbs66bkas35529"
 }

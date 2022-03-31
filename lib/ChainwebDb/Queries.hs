@@ -26,6 +26,7 @@ import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Transfer
 ------------------------------------------------------------------------------
 
 searchTxsQueryStmt
@@ -117,23 +118,18 @@ accountQueryStmt
     -> SqlSelect
     Postgres
     (QExprToIdentity
-    (BlockT (QGenExpr QValueContext Postgres QBaseScope)
-    , EventT (QGenExpr QValueContext Postgres QBaseScope)))
+    (TransferT (QGenExpr QValueContext Postgres QBaseScope)))
 accountQueryStmt limit offset token account chain =
     select $
       limit_ lim $ offset_ off $ orderBy_ getOrder $ do
-        blk <- all_ (_cddb_blocks database)
-        ev <- all_ (_cddb_events database)
-        guard_ (_ev_block ev `references_` blk)
-        guard_ ((_ev_params ev ->># val_ 0) ==. val_ account ||. (_ev_params ev ->># val_ 1) ==. val_ account)
-        guard_ (_ev_name ev ==. val_ "TRANSFER")
-        guard_ (_ev_qualName ev ==. val_ (token <> ".TRANSFER"))
-        guard_ (_ev_chainid ev ==. val_ (fromIntegral chain))
-        return (blk, ev)
+        tr <- all_ (_cddb_transfers database)
+        guard_ (_tr_from_acct tr ==. val_ account ||. _tr_to_acct tr ==. val_ account)
+        guard_ (_tr_name tr ==. val_ token)
+        guard_ (_tr_chainid tr ==. val_ (fromIntegral chain))
+        return tr
   where
     lim = maybe 10 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
-    getOrder (_,ev) =
-      (desc_ $ _ev_height ev
-      ,asc_ $ _ev_chainid ev
-      ,asc_ $ _ev_idx ev)
+    getOrder tr =
+      (desc_ $ _tr_height tr
+      ,asc_ $ _tr_idx tr)

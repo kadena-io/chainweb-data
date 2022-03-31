@@ -68,11 +68,14 @@ import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
 import           ChainwebData.EventDetail
+import           ChainwebData.AccountDetail
 import           ChainwebData.Pagination
 import           ChainwebData.TxDetail
 import           ChainwebData.TxSummary
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.Common
 import           ChainwebDb.Types.DbHash
+import           ChainwebDb.Types.Transfer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
 ------------------------------------------------------------------------------
@@ -421,23 +424,21 @@ accountHandler
   -> Int -- ^ chain identifier
   -> Maybe Limit
   -> Maybe Offset
-  -> Handler [EventDetail]
+  -> Handler [AccountDetail]
 accountHandler logger pool token account chain limit offset =
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt limit offset token account chain
-    let getTxHash = \case
-          RKCB_RequestKey txhash -> unDbHash txhash
-          RKCB_Coinbase -> "<coinbase>"
-    return $ (`map` r) $ \(blk,ev) -> EventDetail
-      { _evDetail_name = _ev_qualName ev
-      , _evDetail_params = unPgJsonb $ _ev_params ev
-      , _evDetail_moduleHash = _ev_moduleHash ev
-      , _evDetail_chain = fromIntegral $ _ev_chainid ev
-      , _evDetail_height = fromIntegral $ _block_height blk
-      , _evDetail_blockTime = _block_creationTime blk
-      , _evDetail_blockHash = unDbHash $ _block_hash blk
-      , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
-      , _evDetail_idx = fromIntegral $ _ev_idx ev
+    return $ (`map` r) $ \tr -> AccountDetail
+      { _acDetail_name = _tr_name tr
+      , _acDetail_chainid = fromIntegral $ _tr_chainid tr
+      , _acDetail_height = fromIntegral $ _tr_height tr
+      , _acDetail_blockHash = _ $ _tr_block tr
+      , _acDetail_requestKey = getTxHash $ _tr_requestkey tr
+      , _acDetail_idx = fromIntegral $ _tr_idx tr
+      , _acDetail_creationTime = _tr_creationtime tr
+      , _acDetail_amount = _tr_amount tr
+      , _acDetail_fromAccount = _tr_from_acct tr
+      , _acDetail_toAccount = _tr_to_acct tr
       }
 
 evHandler
@@ -458,9 +459,6 @@ evHandler logger pool req limit offset qSearch qParam qName qModuleName bh = do
   liftIO $ logger Debug $ toS $ _bytequery $ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh
-    let getTxHash = \case
-         RKCB_RequestKey txhash -> unDbHash txhash
-         RKCB_Coinbase -> "<coinbase>"
     return $ (`map` r) $ \(blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
       , _evDetail_params = unPgJsonb $ _ev_params ev

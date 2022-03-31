@@ -21,13 +21,13 @@ import Data.Time.Clock (UTCTime)
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
-import ChainwebDb.Types.DbHash
+import ChainwebDb.Types.Common
 ------------------------------------------------------------------------------
 data TransferT f = Transfer
   {
     _tr_creationtime :: C f UTCTime
   , _tr_block :: PrimaryKey BlockT f
-  , _tr_requestkey :: C f (DbHash TxHash)
+  , _tr_requestkey :: C f ReqKeyOrCoinbase
   , _tr_chainid :: C f Int64
   , _tr_height :: C f Int64
   , _tr_idx :: C f Int64
@@ -56,7 +56,7 @@ type Transfer = TransferT Identity
 type TransferId = PrimaryKey TransferT Identity
 
 instance Table TransferT where
-  data PrimaryKey TransferT f = TransferId (PrimaryKey BlockT f) (C f (DbHash TxHash)) (C f Int64) (C f Int64)
+  data PrimaryKey TransferT f = TransferId (PrimaryKey BlockT f) (C f ReqKeyOrCoinbase) (C f Int64) (C f Int64)
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = TransferId <$> _tr_block <*> _tr_requestkey <*> _tr_chainid <*> _tr_idx

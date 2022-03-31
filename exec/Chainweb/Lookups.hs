@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -42,6 +43,7 @@ import qualified Chainweb.Api.Transaction as CW
 import           ChainwebData.Env
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.Common
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Signer
@@ -224,7 +226,8 @@ mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
     (cbes, txes) = mkBlockEvents' height cid blockhash pl
 
 makeEventsMinHeightMap :: T.Text -> M.Map Int Int
-makeEventsMinHeightMap "mainnet01" = M.fromList $ zip [0..19]
+makeEventsMinHeightMap = \case
+  "mainnet01" -> M.fromList $ zip [0..19]
         [ 1138112
         , 1139138
         , 1140236
@@ -246,7 +249,7 @@ makeEventsMinHeightMap "mainnet01" = M.fromList $ zip [0..19]
         , 1140032
         , 1140026
         ]
-makeEventsMinHeightMap "testnet04" = M.fromList $ zip [0..19]
+  "testnet04" -> M.fromList $ zip [0..19]
         [ 666936
         , 725664
         , 725664
@@ -268,7 +271,7 @@ makeEventsMinHeightMap "testnet04" = M.fromList $ zip [0..19]
         , 1951241
         , 1951240
         ]
-makeEventsMinHeightMap version = error $ printf "makeEventsMinHeightMap: canont make map with this version %s" (T.unpack version)
+  version -> error $ printf "makeEventsMinHeightMap: canont make map with this version %s" (T.unpack version)
 
 mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> M.Map Int Int -> [Transfer]
 mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
@@ -281,7 +284,7 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
                                       {
                                         _tr_creationtime = creationtime
                                       , _tr_block = BlockId blockhash
-                                      , _tr_requestkey = txhash
+                                      , _tr_requestkey = RKCB_RequestKey txhash
                                       , _tr_chainid = fromIntegral cid'
                                       , _tr_height = height
                                       , _tr_idx = _ev_idx ev

@@ -68,6 +68,7 @@ library
     ChainwebDb.Database
     ChainwebDb.Queries
     ChainwebDb.Types.Block
+    ChainwebDb.Types.Common
     ChainwebDb.Types.DbHash
     ChainwebDb.Types.Event
     ChainwebDb.Types.MinerKey
