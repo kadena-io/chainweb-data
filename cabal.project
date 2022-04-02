@@ -16,7 +16,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-api.git
-    tag: 5d24011a6ddbf30a925f707ef216496209ef04bb
+    tag: a18389bb43f480238aee44398239e1b311adee41
 
 source-repository-package
     type: git
