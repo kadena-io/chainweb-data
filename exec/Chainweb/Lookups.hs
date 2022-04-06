@@ -297,10 +297,10 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
                                           _ -> error "mkTransferRows: to_account is not a string"
                                       , _tr_amount = case ith 2 $ unwrap $ _ev_params ev of
                                           Just (Number n) -> toRealFloat n
-                                          Just (Object o) -> case HM.lookup "decimal" o of
+                                          Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
                                             Just (Number v) -> toRealFloat v
-                                            _ -> error "mkTransferRows: amount is not a decimal"
-                                          _ -> error "mkTransferRows: amount is not a decimal"
+                                            _ -> error "mkTransferRows: amount is not a decimal or int"
+                                          _ -> error "mkTransferRows: amount is not a decimal or int"
                                       }
           _ -> []
   where
