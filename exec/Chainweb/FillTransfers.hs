@@ -8,7 +8,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Chainweb.FillTransfers ( fillTransfers, eventSelector ) where
+module Chainweb.FillTransfers ( fillTransfers ) where
 
 import           BasePrelude hiding (insert, range, second)
 

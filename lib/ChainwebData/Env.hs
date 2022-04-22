@@ -169,6 +169,7 @@ data Command
     | Fill FillArgs
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
+    | FillTransfers
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
@@ -289,6 +290,8 @@ commands = hsubparser
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
        (progDesc "Event Worker - Fills missing events"))
+  <> command "fill-transfers" (info (pure FillTransfers)
+       (progDesc "Transefr Worker - Fills an empty transfers table"))
   )
 
 progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a

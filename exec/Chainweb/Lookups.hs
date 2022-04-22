@@ -212,8 +212,8 @@ mkBlockEvents' height cid blockhash pl =
     mkPair p = ( DbHash $ hashB64U $ CW._transaction_hash $ fst p
                , mkTxEvents height cid blockhash p)
 
-mkBlockEventsWithCreationTime :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [(DbHash TxHash, UTCTime, [Event])]
-mkBlockEventsWithCreationTime height cid blockhash pl = map mkTriple tos
+mkBlockEventsWithCreationTime :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ((Maybe UTCTime, [Event]), [(DbHash TxHash, UTCTime, [Event])])
+mkBlockEventsWithCreationTime height cid blockhash pl = (mkCoinbaseEventsWithCreationTime height cid blockhash pl, map mkTriple tos)
   where
     tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
     mkTriple p = (DbHash $ hashB64U $ CW._transaction_hash $ fst p
@@ -275,39 +275,68 @@ makeEventsMinHeightMap = \case
 
 mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> M.Map Int Int -> [Transfer]
 mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
-    let xs = mkBlockEventsWithCreationTime height cid blockhash pl
+    let (coinbaseEvs, evs) = mkBlockEventsWithCreationTime height cid blockhash pl
     in case M.lookup cid' eventMinHeightMap of
-          Just minHeight | height >= fromIntegral minHeight -> concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) ->
-                            flip traverse evs $ \ev ->
-                              withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && fastLengthCheck 3 (unwrap (_ev_params ev))) $
-                                    Transfer
-                                      {
-                                        _tr_creationtime = creationtime
-                                      , _tr_block = BlockId blockhash
-                                      , _tr_requestkey = RKCB_RequestKey txhash
-                                      , _tr_chainid = fromIntegral cid'
-                                      , _tr_height = height
-                                      , _tr_idx = _ev_idx ev
-                                      , _tr_name = _ev_module ev
-                                      , _tr_from_acct = case ith 0 $ unwrap $ _ev_params ev of
-                                          Just (String s) -> s
-                                          _ -> error "mkTransferRows: from_account is not a string"
-                                      , _tr_to_acct = case ith 1 $ unwrap $ _ev_params ev of
-                                          Just (String s) -> s
-                                          _ -> error "mkTransferRows: to_account is not a string"
-                                      , _tr_amount = case ith 2 $ unwrap $ _ev_params ev of
-                                          Just (Number n) -> toRealFloat n
-                                          Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
-                                            Just (Number v) -> toRealFloat v
-                                            _ -> error "mkTransferRows: amount is not a decimal or int"
-                                          _ -> error "mkTransferRows: amount is not a decimal or int"
-                                      }
+          Just minHeight | height >= fromIntegral minHeight -> createNonCoinBaseTransfers evs ++ createCoinBaseTransfers coinbaseEvs
           _ -> []
   where
     unwrap (PgJSONB a) = a
     ith n = listToMaybe . drop (min 0 $ pred n)
     withJust p a = if p then Just a else Nothing
     fastLengthCheck n = null . drop n
+    createCoinBaseTransfers (creationtime, evs) = do
+      evs <&> \ev ->
+        Transfer
+          {
+            _tr_creationtime = fromJust creationtime -- This should always exist!
+          , _tr_block = BlockId blockhash
+          , _tr_requestkey = RKCB_Coinbase
+          , _tr_chainid = fromIntegral cid'
+          , _tr_height = height
+          , _tr_idx = _ev_idx ev
+          , _tr_name = _ev_module ev
+          , _tr_from_acct =
+              case ith 0 $ unwrap $ _ev_params ev of
+                Just (String s) -> s
+                _ -> error "mkTransferRows: from_account is not a string"
+          , _tr_to_acct =
+              case ith 1 $ unwrap $ _ev_params ev of
+                Just (String s) -> s
+                _ -> error "mkTransferRows: to_account is not a string"
+          , _tr_amount = case ith 2 $ unwrap $ _ev_params ev of
+                Just (Number n) -> toRealFloat n
+                Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
+                  Just (Number v) -> toRealFloat v
+                  _ -> error "mkTransferRows: amount is not a decimal or int"
+                _ -> error "mkTransferRows: amount is not a decimal or int"
+          }
+    createNonCoinBaseTransfers xs =
+        concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) -> flip traverse evs $ \ev ->
+          withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && fastLengthCheck 3 (unwrap (_ev_params ev))) $
+                Transfer
+                  {
+                    _tr_creationtime = creationtime
+                  , _tr_block = BlockId blockhash
+                  , _tr_requestkey = RKCB_RequestKey txhash
+                  , _tr_chainid = fromIntegral cid'
+                  , _tr_height = height
+                  , _tr_idx = _ev_idx ev
+                  , _tr_name = _ev_module ev
+                  , _tr_from_acct =
+                    case ith 0 $ unwrap $ _ev_params ev of
+                      Just (String s) -> s
+                      _ -> error "mkTransferRows: from_account is not a string"
+                  , _tr_to_acct =
+                    case ith 1 $ unwrap $ _ev_params ev of
+                      Just (String s) -> s
+                      _ -> error "mkTransferRows: to_account is not a string"
+                  , _tr_amount = case ith 2 $ unwrap $ _ev_params ev of
+                      Just (Number n) -> toRealFloat n
+                      Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
+                        Just (Number v) -> toRealFloat v
+                        _ -> error "mkTransferRows: amount is not a decimal or int"
+                      _ -> error "mkTransferRows: amount is not a decimal or int"
+                  }
 
 mkTransactionSigners :: CW.Transaction -> [Signer]
 mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
@@ -331,6 +360,20 @@ mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
     <&> \ev -> mkEvent cid height blockhash Nothing ev 0
   where
     coinbaseTO (Coinbase t) = t
+
+mkCoinbaseEventsWithCreationTime :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> (Maybe UTCTime, [Event])
+mkCoinbaseEventsWithCreationTime height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
+    & coinbaseTO
+    & \tout -> ( getBlockTime tout, mkEvents tout)
+  where
+    coinbaseTO (Coinbase t) = t
+    mkEvents tout = _toutEvents tout
+      <&> \ev -> mkEvent cid height blockhash Nothing ev 0
+    getBlockTime tout = do
+      meta <- _toutMetaData tout
+      -- the block time is given in terms of microseconds
+      meta ^? key "blockTime" . _Integer . to (posixSecondsToUTCTime . fromInteger . (* 1000))
+
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
