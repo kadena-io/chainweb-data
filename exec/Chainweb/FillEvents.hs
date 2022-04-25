@@ -110,7 +110,7 @@ fillEventsCut env args et cutBS = do
                       let write header bpwo = do
                             let curHash = hashToDbHash $ _blockHeader_hash header
                                 height = fromIntegral $ _blockHeader_height header
-                            writePayload pool (ChainId $ fromIntegral chain) curHash height bpwo
+                            writePayload pool (ChainId $ fromIntegral chain) curHash height (_nodeInfo_chainwebVer $ _env_nodeInfo env) bpwo
                             atomicModifyIORef' counter (\n -> (n+1, ()))
                       forM_ bpwos (uncurry write)
               forM_ delay threadDelay

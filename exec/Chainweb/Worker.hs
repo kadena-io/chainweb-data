@@ -196,16 +196,21 @@ writePayload
   -> ChainId
   -> DbHash BlockHash
   -> Int64
+  -> T.Text
   -> BlockPayloadWithOutputs
   -> IO ()
-writePayload pool chain blockHash blockHeight bpwo = do
+writePayload pool chain blockHash blockHeight version bpwo = do
   let (cbEvents, txEvents) = mkBlockEvents' blockHeight chain blockHash bpwo
+      tfs = mkTransferRows blockHeight chain blockHash bpwo (makeEventsMinHeightMap version)
 
   P.withResource pool $ \c ->
     withTransaction c $ do
-      runBeamPostgres c $
+      runBeamPostgres c $ do
         runInsert
           $ insert (_cddb_events database) (insertValues $ cbEvents ++ concatMap snd txEvents)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        runInsert
+          $ insert (_cddb_transfers database) (insertValues tfs)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       withSavepoint c $ runBeamPostgres c $
         forM_ txEvents $ \(reqKey, events) ->

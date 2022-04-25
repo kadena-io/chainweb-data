@@ -16,6 +16,7 @@ module Chainweb.Lookups
   , mkBlockTransactions
   , mkBlockEvents
   , mkBlockEvents'
+  , mkBlockEventsWithCreationTime
   , mkCoinbaseEvents
   , mkTransactionSigners
   , mkTransferRows
