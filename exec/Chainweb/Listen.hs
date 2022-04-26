@@ -66,17 +66,17 @@ getOutputsAndInsert env ph@(PowHeader h _) = do
              (hashB64U $ _blockHeader_hash h)
       logg Info $ fromString $ show e
     Right pl -> do
-      insertNewHeader (_env_nodeInfo env) (_env_dbConnPool env) ph pl
+      insertNewHeader (_nodeInfo_chainwebVer $ _env_nodeInfo env) (_env_dbConnPool env) ph pl
       logg Info (fromString $ printf "%d" (unChainId $ _blockHeader_chainId h)) >> hFlush stdout
 
-insertNewHeader :: NodeInfo -> P.Pool Connection -> PowHeader -> BlockPayloadWithOutputs -> IO ()
-insertNewHeader ni pool ph pl = do
+insertNewHeader :: T.Text -> P.Pool Connection -> PowHeader -> BlockPayloadWithOutputs -> IO ()
+insertNewHeader version pool ph pl = do
   let !m = _blockPayloadWithOutputs_minerData pl
       !b = asBlock ph m
       !t = mkBlockTransactions b pl
       !es = mkBlockEvents (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) pl
       !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
-      evmap = makeEventsMinHeightMap $ _nodeInfo_chainwebVer ni
+      evmap = makeEventsMinHeightMap version
       !tf = mkTransferRows (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) pl evmap
       !k = bpwoMinerKeys pl
   writes pool b k t es ss tf

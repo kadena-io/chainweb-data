@@ -276,7 +276,7 @@ serverHeaderHandler env ssRef ph@(PowHeader h _) = do
       mapM_ (logg Debug . fromString . show) tos
 
       atomicModifyIORef' ssRef f
-      insertNewHeader ni pool ph pl
+      insertNewHeader (_nodeInfo_chainwebVer ni) pool ph pl
 
 
 instance BeamSqlBackendIsString Postgres (Maybe Text)
