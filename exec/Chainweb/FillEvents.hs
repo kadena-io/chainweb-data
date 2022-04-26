@@ -67,53 +67,52 @@ fillEventsCut env args et cutBS = do
   counter <- newIORef 0
 
   when (et == CoinbaseAndTx) $ do
-    let startingHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo env of
-          "mainnet01" -> 1722501
-          "testnet04" -> 1261001
-          _ -> error "Chainweb version: Unknown"
-    gaps <- getCoinbaseGaps env startingHeight
-    mapM_ (logg Debug . fromString . show) gaps
-    let numMissingCoinbase = sum $ map (\(_,a,b) -> b - a - 1) gaps
-    logg Info $ fromString $ printf "Got %d gaps" (length gaps)
+    let version = _nodeInfo_chainwebVer $ _env_nodeInfo env
+        withJust m f =  maybe (die $ printf "fillEventsCut failed because we don't know how to work this version %s" version) f m
+    withJust (eventsMinHeight version) $ \startingHeight -> do
+      gaps <- getCoinbaseGaps env (fromIntegral startingHeight)
+      mapM_ (logg Debug . fromString . show) gaps
+      let numMissingCoinbase = sum $ map (\(_,a,b) -> b - a - 1) gaps
+      logg Info $ fromString $ printf "Got %d gaps" (length gaps)
 
-    if null gaps
-      then do
-        logg Info "There are no missing coinbase events on any of the chains!"
-        exitSuccess
-      else do
-        logg Info $ fromString $ printf "Filling coinbase transactions of %d blocks." numMissingCoinbase
-        race_ (progress logg counter $ fromIntegral numMissingCoinbase) $ do
-          forM gaps $ \(chain, low, high) -> do
-            -- TODO Maybe make the chunk size configurable
-            forM (rangeToDescGroupsOf 100 (Low $ fromIntegral low) (High $ fromIntegral high)) $ \(chunkLow, chunkHigh) -> do
-              headersBetween env (ChainId $ fromIntegral chain, chunkLow, chunkHigh) >>= \case
-                Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show (chunkLow, chunkHigh)) (show e)
-                Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show (chunkLow, chunkHigh)
-                Right headers -> do
-                  let payloadHashes = M.fromList $ map (\header -> (hashToDbHash $ _blockHeader_payloadHash header, header)) headers
-                  payloadWithOutputsBatch env (ChainId $ fromIntegral chain) payloadHashes >>= \case
-                    Left e -> do
-                      -- TODO Possibly also check for "key not found" message
-                      if (apiError_type e == ClientError)
-                        then do
-                          forM_ (filter (\header -> curHeight - (fromIntegral $ _blockHeader_height header) > 120) headers) $ \header -> do
-                            logg Debug $ fromString $ printf "Setting numEvents to 0 for all transactions with block hash %s" (unDbHash $ hashToDbHash $ _blockHeader_hash header)
-                            P.withResource pool $ \c ->
-                              withTransaction c $ runBeamPostgres c $
-                                runUpdate
-                                  $ update (_cddb_transactions database)
-                                    (\tx -> _tx_numEvents tx <-. val_ (Just 0))
-                                    (\tx -> _tx_block tx ==. val_ (BlockId (hashToDbHash $ _blockHeader_hash header)))
-                            logg Debug $ fromString $ show e
-                        else logg Error $ fromString $ printf "no payloads for header range (%d, %d) on chain %d" (coerce chunkLow :: Int) (coerce chunkHigh :: Int) chain
-                    Right bpwos -> do
-                      let write header bpwo = do
-                            let curHash = hashToDbHash $ _blockHeader_hash header
-                                height = fromIntegral $ _blockHeader_height header
-                            writePayload pool (ChainId $ fromIntegral chain) curHash height (_nodeInfo_chainwebVer $ _env_nodeInfo env) bpwo
-                            atomicModifyIORef' counter (\n -> (n+1, ()))
-                      forM_ bpwos (uncurry write)
-              forM_ delay threadDelay
+      if null gaps
+        then do
+          logg Info "There are no missing coinbase events on any of the chains!"
+          exitSuccess
+        else do
+          logg Info $ fromString $ printf "Filling coinbase transactions of %d blocks." numMissingCoinbase
+          race_ (progress logg counter $ fromIntegral numMissingCoinbase) $ do
+            forM gaps $ \(chain, low, high) -> do
+              -- TODO Maybe make the chunk size configurable
+              forM (rangeToDescGroupsOf 100 (Low $ fromIntegral low) (High $ fromIntegral high)) $ \(chunkLow, chunkHigh) -> do
+                headersBetween env (ChainId $ fromIntegral chain, chunkLow, chunkHigh) >>= \case
+                  Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show (chunkLow, chunkHigh)) (show e)
+                  Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show (chunkLow, chunkHigh)
+                  Right headers -> do
+                    let payloadHashes = M.fromList $ map (\header -> (hashToDbHash $ _blockHeader_payloadHash header, header)) headers
+                    payloadWithOutputsBatch env (ChainId $ fromIntegral chain) payloadHashes >>= \case
+                      Left e -> do
+                        -- TODO Possibly also check for "key not found" message
+                        if (apiError_type e == ClientError)
+                          then do
+                            forM_ (filter (\header -> curHeight - (fromIntegral $ _blockHeader_height header) > 120) headers) $ \header -> do
+                              logg Debug $ fromString $ printf "Setting numEvents to 0 for all transactions with block hash %s" (unDbHash $ hashToDbHash $ _blockHeader_hash header)
+                              P.withResource pool $ \c ->
+                                withTransaction c $ runBeamPostgres c $
+                                  runUpdate
+                                    $ update (_cddb_transactions database)
+                                      (\tx -> _tx_numEvents tx <-. val_ (Just 0))
+                                      (\tx -> _tx_block tx ==. val_ (BlockId (hashToDbHash $ _blockHeader_hash header)))
+                              logg Debug $ fromString $ show e
+                          else logg Error $ fromString $ printf "no payloads for header range (%d, %d) on chain %d" (coerce chunkLow :: Int) (coerce chunkHigh :: Int) chain
+                      Right bpwos -> do
+                        let write header bpwo = do
+                              let curHash = hashToDbHash $ _blockHeader_hash header
+                                  height = fromIntegral $ _blockHeader_height header
+                              writePayload pool (ChainId $ fromIntegral chain) curHash height (_nodeInfo_chainwebVer $ _env_nodeInfo env) bpwo
+                              atomicModifyIORef' counter (\n -> (n+1, ()))
+                        forM_ bpwos (uncurry write)
+                forM_ delay threadDelay
 
   where
     logg = _env_logger env
