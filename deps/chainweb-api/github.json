@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "chainweb-api",
-  "branch": "accounts-events-on-db@tx-hashing",
+  "branch": "master",
   "private": false,
-  "rev": "a18389bb43f480238aee44398239e1b311adee41",
-  "sha256": "1gj10kz6qx0p7z4gb3bgzdlx40mb74l7sv0sgscbs66bkas35529"
+  "rev": "ee6c6a69a037bcd3b74ba27cf8b58b23df86daf9",
+  "sha256": "1wv3jkrnp5xv6yzilj7g6nc70zni6hkfq90mz9qnapd5p7xs2jdv"
 }
