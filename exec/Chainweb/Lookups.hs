@@ -254,7 +254,7 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
           , _tr_chainid = fromIntegral cid'
           , _tr_height = height
           , _tr_idx = _ev_idx ev
-          , _tr_name = _ev_module ev
+          , _tr_modulename = _ev_module ev
           , _tr_from_acct =
               case ith 0 $ unwrap $ _ev_params ev of
                 Just (String s) -> s
@@ -281,7 +281,7 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
                   , _tr_chainid = fromIntegral cid'
                   , _tr_height = height
                   , _tr_idx = _ev_idx ev
-                  , _tr_name = _ev_module ev
+                  , _tr_modulename = _ev_module ev
                   , _tr_from_acct =
                     case ith 0 $ unwrap $ _ev_params ev of
                       Just (String s) -> s

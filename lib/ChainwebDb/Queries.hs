@@ -124,7 +124,7 @@ accountQueryStmt limit offset token account chain =
       limit_ lim $ offset_ off $ orderBy_ getOrder $ do
         tr <- all_ (_cddb_transfers database)
         guard_ (_tr_from_acct tr ==. val_ account ||. _tr_to_acct tr ==. val_ account)
-        guard_ (_tr_name tr ==. val_ token)
+        guard_ (_tr_modulename tr ==. val_ token)
         guard_ (_tr_chainid tr ==. val_ (fromIntegral chain))
         return tr
   where
