@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -26,7 +27,7 @@ module Chainweb.Lookups
   , ApiError(..)
   , handleRequest
   -- * Miscelaneous
-  , makeEventsMinHeightMap
+  , eventsMinHeight
   ) where
 
 import           Chainweb.Api.BlockHeader
@@ -226,60 +227,18 @@ mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
   where
     (cbes, txes) = mkBlockEvents' height cid blockhash pl
 
-makeEventsMinHeightMap :: T.Text -> M.Map Int Int
-makeEventsMinHeightMap = \case
-  "mainnet01" -> M.fromList $ zip [0..19]
-        [ 1138112
-        , 1139138
-        , 1140236
-        , 1142680
-        , 1141799
-        , 1140911
-        , 1142677
-        , 1140909
-        , 1140021
-        , 1139393
-        , 1143563
-        , 1141795
-        , 1141798
-        , 1144460
-        , 1138269
-        , 1138267
-        , 1144454
-        , 1139140
-        , 1140032
-        , 1140026
-        ]
-  "testnet04" -> M.fromList $ zip [0..19]
-        [ 666936
-        , 725664
-        , 725664
-        , 725664
-        , 1951241
-        , 1951240
-        , 1951239
-        , 1951240
-        , 1951239
-        , 1951240
-        , 1951239
-        , 1951240
-        , 1951239
-        , 1951240
-        , 1951240
-        , 1951241
-        , 1951241
-        , 1951240
-        , 1951241
-        , 1951240
-        ]
-  version -> error $ printf "makeEventsMinHeightMap: canont make map with this version %s" (T.unpack version)
+eventsMinHeight :: T.Text -> Maybe Int
+eventsMinHeight = \case
+  "mainnet01" -> Just 1_722_500
+  "testnet04" -> Just 1_261_000
+  _version -> Nothing
 
-mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> M.Map Int Int -> [Transfer]
-mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeightMap =
+mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> Int -> [Transfer]
+mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
     let (coinbaseEvs, evs) = mkBlockEventsWithCreationTime height cid blockhash pl
-    in case M.lookup cid' eventMinHeightMap of
-          Just minHeight | height >= fromIntegral minHeight -> createNonCoinBaseTransfers evs ++ createCoinBaseTransfers coinbaseEvs
-          _ -> []
+    in if height >= fromIntegral eventMinHeight
+          then createNonCoinBaseTransfers evs ++ createCoinBaseTransfers coinbaseEvs
+          else []
   where
     unwrap (PgJSONB a) = a
     ith n = listToMaybe . drop (min 0 $ pred n)

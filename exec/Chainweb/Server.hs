@@ -19,6 +19,7 @@ module Chainweb.Server where
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.ChainId
 import           Chainweb.Api.Hash
+import           Chainweb.Api.NodeInfo
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error

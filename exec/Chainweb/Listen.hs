@@ -30,6 +30,7 @@ import           Database.Beam.Postgres (Connection)
 import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
+import           System.Exit (die)
 import           System.IO (hFlush, stdout)
 import           System.Logger.Types hiding (logg)
 import           Text.Printf
@@ -76,10 +77,13 @@ insertNewHeader version pool ph pl = do
       !t = mkBlockTransactions b pl
       !es = mkBlockEvents (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) pl
       !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
-      evmap = makeEventsMinHeightMap version
-      !tf = mkTransferRows (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) pl evmap
+
       !k = bpwoMinerKeys pl
-  writes pool b k t es ss tf
+  case eventsMinHeight version of
+    Nothing -> die $ printf "insertNewHeader failed because we don't know how to work this version %s" version
+    Just minHeight -> do
+      let !tf = mkTransferRows (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) pl minHeight
+      writes pool b k t es ss tf
 
 mkRequest :: UrlScheme -> ChainwebVersion -> Request
 mkRequest us (ChainwebVersion cv) = defaultRequest
