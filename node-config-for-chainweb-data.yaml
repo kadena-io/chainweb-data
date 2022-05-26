@@ -1,0 +1,41 @@
+chainweb:
+  allowReadsInLocal: true
+  headerStream: true
+  throttling:
+    global: 1000
+
+# Less chatty logging
+logging:
+  telemetryBackend:
+    enabled: true
+    configuration:
+      handle: stdout
+      color: auto
+      format: text
+
+  backend:
+    handle: stdout
+    color: auto
+    format: text
+
+  logger:
+    log_level: info
+
+  filter:
+    rules:
+      - key: component
+        value: cut-monitor
+        level: info
+      - key: component
+        value: pact-tx-replay
+        level: info
+      - key: component
+        value: connection-manager
+        level: info
+      - key: component
+        value: miner
+        level: info
+      - key: component
+        value: local-handler
+        level: info
+    default: error
