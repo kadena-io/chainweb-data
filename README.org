@@ -110,6 +110,9 @@ chainweb:
     global: 1000
 #+end_example
 
+You can find an example node config in this repository in
+[node-config-for-chainweb-data.yaml](node-config-for-chainweb-data.yaml).
+
 ** How to run chainweb-data
    
 When running chainweb-data for the first time you should run ~chainweb-data
