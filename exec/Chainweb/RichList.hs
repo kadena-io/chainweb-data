@@ -24,6 +24,8 @@ import System.Directory
 import System.FilePath
 import System.Process
 import System.Logger.Types
+import Text.Read (readMaybe)
+import Text.Printf (printf)
 
 
 richList :: LogFunctionIO Text -> FilePath -> IO ()
@@ -59,7 +61,9 @@ richList logger fp = do
         Right (rs :: V.Vector (String,String,String)) -> do
           let go acc (acct,_,bal)
                 | bal == "balance" = acc
-                | otherwise = M.insertWith (+) acct (read @Double bal) acc
+                -- | otherwise = M.insertWith (+) acct (read @Double bal) acc
+                | otherwise = let err = error $ printf "richList: Couldn't read balance for account %s" acct
+                in M.insertWith (+) acct (maybe err id $ readMaybe @Double bal) acc
 
           let acc = Csv.encode
                 $ take 100
