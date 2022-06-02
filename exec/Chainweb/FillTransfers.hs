@@ -56,7 +56,9 @@ fillTransfers env = do
           "testnet04" -> 1261001
           _ -> error "Chainweb version: Unknown"
     maxHeights <- withDbDebug env Debug chainMaxHeights
-    mapM_ (\(cid,h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to %d." cid startingHeight (fromJust h)) maxHeights
+    let errNothing msg = maybe (error msg) id
+        heightMsg = printf "fillTransfers: Cannot get height: %s"
+    mapM_ (\(cid,h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to %d." cid startingHeight (errNothing heightMsg h)) maxHeights
     P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $
         runInsert
          $ insert (_cddb_transfers database) (insertFrom (eventSelector startingHeight))

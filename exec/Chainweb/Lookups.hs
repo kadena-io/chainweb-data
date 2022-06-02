@@ -249,7 +249,7 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
       evs <&> \ev ->
         Transfer
           {
-            _tr_creationtime = fromJust creationtime -- This should always exist!
+            _tr_creationtime = maybe (error "mkTransferRows: creationtime bug") id $ creationtime -- This should always exist!
           , _tr_block = BlockId blockhash
           , _tr_requestkey = RKCB_Coinbase
           , _tr_chainid = fromIntegral cid'
