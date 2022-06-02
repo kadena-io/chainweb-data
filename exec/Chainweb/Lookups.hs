@@ -257,14 +257,14 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
           , _tr_idx = _ev_idx ev
           , _tr_modulename = _ev_module ev
           , _tr_from_acct =
-              case ith 0 $ unwrap $ _ev_params ev of
+              case unwrap (_ev_params ev) ^? ix 0 of
                 Just (String s) -> s
                 _ -> error "mkTransferRows: from_account is not a string"
           , _tr_to_acct =
-              case ith 1 $ unwrap $ _ev_params ev of
+              case unwrap (_ev_params ev) ^? ix 1 of
                 Just (String s) -> s
                 _ -> error "mkTransferRows: to_account is not a string"
-          , _tr_amount = case ith 2 $ unwrap $ _ev_params ev of
+          , _tr_amount = case unwrap (_ev_params ev) ^? ix 2 of
                 Just (Number n) -> toRealFloat n
                 Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
                   Just (Number v) -> toRealFloat v
