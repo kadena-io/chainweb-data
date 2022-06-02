@@ -268,7 +268,7 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
                 Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
                   Just (Number v) -> toRealFloat v
                   _ -> error "mkTransferRows: amount is not a decimal or int"
-                _ -> error "mkTransferRows: amount is not a decimal or int"
+                v -> error $ printf "mkTransferRows: amount is not a decimal or int: raw value: %s" (show v)
           }
     createNonCoinBaseTransfers xs =
         concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) -> flip traverse evs $ \ev ->
