@@ -62,6 +62,7 @@ import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import           Data.Foldable
+import           Data.List (intercalate)
 import           Data.Int
 import           Data.Maybe
 import           Data.Serialize.Get (runGet)
@@ -268,7 +269,14 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
                 Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
                   Just (Number v) -> toRealFloat v
                   _ -> error "mkTransferRows: amount is not a decimal or int"
-                v -> error $ printf "mkTransferRows: amount is not a decimal or int: raw value: %s" (show v)
+                _ -> error $ "mkTransferRows: amount is not a decimal or int: debugging values value: " ++ intercalate "\n"
+                  [
+                    "blockhash: " ++ show blockhash
+                  , "chain id: " ++ show cid'
+                  , "height: " ++ show height
+                  , "module: " ++ show (_ev_module ev)
+                  , "params: " ++ show (_ev_params ev)
+                  ]
           }
     createNonCoinBaseTransfers xs =
         concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) -> flip traverse evs $ \ev ->
