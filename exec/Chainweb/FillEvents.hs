@@ -32,6 +32,7 @@ import           Control.Concurrent.Async (race_)
 import           Data.ByteString.Lazy (ByteString)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
+import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
@@ -109,7 +110,7 @@ fillEventsCut env args et cutBS = do
                         let write header bpwo = do
                               let curHash = hashToDbHash $ _blockHeader_hash header
                                   height = fromIntegral $ _blockHeader_height header
-                              writePayload pool (ChainId $ fromIntegral chain) curHash height (_nodeInfo_chainwebVer $ _env_nodeInfo env) bpwo
+                              writePayload pool (ChainId $ fromIntegral chain) curHash height (_nodeInfo_chainwebVer $ _env_nodeInfo env) (posixSecondsToUTCTime $ _blockHeader_creationTime header) bpwo
                               atomicModifyIORef' counter (\n -> (n+1, ()))
                         forM_ bpwos (uncurry write)
                 forM_ delay threadDelay

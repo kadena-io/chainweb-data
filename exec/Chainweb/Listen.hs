@@ -25,6 +25,7 @@ import qualified Data.Pool as P
 import           Data.String
 import qualified Data.Text as T
 import           Data.Text.Encoding
+import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam.Postgres (Connection)
 import           Network.HTTP.Client
@@ -82,7 +83,7 @@ insertNewHeader version pool ph pl = do
   case eventsMinHeight version of
     Nothing -> die $ printf "insertNewHeader failed because we don't know how to work this version %s" version
     Just minHeight -> do
-      let !tf = mkTransferRows (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) pl minHeight
+      let !tf = mkTransferRows (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) (posixSecondsToUTCTime $ _blockHeader_creationTime $ _hwp_header ph) pl minHeight
       writes pool b k t es ss tf
 
 mkRequest :: UrlScheme -> ChainwebVersion -> Request

@@ -35,6 +35,8 @@ import qualified Data.Map as M
 import qualified Data.Pool as P
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import           Data.Time.Clock (UTCTime)
+import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
@@ -140,7 +142,7 @@ writeBlock env pool count bh = do
           !k = bpwoMinerKeys pl
       case mEvmap of
         Just evmap -> do
-          let !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl evmap
+          let !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evmap
           atomicModifyIORef' count (\n -> (n+1, ()))
           writes pool b k t es ss tf
         Nothing -> die $ printf "writeBlock failed because we don't know how to work this version %s" version
@@ -172,7 +174,7 @@ writeBlocks env pool disableIndexesPred count bhs = do
           case mEvMinHeight of
             Nothing -> die $ printf "writeBlocks failed because we don't know how to work this version %s" version
             Just evMinHeight -> do
-              let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl evMinHeight) pls (makeBlockMap bhs')
+              let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
               batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
               atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
@@ -202,14 +204,15 @@ writePayload
   -> DbHash BlockHash
   -> Int64
   -> T.Text
+  -> UTCTime
   -> BlockPayloadWithOutputs
   -> IO ()
-writePayload pool chain blockHash blockHeight version bpwo = do
+writePayload pool chain blockHash blockHeight version creationTime bpwo = do
   let (cbEvents, txEvents) = mkBlockEvents' blockHeight chain blockHash bpwo
   case eventsMinHeight version of
     Nothing -> die $ printf "writePayload failed because we don't know how to work this version %s" version
     Just evMinHeight -> do
-      let !tfs = mkTransferRows blockHeight chain blockHash bpwo evMinHeight
+      let !tfs = mkTransferRows blockHeight chain blockHash creationTime bpwo evMinHeight
       P.withResource pool $ \c ->
         withTransaction c $ do
           runBeamPostgres c $ do

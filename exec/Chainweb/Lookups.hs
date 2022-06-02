@@ -215,8 +215,8 @@ mkBlockEvents' height cid blockhash pl =
     mkPair p = ( DbHash $ hashB64U $ CW._transaction_hash $ fst p
                , mkTxEvents height cid blockhash p)
 
-mkBlockEventsWithCreationTime :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ((Either String UTCTime, [Event]), [(DbHash TxHash, UTCTime, [Event])])
-mkBlockEventsWithCreationTime height cid blockhash pl = (mkCoinbaseEventsWithCreationTime height cid blockhash pl, map mkTriple tos)
+mkBlockEventsWithCreationTime :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ([Event], [(DbHash TxHash, UTCTime, [Event])])
+mkBlockEventsWithCreationTime height cid blockhash pl = (mkCoinbaseEvents height cid blockhash pl, map mkTriple tos)
   where
     tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
     mkTriple p = (DbHash $ hashB64U $ CW._transaction_hash $ fst p
@@ -234,22 +234,21 @@ eventsMinHeight = \case
   "testnet04" -> Just 1_261_000
   _version -> Nothing
 
-mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> Int -> [Transfer]
-mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
+mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> UTCTime -> BlockPayloadWithOutputs -> Int -> [Transfer]
+mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeight =
     let (coinbaseEvs, evs) = mkBlockEventsWithCreationTime height cid blockhash pl
     in if height >= fromIntegral eventMinHeight
           then createNonCoinBaseTransfers evs ++ createCoinBaseTransfers coinbaseEvs
           else []
   where
     unwrap (PgJSONB a) = a
-    ith n = listToMaybe . drop (min 0 $ pred n)
     withJust p a = if p then Just a else Nothing
     fastLengthCheck n = null . drop n
-    createCoinBaseTransfers (creationtime, evs) = do
+    createCoinBaseTransfers evs = do
       evs <&> \ev ->
         Transfer
           {
-            _tr_creationtime = either (error "mkTransferRows: creationtime bug") id $ creationtime -- This should always exist!
+            _tr_creationtime = creationTime
           , _tr_block = BlockId blockhash
           , _tr_requestkey = RKCB_Coinbase
           , _tr_chainid = fromIntegral cid'
@@ -291,14 +290,14 @@ mkTransferRows height cid@(ChainId cid') blockhash pl eventMinHeight =
                   , _tr_idx = _ev_idx ev
                   , _tr_modulename = _ev_module ev
                   , _tr_from_acct =
-                    case ith 0 $ unwrap $ _ev_params ev of
+                    case unwrap (_ev_params ev) ^? ix 0 of
                       Just (String s) -> s
                       _ -> error "mkTransferRows: from_account is not a string"
                   , _tr_to_acct =
-                    case ith 1 $ unwrap $ _ev_params ev of
+                    case unwrap (_ev_params ev) ^? ix 1 of
                       Just (String s) -> s
                       _ -> error "mkTransferRows: to_account is not a string"
-                  , _tr_amount = case ith 2 $ unwrap $ _ev_params ev of
+                  , _tr_amount = case unwrap (_ev_params ev) ^? ix 2 of
                       Just (Number n) -> toRealFloat n
                       Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
                         Just (Number v) -> toRealFloat v
@@ -328,23 +327,6 @@ mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
     <&> \ev -> mkEvent cid height blockhash Nothing ev 0
   where
     coinbaseTO (Coinbase t) = t
-
-mkCoinbaseEventsWithCreationTime :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> (Either String UTCTime, [Event])
-mkCoinbaseEventsWithCreationTime height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
-    & coinbaseTO
-    & \tout -> ( getBlockTime tout, mkEvents tout)
-  where
-    coinbaseTO (Coinbase t) = t
-    mkEvents tout = _toutEvents tout
-      <&> \ev -> mkEvent cid height blockhash Nothing ev 0
-    note msg = \case
-      Just v -> Right v
-      Nothing -> Left msg
-    getBlockTime tout = do
-      meta <- note "metadata doesn't exist" $ _toutMetaData tout
-      -- the block time is given in terms of microseconds
-      note "blockTime field doesn't exist" $ meta ^? key "blockTime" . _Integer . to (posixSecondsToUTCTime . fromInteger . (* 1000))
-
 
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
