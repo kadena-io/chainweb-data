@@ -69,6 +69,7 @@ import           Data.Serialize.Get (runGet)
 import           Data.Scientific (toRealFloat)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.Read as T
 import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
@@ -301,7 +302,17 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
                       Just (Number n) -> toRealFloat n
                       Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
                         Just (Number v) -> toRealFloat v
-                        _ -> error "mkTransferRows: amount is not a decimal or int"
+                        Just (String s) -> case T.double s of
+                          Left _err -> error $ printf "mkTransferRows: amount is not a parseable string %s" s
+                          Right (n,t) -> if T.null t then n else error $ printf "mkTransferRows: parsing failed, leftover text %s" t
+                        _ -> error $ "mkTransferRows: amount is not a decimal or int: debugging values value: " ++ intercalate "\n"
+                          [
+                            "blockhash: " ++ show blockhash
+                          , "chain id: " ++ show cid'
+                          , "height: " ++ show height
+                          , "module: " ++ show (_ev_module ev)
+                          , "params: " ++ show (_ev_params ev)
+                          ]
                       _ -> error "mkTransferRows: amount is not a decimal or int"
                   }
 
