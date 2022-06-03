@@ -4,6 +4,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Lookups
   ( -- * Endpoints
@@ -39,6 +40,7 @@ import           Chainweb.Api.MinerData
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
+import           Chainweb.Api.ParsedNumbers
 import           Chainweb.Api.Sig
 import qualified Chainweb.Api.Signer as CW
 import qualified Chainweb.Api.Transaction as CW
@@ -56,20 +58,18 @@ import           Control.Error.Util (hush)
 import           Control.Lens
 import           Control.Monad
 import           Data.Aeson
+import           Data.Aeson.Types
 import           Data.Aeson.Lens
 import           Data.ByteString.Lazy (ByteString,toStrict)
 import qualified Data.ByteString.Base64.URL as B64
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import           Data.Foldable
-import           Data.List (intercalate)
 import           Data.Int
 import           Data.Maybe
 import           Data.Serialize.Get (runGet)
-import           Data.Scientific (toRealFloat)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.Read as T
 import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
@@ -245,6 +245,9 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
     unwrap (PgJSONB a) = a
     withJust p a = if p then Just a else Nothing
     fastLengthCheck n = null . drop n
+    note n = \case
+      Just a -> Right a
+      Nothing -> Left n
     createCoinBaseTransfers evs = do
       evs <&> \ev ->
         Transfer
@@ -264,19 +267,10 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
               case unwrap (_ev_params ev) ^? ix 1 of
                 Just (String s) -> s
                 _ -> error "mkTransferRows: to_account is not a string"
-          , _tr_amount = case unwrap (_ev_params ev) ^? ix 2 of
-                Just (Number n) -> toRealFloat n
-                Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
-                  Just (Number v) -> toRealFloat v
-                  _ -> error "mkTransferRows: amount is not a decimal or int"
-                _ -> error $ "mkTransferRows: amount is not a decimal or int: debugging values value: " ++ intercalate "\n"
-                  [
-                    "blockhash: " ++ show blockhash
-                  , "chain id: " ++ show cid'
-                  , "height: " ++ show height
-                  , "module: " ++ show (_ev_module ev)
-                  , "params: " ++ show (_ev_params ev)
-                  ]
+          , _tr_amount = either error id $ do
+                let msg = "mkTransferRows: amount is somehow missing"
+                param <- note msg $ unwrap (_ev_params ev) ^? ix 2
+                parseEither (\v -> (fromRational @Double . toRational <$> decoder decimalCodec v) <|> (fromInteger <$> decoder integerCodec v)) param
           }
     createNonCoinBaseTransfers xs =
         concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) -> flip traverse evs $ \ev ->
@@ -291,29 +285,17 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
                   , _tr_idx = _ev_idx ev
                   , _tr_modulename = _ev_module ev
                   , _tr_from_acct =
-                    case unwrap (_ev_params ev) ^? ix 0 of
-                      Just (String s) -> s
+                    case unwrap (_ev_params ev) ^? ix 0 . _String of
+                      Just s -> s
                       _ -> error "mkTransferRows: from_account is not a string"
                   , _tr_to_acct =
-                    case unwrap (_ev_params ev) ^? ix 1 of
-                      Just (String s) -> s
+                    case unwrap (_ev_params ev) ^? ix 1 . _String of
+                      Just s -> s
                       _ -> error "mkTransferRows: to_account is not a string"
-                  , _tr_amount = case unwrap (_ev_params ev) ^? ix 2 of
-                      Just (Number n) -> toRealFloat n
-                      Just (Object o) -> case HM.lookup "decimal" o <|> HM.lookup "int" o of
-                        Just (Number v) -> toRealFloat v
-                        Just (String s) -> case T.double s of
-                          Left _err -> error $ printf "mkTransferRows: amount is not a parseable string %s" s
-                          Right (n,t) -> if T.null t then n else error $ printf "mkTransferRows: parsing failed, leftover text %s" t
-                        _ -> error $ "mkTransferRows: amount is not a decimal or int: debugging values value: " ++ intercalate "\n"
-                          [
-                            "blockhash: " ++ show blockhash
-                          , "chain id: " ++ show cid'
-                          , "height: " ++ show height
-                          , "module: " ++ show (_ev_module ev)
-                          , "params: " ++ show (_ev_params ev)
-                          ]
-                      _ -> error "mkTransferRows: amount is not a decimal or int"
+                  , _tr_amount = either error id $ do
+                      let msg = "mkTransferRows: amount is somehow missing"
+                      param <- note msg $ unwrap (_ev_params ev) ^? ix 2
+                      parseEither (\v -> (fromRational @Double . toRational <$> decoder decimalCodec v) <|> (fromInteger <$> decoder integerCodec v)) param
                   }
 
 mkTransactionSigners :: CW.Transaction -> [Signer]
