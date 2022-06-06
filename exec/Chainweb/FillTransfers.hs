@@ -41,8 +41,8 @@ fillTransfers env = do
 
     transfersNonEmpty <- withDb env $ runSelectReturningOne $ select $ pure $ exists_ (all_ (_cddb_transfers database) $> as_ @Int32 (val_ 1))
     case transfersNonEmpty of
-      Just True -> pure ()
-      Just False -> die "ERROR: transfers table does not exist"
+      Just False -> pure ()
+      Just True -> die "ERROR: transfers table already exists"
       Nothing -> die "IMPOSSIBLE: This query (SELECT EXISTS (SELECT 1 as transfers);) failed somehow."
 
     eventsTableNonEmpty <- withDb env $ runSelectReturningOne $ select $ pure $ exists_ (all_ (_cddb_events database) $> as_ @Int32 (val_ 1))
