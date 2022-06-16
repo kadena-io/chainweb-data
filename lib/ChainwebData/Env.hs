@@ -170,11 +170,12 @@ data Command
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
     | FillTransfers
+    | BackFillTransfers BackfillArgs
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
-  , _backfillArgs_eventChunkSize :: Maybe Integer
+  , _backfillArgs_chunkSize :: Maybe Int
   } deriving (Eq,Ord,Show)
 
 data FillArgs = FillArgs
