@@ -68,7 +68,7 @@ backfillTransfersCut env args = do
     let errNothing msg = maybe (error msg) id
         heightMsg = printf "backfillTransfers: Cannot get height: %s"
     mapM_ (\(cid,h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to %d." cid startingHeight (errNothing heightMsg h)) maxHeights
-    let chainRanges = map (\(cid,mh) -> (cid,) $ rangeToDescGroupsOf (fromMaybe 1000 (_backfillArgs_chunkSize args)) (Low startingHeight) (High $ fromIntegral $ fromJust mh)) maxHeights
+    let chainRanges = map (\(cid,mh) -> (cid,) $ rangeToDescGroupsOf (fromMaybe 1000 $ _backfillArgs_chunkSize args) (Low startingHeight) (High $ fromIntegral $ fromJust mh)) maxHeights
     ref <- newIORef 0
     let strat = case delay of
           Nothing -> Par'
@@ -76,8 +76,8 @@ backfillTransfersCut env args = do
     let total = fromIntegral $ sum (subtract (fromIntegral startingHeight) . fromJust . snd <$> maxHeights)
     catch (race_ (progress logg ref total) $ traverseConcurrently_ strat (\(cid,l) -> transferInserter ref cid l) chainRanges)
       $ \(e :: SomeException) -> do
-        printf "Depending on the error you may need to run backfill for events %s" (show e)
-        exitFailure
+          printf "Depending on the error you may need to run backfill for events %s" (show e)
+          exitFailure
 
   where
     delay = _backfillArgs_delayMicros args
