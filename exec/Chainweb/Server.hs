@@ -422,7 +422,7 @@ accountHandler
   -> Maybe Limit
   -> Maybe Offset
   -> Handler [AccountDetail]
-accountHandler _logger _pool _token _accountName _chain _limit _offset = throw404 "accounts endpoint has yet to implemented"
+accountHandler _logger _pool _token _accountName _chain _limit _offset = throw404 "accounts endpoint has yet to be implemented"
 
 evHandler
   :: LogFunctionIO Text
