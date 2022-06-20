@@ -67,6 +67,7 @@ import           Chainweb.Lookups
 import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
+import           ChainwebData.AccountDetail
 import           ChainwebData.EventDetail
 import           ChainwebData.Pagination
 import           ChainwebData.TxDetail
@@ -162,6 +163,7 @@ apiServerCut env senv cutBS = do
             :<|> evHandler logg pool req
             :<|> txHandler logg pool
             :<|> txsHandler logg pool
+            :<|> accountHandler logg pool
           )
             :<|> statsHandler ssRef
             :<|> coinsHandler ssRef
@@ -410,6 +412,17 @@ txsHandler logger pool (Just (RequestKey rk)) =
     unMaybeValue = maybe Null unPgJsonb
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
+
+accountHandler
+  :: LogFunctionIO Text
+  -> P.Pool Connection
+  -> Text
+  -> Text
+  -> Int
+  -> Maybe Limit
+  -> Maybe Offset
+  -> Handler [AccountDetail]
+accountHandler _logger _pool _token _accountName _chain _limit _offset = throw404 "accounts endpoint has yet to be implemented"
 
 evHandler
   :: LogFunctionIO Text
