@@ -59,21 +59,26 @@ backfillTransfersCut env args = do
           "testnet04" -> 1_261_001
           _ -> error "Chainweb version: Unknown"
 
-    maxHeights <- withDbDebug env Debug chainMaxHeights
-    let checkMaxHeights =
-          maybe False (== _nodeInfo_numChains (_env_nodeInfo env)) . foldr (\(_,mh) acc -> (const . succ) <$> acc <*> mh) (Just 0)
-    unless (checkMaxHeights maxHeights) $ do
+    minHeights <- withDbDebug env Debug chainMinHeights
+    let checkMinHeights =
+          maybe False (== _nodeInfo_numChains (_env_nodeInfo env)) . foldr go (Just 0)
+        go (_,mh) (Just acc) =
+          case mh of
+            Just _ ->  Just $ acc + 1
+            Nothing -> Nothing
+        go _ Nothing = Nothing
+    unless (checkMinHeights minHeights) $ do
       logg Error "Make sure transfers table has an entry for every chain id!"
       exitFailure
     let errNothing msg = maybe (error msg) id
         heightMsg = printf "backfillTransfers: Cannot get height: %s"
-    mapM_ (\(cid,h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to %d." cid startingHeight (errNothing heightMsg h)) maxHeights
-    let chainRanges = map (\(cid,mh) -> (cid,) $ rangeToDescGroupsOf (fromMaybe 1000 $ _backfillArgs_chunkSize args) (Low startingHeight) (High $ fromIntegral $ fromJust mh)) maxHeights
+    mapM_ (\(cid,h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to %d." cid startingHeight (errNothing heightMsg h)) minHeights
+    let chainRanges = map (\(cid,mh) -> (cid,) $ rangeToDescGroupsOf (fromMaybe 1000 $ _backfillArgs_chunkSize args) (Low startingHeight) (High $ fromIntegral $ fromJust mh)) minHeights
     ref <- newIORef 0
     let strat = case delay of
           Nothing -> Par'
           Just _ -> Seq
-    let total = fromIntegral $ sum (subtract (fromIntegral startingHeight) . fromJust . snd <$> maxHeights)
+    let total = fromIntegral $ sum (subtract (fromIntegral startingHeight) . fromJust . snd <$> minHeights)
     catch (race_ (progress logg ref total) $ traverseConcurrently_ strat (\(cid,l) -> transferInserter ref cid l) chainRanges)
       $ \(e :: SomeException) -> do
           printf "Depending on the error you may need to run backfill for events %s" (show e)
@@ -91,6 +96,8 @@ backfillTransfersCut env args = do
             $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         atomicModifyIORef' count (\c -> (c + fromIntegral nr, ()))
 
+chainMinHeights :: Pg [(Int64, Maybe Int64)]
+chainMinHeights = runSelectReturningList $ select $ aggregate_ (\t -> (group_ (_tr_chainid t), min_ (_tr_height t))) (all_ (_cddb_transfers database))
 
 chainMaxHeights :: Pg [(Int64, Maybe Int64)]
 chainMaxHeights = runSelectReturningList $ select $ aggregate_ (\e -> (group_ (_tr_chainid e), max_ (_tr_height e))) (all_ (_cddb_transfers database))

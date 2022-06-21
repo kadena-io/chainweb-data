@@ -293,6 +293,8 @@ commands = hsubparser
        (progDesc "Event Worker - Fills missing events"))
   <> command "fill-transfers" (info (pure FillTransfers)
        (progDesc "Transfer Worker - Fills an empty transfers table"))
+  <> command "backfill-transfers" (info (BackFillTransfers <$> bfArgsP)
+       (progDesc "Backfill transfer table entries"))
   )
 
 progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a
