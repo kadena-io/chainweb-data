@@ -22,6 +22,7 @@ import           ChainwebDb.Types.Transaction
 import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 
+import           Data.Coerce (coerce)
 import qualified Data.Pool as P
 
 import           Database.Beam hiding (insert)
@@ -106,6 +107,7 @@ eventSelector :: Int64 -> Int64 -> Int64 -> Q Postgres ChainwebDataDb s (Transfe
 eventSelector startingHeight endingHeight chainId = do
     ev <- all_ (_cddb_events database)
     t <- all_ (_cddb_transactions database)
+    guard_ $ _ev_requestkey ev ==. coerce (_tx_requestKey t)
     guard_ $ _ev_height ev <. val_ endingHeight
     guard_ $ _ev_height ev >=. val_ startingHeight
     guard_ $ _ev_chainid ev ==. val_ chainId
