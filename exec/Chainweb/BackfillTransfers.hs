@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -15,19 +16,23 @@ import           Chainweb.Api.NodeInfo
 import           ChainwebDb.Database
 import           ChainwebData.Env
 import           ChainwebData.Types
+import           ChainwebDb.Types.Common
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Transfer
 import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent.Async (race_)
+import           Control.Lens hiding ((<.))
 import           Control.Scheduler hiding (traverse_)
 
-import           Data.Coerce (coerce)
+import qualified Data.Aeson as A
+import           Data.Aeson.Lens
 import qualified Data.Pool as P
+import           Data.Scientific (toRealFloat)
+import           Data.Time.Clock
 
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import qualified Database.Beam.Postgres.Conduit as PC
 import           Database.Beam.Postgres.Full
 import           Database.Beam.Query.DataTypes ()
 import           Database.PostgreSQL.Simple.Transaction
@@ -91,23 +96,92 @@ backfillTransfersCut env args = do
     pool = _env_dbConnPool env
     transferInserter :: IORef Int -> Int64 -> [(Low,High)] -> IO ()
     transferInserter count cid ranges = forM_ ranges $ \(Low startingHeight, High endingHeight) -> do
-        nr <- P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $ do
+        num <- P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $ do
           evs <- runSelectReturningList $ select $ eventSelector (fromIntegral startingHeight) (fromIntegral endingHeight) cid
-          PC.runInsert c $ insert (_cddb_transfers database) (insertValues evs)
+          let (rkEvs, coinbaseEvs) = splitEvents evs
+          ts1 <- runSelectReturningList $ select $ creationTimesByRequestKeysNonCoinbase (fromIntegral startingHeight) (fromIntegral endingHeight) cid rkEvs
+          ts2 <- runSelectReturningList $ select $ creationTimesByRequestKeysCoinbase (fromIntegral startingHeight) (fromIntegral endingHeight) cid coinbaseEvs
+          let tfs1 = createTransfers rkEvs ts1
+              tfs2 = createTransfers coinbaseEvs ts2
+          runInsert $
+            insert (_cddb_transfers database) (insertValues tfs1)
             $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-        atomicModifyIORef' count (\c -> (c + fromIntegral nr, ()))
+          runInsert $
+            insert (_cddb_transfers database) (insertValues tfs2)
+            $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+          return $ length tfs1 + length tfs2
+        atomicModifyIORef' count (\c -> (c + num, ()))
 
 chainMinHeights :: Pg [(Int64, Maybe Int64)]
 chainMinHeights = runSelectReturningList $ select $ aggregate_ (\t -> (group_ (_tr_chainid t), min_ (_tr_height t))) (all_ (_cddb_transfers database))
 
-chainMaxHeights :: Pg [(Int64, Maybe Int64)]
-chainMaxHeights = runSelectReturningList $ select $ aggregate_ (\e -> (group_ (_tr_chainid e), max_ (_tr_height e))) (all_ (_cddb_transfers database))
+_chainMaxHeights :: Pg [(Int64, Maybe Int64)]
+_chainMaxHeights = runSelectReturningList $ select $ aggregate_ (\e -> (group_ (_tr_chainid e), max_ (_tr_height e))) (all_ (_cddb_transfers database))
 
-eventSelector :: Int64 -> Int64 -> Int64 -> Q Postgres ChainwebDataDb s (TransferT (QExpr Postgres s))
+createTransfers :: [Event] -> [UTCTime] -> [Transfer]
+createTransfers = zipWith go
+  where
+    amount ev = case _ev_params ev ^? to unwrap . ix 2 . key "decimal" of
+      Just (A.Number n) -> toRealFloat n
+      _ -> case _ev_params ev ^? to unwrap . ix 2 . key "int" of
+        Just (A.Number n) -> toRealFloat n
+        _ -> maybe (error $ msg "amount") toRealFloat $ _ev_params ev ^? to unwrap . ix 2 . _Number
+    msg :: String -> String
+    msg = printf "Chainweb.BackfillTransfers.createTrantsfer: This entry (%s) was not found"
+    from_acct ev = fromMaybe (error $ msg "from_acct") $ _ev_params ev ^? to unwrap . ix 0 . _String
+    to_acct ev = fromMaybe (error $ msg "to_acct") $ _ev_params ev ^? to unwrap . ix 1 . _String
+    unwrap (PgJSONB a) = a
+    go ev creationTime = Transfer
+      {
+        _tr_creationtime = creationTime
+      , _tr_block = _ev_block ev
+      , _tr_requestkey = _ev_requestkey ev
+      , _tr_chainid = _ev_chainid ev
+      , _tr_height = _ev_height ev
+      , _tr_idx = _ev_idx ev
+      , _tr_modulename = _ev_module ev
+      , _tr_from_acct = from_acct ev
+      , _tr_to_acct = to_acct ev
+      , _tr_amount = amount ev
+      }
+
+splitEvents :: [Event] -> ([Event],[Event])
+splitEvents = partitionEithers . map split
+  where
+    split ev = case _ev_requestkey ev of
+      RKCB_RequestKey _ -> Left ev
+      RKCB_Coinbase -> Right ev
+
+-- including the bounding heights triggers index usage (specifically the transactions_height_idx index)
+creationTimesByRequestKeysNonCoinbase :: Int64 -> Int64 -> Int64 -> [Event] -> Q Postgres ChainwebDataDb s (C (QExpr Postgres s) UTCTime)
+creationTimesByRequestKeysNonCoinbase startingHeight endingHeight cid evs = do
+    t <- all_ (_cddb_transactions database)
+    guard_ $ _tx_height t <. val_ endingHeight
+    guard_ $ _tx_height t >=. val_ startingHeight
+    guard_ $ _tx_chainId t ==. val_ cid
+    guard_ $ _tx_requestKey t `in_` (val_ <$> (getDbHashes $ map _ev_requestkey evs))
+    return $ _tx_creationTime t
+  where
+    getDbHashes = mapMaybe $ \case
+      RKCB_RequestKey t -> Just t
+      _ -> Nothing
+
+creationTimesByRequestKeysCoinbase :: Int64 -> Int64 -> Int64 -> [Event] -> Q Postgres ChainwebDataDb s (C (QExpr Postgres s) UTCTime)
+creationTimesByRequestKeysCoinbase startingHeight endingHeight cid evs = do
+    t <- all_ (_cddb_transactions database)
+    guard_ $ _tx_height t <. val_ endingHeight
+    guard_ $ _tx_height t >=. val_ startingHeight
+    guard_ $ _tx_chainId t ==. val_ cid
+    guard_ $ _tx_block t `in_` (val_ <$> (getBlockHashes $ map (\ev -> (_ev_block ev, _ev_requestkey ev)) evs))
+    return $ _tx_creationTime t
+  where
+    getBlockHashes  = mapMaybe $ \case
+      (bhash, RKCB_Coinbase) -> Just bhash
+      _ -> Nothing
+
+eventSelector :: Int64 -> Int64 -> Int64 -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
 eventSelector startingHeight endingHeight chainId = do
     ev <- all_ (_cddb_events database)
-    t <- all_ (_cddb_transactions database)
-    guard_ $ _ev_requestkey ev ==. coerce (_tx_requestKey t)
     guard_ $ _ev_height ev <. val_ endingHeight
     guard_ $ _ev_height ev >=. val_ startingHeight
     guard_ $ _ev_chainid ev ==. val_ chainId
@@ -118,22 +192,4 @@ eventSelector startingHeight endingHeight chainId = do
       pgJsonTypeOf (_ev_params ev -># val_ 2) ==. (val_ "number")
       ||. pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "decimal") ==. (val_ "number")
       ||. pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "int") ==. (val_ "number")
-    let from_acct = _ev_params ev -># val_ 0
-        to_acct = _ev_params ev -># val_ 1
-        -- this is ugly, but we have to do things the sql way
-        amount = ifThenElse_ (pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "decimal") ==. val_ "number")
-                (_ev_params ev -># val_ 2 ->$ "decimal")
-                 (ifThenElse_ (pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "int") ==. val_ "number") (_ev_params ev -># val_ 2 ->$ "int")
-                        (_ev_params ev -># val_ 2))
-    return Transfer
-      { _tr_creationtime = _tx_creationTime t
-      , _tr_block = _ev_block ev
-      , _tr_requestkey = _ev_requestkey ev
-      , _tr_chainid = _ev_chainid ev
-      , _tr_height = _ev_height ev
-      , _tr_idx = _ev_idx ev
-      , _tr_modulename = _ev_module ev
-      , _tr_from_acct = cast_ from_acct (varchar Nothing)
-      , _tr_to_acct = cast_ to_acct (varchar Nothing)
-      , _tr_amount =  cast_ amount double
-      }
+    return ev
