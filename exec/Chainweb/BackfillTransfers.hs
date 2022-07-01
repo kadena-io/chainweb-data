@@ -15,14 +15,13 @@ import           BasePrelude hiding (insert, range, second)
 import           Chainweb.Api.NodeInfo
 import           ChainwebDb.Database
 import           ChainwebData.Env
-import           ChainwebData.Types
 import           ChainwebDb.Types.Common
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Transfer
 import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent.Async (race_)
-import           Control.Lens hiding ((<.))
+import           Control.Lens hiding ((<.), reuse)
 import           Control.Scheduler hiding (traverse_)
 
 import qualified Data.Aeson as A
@@ -31,6 +30,7 @@ import           Data.Map (Map)
 import qualified Data.Map as M
 import qualified Data.Pool as P
 import           Data.Scientific (toRealFloat)
+import           Data.Text (Text)
 import           Data.Time.Clock
 
 import           Database.Beam hiding (insert)
@@ -62,8 +62,8 @@ backfillTransfersCut env args = do
         exitFailure
       Nothing -> die "IMPOSSIBLE: This query (SELECT EXISTS (SELECT 1 as events);) failed somehow."
 
-    let startingHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo env of
-          "mainnet01" -> 1_722_501 :: Int
+    let startingHeight :: Int64 = case _nodeInfo_chainwebVer $ _env_nodeInfo env of
+          "mainnet01" -> 1_722_501
           "testnet04" -> 1_261_001
           _ -> error "Chainweb version: Unknown"
 
@@ -80,32 +80,36 @@ backfillTransfersCut env args = do
       exitFailure
     let minMinHeights = minimum $ mapMaybe snd $ minHeights
     -- get number of entries that actually need to be filled
-    trueTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ aggregate_ (\_ -> as_ @Int64 countAll_) (eventSelector (fromIntegral startingHeight) minMinHeights Nothing)
+    trueTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ aggregate_ (\_ -> as_ @Int64 countAll_) (eventSelector startingHeight minMinHeights)
     unless (isJust trueTotal) $ die "Cannot get the number of entries needed to fill transfers table"
     logg Info $ fromString $ printf  "Filling transfers table on all chains from height %d to height %d." startingHeight minMinHeights
-    let chunks = rangeToDescGroupsOf (fromMaybe 5000 $ _backfillArgs_chunkSize args) (Low startingHeight) (High $ fromIntegral minMinHeights)
+    -- let chunks = rangeToDescGroupsOf (fromMaybe 5000 $ _backfillArgs_chunkSize args) (Low startingHeight) (High $ fromIntegral minMinHeights)
+    let chunks = limitsAndOffsets (maybe 1000 fromIntegral $ _backfillArgs_chunkSize args) startingHeight minMinHeights
+
     ref <- newIORef 0
     let strat = case delay of
           Nothing -> Par'
           Just _ -> Seq
-    return ()
-    catch (race_ (progress logg ref (fromIntegral $ fromJust $ trueTotal)) $ traverseConcurrently_ strat (transferInserter ref) chunks)
+    catch (race_ (progress logg ref (fromIntegral $ fromJust $ trueTotal)) $ traverseConcurrently_ strat (transferInserter ref startingHeight minMinHeights) chunks)
       $ \(e :: SomeException) -> do
-          printf "Depending on the error you may need to run backfill for events %s" (show e)
+          printf "Depending on the error you may need to run backfill for events\n%s\n" (show e)
           exitFailure
 
   where
     delay = _backfillArgs_delayMicros args
     logg = _env_logger env
     pool = _env_dbConnPool env
-    transferInserter :: IORef Int -> (Low,High) -> IO ()
-    transferInserter count (Low startingHeight, High endingHeight) = do
+    transferInserter :: IORef Int -> Int64 -> Int64 -> (Int64, Int64) -> IO ()
+    transferInserter count startingHeight endingHeight (lim, off) = bool id (trackTime logg) True $ do
         P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $ do
-          evs <- runSelectReturningList $ select $ eventSelector (fromIntegral startingHeight) (fromIntegral endingHeight) Nothing
+          evs <- runSelectReturningList $ select $ eventSelector' startingHeight endingHeight (fromIntegral lim) (fromIntegral off)
           let (rkEvs, coinbaseEvs) = splitEvents evs
           -- I'm grouping the events by chainid because there could request key collisons across chains
           iforM_ (groupEvByChain rkEvs) $ \cid evs' -> do
-            ts <- runSelectReturningList $ select $ creationTimesByRequestKeysNonCoinbase (fromIntegral startingHeight) (fromIntegral endingHeight) cid evs'
+            -- maximumBy/minimumBy (comparing _ev_height) evs' has type EventT Identity instead of Int64 ... strange
+            let minHeight = minimum $ map _ev_height evs'
+                maxHeight = maximum $ map _ev_height evs'
+            ts <- runSelectReturningList $ select $ creationTimesByRequestKeysNonCoinbase minHeight maxHeight cid evs'
             let tfs = createTransfers evs' ts
             runInsert $
               insert (_cddb_transfers database) (insertValues tfs)
@@ -113,12 +117,31 @@ backfillTransfersCut env args = do
             liftIO $ atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
           -- I'm grouping the events by chainid because there could request key collisons across chains
           iforM_ (groupEvByChain coinbaseEvs) $ \cid evs' -> do
-            ts <- runSelectReturningList $ select $ creationTimesByRequestKeysCoinbase (fromIntegral startingHeight) (fromIntegral endingHeight) cid evs'
+            let minHeight = minimum $ map _ev_height evs'
+                maxHeight = maximum $ map _ev_height evs'
+            ts <- runSelectReturningList $ select $ creationTimesByRequestKeysCoinbase minHeight maxHeight cid evs'
             let tfs = createTransfers evs' ts
             runInsert $
               insert (_cddb_transfers database) (insertValues tfs)
               $ onConflict (conflictingFields primaryKey) onConflictDoNothing
             liftIO $ atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
+
+trackTime :: LogFunctionIO Text -> IO a -> IO a
+trackTime logg action = do
+    t1 <- getCurrentTime
+    val <- action
+    t2 <- getCurrentTime
+    logg Info $ fromString $ printf "Transfer insert actions took %s" $ show $ diffUTCTime t2 t1
+    return val
+
+limitsAndOffsets :: (Ord a, Num a) => a -> a -> a -> [(a,a)]
+limitsAndOffsets chunkSize l h = ($ []) $ go l h
+  where
+    go low high
+      | chunkSize <= 0 = id
+      | low < high && low + chunkSize <= high = (go (low + chunkSize) high) .  ((chunkSize, low) :)
+      | low < high && low + chunkSize > high = (go (low + chunkSize) high) . ((high-low,low) :)
+      | otherwise = id
 
 chainMinHeights :: Pg [(Int64, Maybe Int64)]
 chainMinHeights = runSelectReturningList $ select $ aggregate_ (\t -> (group_ (_tr_chainid t), min_ (_tr_height t))) (all_ (_cddb_transfers database))
@@ -165,11 +188,11 @@ splitEvents = partitionEithers . map split
 
 -- including the bounding heights triggers index usage (specifically the transactions_height_idx index)
 creationTimesByRequestKeysNonCoinbase :: Int64 -> Int64 -> Int64 -> [Event] -> Q Postgres ChainwebDataDb s (C (QExpr Postgres s) UTCTime)
-creationTimesByRequestKeysNonCoinbase startingHeight endingHeight cid evs = do
+creationTimesByRequestKeysNonCoinbase minHeight maxHeight cid evs = do
     t <- all_ (_cddb_transactions database)
-    guard_ $ _tx_height t <. val_ endingHeight
-    guard_ $ _tx_height t >=. val_ startingHeight
     guard_ $ _tx_chainId t ==. val_ cid
+    guard_ $ _tx_height t <. val_ maxHeight
+    guard_ $ _tx_height t >=. val_ minHeight
     guard_ $ _tx_requestKey t `in_` (val_ <$> (getDbHashes $ map _ev_requestkey evs))
     return $ _tx_creationTime t
   where
@@ -178,10 +201,10 @@ creationTimesByRequestKeysNonCoinbase startingHeight endingHeight cid evs = do
       _ -> Nothing
 
 creationTimesByRequestKeysCoinbase :: Int64 -> Int64 -> Int64 -> [Event] -> Q Postgres ChainwebDataDb s (C (QExpr Postgres s) UTCTime)
-creationTimesByRequestKeysCoinbase startingHeight endingHeight cid evs = do
+creationTimesByRequestKeysCoinbase minHeight maxHeight cid evs = do
     t <- all_ (_cddb_transactions database)
-    guard_ $ _tx_height t <. val_ endingHeight
-    guard_ $ _tx_height t >=. val_ startingHeight
+    guard_ $ _tx_height t <. val_ maxHeight
+    guard_ $ _tx_height t >=. val_ minHeight
     guard_ $ _tx_chainId t ==. val_ cid
     guard_ $ _tx_block t `in_` (val_ <$> (getBlockHashes $ map (\ev -> (_ev_block ev, _ev_requestkey ev)) evs))
     return $ _tx_creationTime t
@@ -190,17 +213,19 @@ creationTimesByRequestKeysCoinbase startingHeight endingHeight cid evs = do
       (bhash, RKCB_Coinbase) -> Just bhash
       _ -> Nothing
 
-eventSelector :: Int64 -> Int64 -> Maybe Int64 -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
-eventSelector startingHeight endingHeight chainId = do
-    ev <- all_ (_cddb_events database)
-    guard_ $ _ev_height ev <. val_ endingHeight
-    guard_ $ _ev_height ev >=. val_ startingHeight
-    maybe (pure ()) (\cid -> guard_ $ _ev_chainid ev ==. val_ cid) chainId
-    guard_ $ _ev_name ev ==. val_ "TRANSFER"
-    guard_ $ pgJsonTypeOf (_ev_params ev -># val_ 0) ==. (val_ "string")
-    guard_ $ pgJsonTypeOf (_ev_params ev -># val_ 1) ==. (val_ "string")
-    guard_ $
-      pgJsonTypeOf (_ev_params ev -># val_ 2) ==. (val_ "number")
-      ||. pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "decimal") ==. (val_ "number")
-      ||. pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "int") ==. (val_ "number")
-    return ev
+eventSelector :: Int64 -> Int64 -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
+eventSelector startingHeight endingHeight = do
+      ev <- all_ (_cddb_events database)
+      guard_ $ _ev_height ev <. val_ endingHeight
+      guard_ $ _ev_height ev >=. val_ startingHeight
+      guard_ $ _ev_name ev ==. val_ "TRANSFER"
+      guard_ $ pgJsonTypeOf (_ev_params ev -># val_ 0) ==. (val_ "string")
+      guard_ $ pgJsonTypeOf (_ev_params ev -># val_ 1) ==. (val_ "string")
+      guard_ $
+        pgJsonTypeOf (_ev_params ev -># val_ 2) ==. (val_ "number")
+        ||. pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "decimal") ==. (val_ "number")
+        ||. pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "int") ==. (val_ "number")
+      return ev
+
+eventSelector' :: Int64 -> Int64 -> Integer -> Integer -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
+eventSelector' startingHeight endingHeight limit offset = limit_ limit $ offset_ offset $ eventSelector startingHeight endingHeight
