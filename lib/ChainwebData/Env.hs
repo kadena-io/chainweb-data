@@ -170,7 +170,7 @@ data Command
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
     | FillTransfers
-    | BackFillTransfers BackfillArgs
+    | BackFillTransfers Bool BackfillArgs
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
@@ -293,7 +293,7 @@ commands = hsubparser
        (progDesc "Event Worker - Fills missing events"))
   <> command "fill-transfers" (info (pure FillTransfers)
        (progDesc "Transfer Worker - Fills an empty transfers table"))
-  <> command "backfill-transfers" (info (BackFillTransfers <$> bfArgsP)
+  <> command "backfill-transfers" (info (BackFillTransfers <$> flag False True (long "disable-indexes" <> help "Delete indexes on transfers table") <*> bfArgsP)
        (progDesc "Backfill transfer table entries"))
   )
 

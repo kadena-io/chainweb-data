@@ -82,7 +82,7 @@ main = do
                     case c of
                       Listen -> listen env
                       Backfill as -> backfill env as
-                      BackFillTransfers as -> backfillTransfersCut env as
+                      BackFillTransfers indexP as -> backfillTransfersCut env indexP as
                       Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et

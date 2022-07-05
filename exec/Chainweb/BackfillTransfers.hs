@@ -36,8 +36,10 @@ import           Data.Time.Clock
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full
+import           Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple.Types
 import           Database.Beam.Query.DataTypes ()
-import           Database.PostgreSQL.Simple.Transaction
+-- import           Database.PostgreSQL.Simple.Transaction
 
 import           System.Logger.Types hiding (logg)
 
@@ -45,8 +47,8 @@ import           System.Logger.Types hiding (logg)
 -- 1. check if transfers table is actually empty. If so, wait until server fills some rows near "top" to start backfill
 -- 2. check if events table has any coinbase gaps. If so,  tell user to fill those gaps
 -- 3. Fill from last known max height on each chain all the way back to events activation height(s)
-backfillTransfersCut :: Env -> BackfillArgs -> IO ()
-backfillTransfersCut env args = do
+backfillTransfersCut :: Env -> Bool -> BackfillArgs -> IO ()
+backfillTransfersCut env disableIndexesPred args = do
 
     withDb env (runSelectReturningOne $ select $ pure $ exists_ (all_ (_cddb_transfers database) $> as_ @Int32 (val_ 1))) >>= \case
       Just False -> do
@@ -90,17 +92,18 @@ backfillTransfersCut env args = do
     let strat = case delay of
           Nothing -> Par'
           Just _ -> Seq
-    catch (race_ (progress logg ref (fromIntegral $ fromJust $ trueTotal)) $ traverseConcurrently_ strat (transferInserter ref startingHeight minMinHeights) chunks)
-      $ \(e :: SomeException) -> do
-          printf "Depending on the error you may need to run backfill for events\n%s\n" (show e)
-          exitFailure
+    bool id (withDroppedIndexes pool) disableIndexesPred $
+      catch (race_ (progress logg ref (fromIntegral $ fromJust $ trueTotal)) $ traverseConcurrently_ strat (transferInserter ref startingHeight minMinHeights) chunks)
+        $ \(e :: SomeException) -> do
+            printf "Depending on the error you may need to run backfill for events\n%s\n" (show e)
+            exitFailure
 
   where
     delay = _backfillArgs_delayMicros args
     logg = _env_logger env
     pool = _env_dbConnPool env
     transferInserter :: IORef Int -> Int64 -> Int64 -> (Int64, Int64) -> IO ()
-    transferInserter count startingHeight endingHeight (lim, off) = bool id (trackTime logg) True $ do
+    transferInserter count startingHeight endingHeight (lim, off) = bool id (trackTime "Transfer actions" logg) True $ do
         P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $ do
           evs <- runSelectReturningList $ select $ eventSelector' startingHeight endingHeight (fromIntegral lim) (fromIntegral off)
           let (rkEvs, coinbaseEvs) = splitEvents evs
@@ -114,7 +117,9 @@ backfillTransfersCut env args = do
             runInsert $
               insert (_cddb_transfers database) (insertValues tfs)
               $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-            liftIO $ atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
+            liftIO $ do
+              atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
+              logg Info "transfer insertion completed and accounted for"
           -- I'm grouping the events by chainid because there could request key collisons across chains
           iforM_ (groupEvByChain coinbaseEvs) $ \cid evs' -> do
             let minHeight = minimum $ map _ev_height evs'
@@ -124,24 +129,45 @@ backfillTransfersCut env args = do
             runInsert $
               insert (_cddb_transfers database) (insertValues tfs)
               $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-            liftIO $ atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
+            liftIO $ do
+              atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
+              logg Info "transfer insertion completed and accounted for"
 
-trackTime :: LogFunctionIO Text -> IO a -> IO a
-trackTime logg action = do
+trackTime :: String -> LogFunctionIO Text -> IO a -> IO a
+trackTime s logg action = do
     t1 <- getCurrentTime
     val <- action
     t2 <- getCurrentTime
-    logg Info $ fromString $ printf "Transfer insert actions took %s" $ show $ diffUTCTime t2 t1
+    logg Info $ fromString $ printf "%s actions took %s" s (show $ diffUTCTime t2 t1)
     return val
 
 limitsAndOffsets :: (Ord a, Num a) => a -> a -> a -> [(a,a)]
-limitsAndOffsets chunkSize l h = ($ []) $ go l h
+limitsAndOffsets chunkSize l h = go l h []
   where
     go low high
       | chunkSize <= 0 = id
       | low < high && low + chunkSize <= high = (go (low + chunkSize) high) .  ((chunkSize, low) :)
       | low < high && low + chunkSize > high = (go (low + chunkSize) high) . ((high-low,low) :)
       | otherwise = id
+
+dropIndexes :: P.Pool Connection -> [String] -> IO ()
+dropIndexes pool indexnames = forM_ indexnames $ \indexname -> P.withResource pool $ \conn ->
+  execute_ conn $ Query $ fromString $ printf "ALTER TABLE transfers DROP CONSTRAINT %s;" indexname
+
+withDroppedIndexes :: P.Pool Connection -> IO a -> IO a
+withDroppedIndexes pool action = do
+    indexNames <- listTranferIndexes pool
+    dropIndexes pool indexNames
+    action
+
+listTranferIndexes :: P.Pool Connection -> IO [String]
+listTranferIndexes pool = P.withResource pool $ \c -> mapMaybe f <$> query_ c qry
+  where
+    qry = "SELECT tablename,indexname FROM pg_indexes WHERE schemaname='public';"
+    f :: (String,String) -> Maybe String
+    f (tblname,indexname)
+      | tblname == "transfers" = Just indexname
+      | otherwise = Nothing
 
 chainMinHeights :: Pg [(Int64, Maybe Int64)]
 chainMinHeights = runSelectReturningList $ select $ aggregate_ (\t -> (group_ (_tr_chainid t), min_ (_tr_height t))) (all_ (_cddb_transfers database))
