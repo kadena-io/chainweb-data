@@ -138,6 +138,7 @@ database = defaultDbSettings `withDbModification` dbModification
     , _tr_height = "height"
     , _tr_idx = "idx"
     , _tr_modulename = "modulename"
+    , _tr_moduleHash = "moduleHash"
     , _tr_from_acct = "from_acct"
     , _tr_to_acct = "to_acct"
     , _tr_amount = "amount"
