@@ -31,6 +31,7 @@ data TransferT f = Transfer
   , _tr_chainid :: C f Int64
   , _tr_height :: C f Int64
   , _tr_idx :: C f Int64
+  , _tr_qualName :: C f Text
   , _tr_modulename :: C f Text
   , _tr_moduleHash :: C f Text
   , _tr_from_acct :: C f Text
@@ -47,6 +48,7 @@ Transfer
   (LensFor tr_chainid)
   (LensFor tr_height)
   (LensFor tr_idx)
+  (LensFor tr_qualName)
   (LensFor tr_modulename)
   (LensFor tr_moduleHash)
   (LensFor tr_from_acct)

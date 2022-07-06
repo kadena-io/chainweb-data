@@ -199,6 +199,7 @@ createTransfers = zipWith go
       , _tr_chainid = _ev_chainid ev
       , _tr_height = _ev_height ev
       , _tr_idx = _ev_idx ev
+      , _tr_qualName = _ev_qualName ev
       , _tr_modulename = _ev_module ev
       , _tr_moduleHash = _ev_moduleHash ev
       , _tr_from_acct = from_acct ev

@@ -258,6 +258,7 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
           , _tr_chainid = fromIntegral cid'
           , _tr_height = height
           , _tr_idx = _ev_idx ev
+          , _tr_qualName = _ev_qualName ev
           , _tr_modulename = _ev_module ev
           , _tr_moduleHash = _ev_moduleHash ev
           , _tr_from_acct =
@@ -284,6 +285,7 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
                   , _tr_chainid = fromIntegral cid'
                   , _tr_height = height
                   , _tr_idx = _ev_idx ev
+                  , _tr_qualName = _ev_qualName ev
                   , _tr_modulename = _ev_module ev
                   , _tr_moduleHash = _ev_moduleHash ev
                   , _tr_from_acct =
