@@ -32,6 +32,7 @@ data TransferT f = Transfer
   , _tr_height :: C f Int64
   , _tr_idx :: C f Int64
   , _tr_modulename :: C f Text
+  , _tr_moduleHash :: C f Text
   , _tr_from_acct :: C f Text
   , _tr_to_acct :: C f Text
   , _tr_amount :: C f Double
@@ -47,6 +48,7 @@ Transfer
   (LensFor tr_height)
   (LensFor tr_idx)
   (LensFor tr_modulename)
+  (LensFor tr_moduleHash)
   (LensFor tr_from_acct)
   (LensFor tr_to_acct)
   (LensFor tr_amount)
@@ -56,7 +58,7 @@ type Transfer = TransferT Identity
 type TransferId = PrimaryKey TransferT Identity
 
 instance Table TransferT where
-  data PrimaryKey TransferT f = TransferId (PrimaryKey BlockT f) (C f ReqKeyOrCoinbase) (C f Int64) (C f Int64)
+  data PrimaryKey TransferT f = TransferId (PrimaryKey BlockT f) (C f ReqKeyOrCoinbase) (C f Int64) (C f Int64) (C f Text)
     deriving stock (Generic)
     deriving anyclass (Beamable)
-  primaryKey = TransferId <$> _tr_block <*> _tr_requestkey <*> _tr_chainid <*> _tr_idx
+  primaryKey = TransferId <$> _tr_block <*> _tr_requestkey <*> _tr_chainid <*> _tr_idx <*> _tr_moduleHash

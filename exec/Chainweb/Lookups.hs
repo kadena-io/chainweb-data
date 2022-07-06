@@ -259,6 +259,7 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
           , _tr_height = height
           , _tr_idx = _ev_idx ev
           , _tr_modulename = _ev_module ev
+          , _tr_moduleHash = _ev_moduleHash ev
           , _tr_from_acct =
               case unwrap (_ev_params ev) ^? ix 0 of
                 Just (String s) -> s
@@ -284,6 +285,7 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
                   , _tr_height = height
                   , _tr_idx = _ev_idx ev
                   , _tr_modulename = _ev_module ev
+                  , _tr_moduleHash = _ev_moduleHash ev
                   , _tr_from_acct =
                     case unwrap (_ev_params ev) ^? ix 0 . _String of
                       Just s -> s
