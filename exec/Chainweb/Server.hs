@@ -68,6 +68,7 @@ import           Chainweb.Lookups
 import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
+import           ChainwebData.AccountDetail
 import           ChainwebData.EventDetail
 import           ChainwebData.AccountDetail
 import           ChainwebData.Pagination
