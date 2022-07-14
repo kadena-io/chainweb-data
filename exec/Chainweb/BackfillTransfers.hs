@@ -85,9 +85,7 @@ backfillTransfersCut env disableIndexesPred args = do
     trueTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ aggregate_ (\_ -> as_ @Int64 countAll_) (eventSelector startingHeight minMinHeights Nothing)
     unless (isJust trueTotal) $ die "Cannot get the number of entries needed to fill transfers table"
     logg Info $ fromString $ printf  "Filling transfers table on all chains from height %d to height %d." startingHeight minMinHeights
-    -- let chunks = rangeToDescGroupsOf (fromMaybe 5000 $ _backfillArgs_chunkSize args) (Low startingHeight) (High $ fromIntegral minMinHeights)
-    -- let chunks = limitsAndOffsets (maybe 1000 fromIntegral $ _backfillArgs_chunkSize args) startingHeight minMinHeights
-    let chunks = map (limitsAndOffsets' (maybe 1000 fromIntegral $ _backfillArgs_chunkSize args)) $ fillRegions startingHeight (map (fmap fromJust) minHeights)
+    mapM_ (\(cid, h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to height %d." cid minMinHeights (fromJust h)) minHeights
 
     ref <- newIORef 0
     let strat = case delay of
@@ -95,7 +93,11 @@ backfillTransfersCut env disableIndexesPred args = do
           Just _ -> Seq
     bool id (withDroppedIndexes pool) disableIndexesPred $
       catch
-        (race_ (progress logg ref (fromIntegral $ fromJust $ trueTotal)) $ traverseConcurrently_ strat (transferInserter ref) (chunkConverter startingHeight minMinHeights `concatMap` chunks))
+        (race_ (progress logg ref (fromIntegral $ fromJust $ trueTotal))
+               (withScheduler_ strat (\s -> mapM_ (\(cid,mh) -> fix (\floop l o -> scheduleWork s $
+                transferInserter ref startingHeight (fromJust mh) cid l o >>= \case
+                    Just (nl,no) -> floop nl no
+                    Nothing -> return ()) chunkSize 0) minHeights)))
         $ \(e :: SomeException) -> do
             printf "Depending on the error you may need to run backfill for events\n%s\n" (show e)
             exitFailure
@@ -104,13 +106,9 @@ backfillTransfersCut env disableIndexesPred args = do
     delay = _backfillArgs_delayMicros args
     logg = _env_logger env
     pool = _env_dbConnPool env
-    chunkConverter startingHeight endingHeight = \case
-      AllChains xs ->
-        map (\(l,h) -> (startingHeight,endingHeight,Nothing,fromIntegral l,fromIntegral h)) xs
-      OnChain cid startingHeight' endingHeight' xs ->
-        maybe mempty (map (\(l,h) -> (startingHeight',endingHeight',Just cid,fromIntegral l,fromIntegral h))) xs
-    transferInserter :: IORef Int -> (Int64, Int64, Maybe Int64, Integer, Integer) -> IO ()
-    transferInserter count (startingHeight,endingHeight,(Just cid),lim,off) = bool id (trackTime "Transfer actions" logg) True $ do
+    chunkSize = maybe 1000 fromIntegral $ _backfillArgs_chunkSize args
+    transferInserter :: IORef Int -> Int64 -> Int64 -> Int64 -> Integer -> Integer -> IO (Maybe (Integer, Integer))
+    transferInserter count startingHeight endingHeight cid lim off = bool id (trackTime "Transfer actions" logg) True $ do
         P.withResource pool $ \c -> withTransaction  c $ runBeamPostgres c $ do
           evs <- runSelectReturningList $ select $ eventSelector' startingHeight endingHeight (Just cid) lim off
           let (rkEvs, coinbaseEvs) = splitEvents evs
@@ -130,35 +128,42 @@ backfillTransfersCut env disableIndexesPred args = do
             insert (_cddb_transfers database) (insertValues tfsCB)
             $ bool onConflictDefault (onConflict (conflictingFields primaryKey) onConflictDoNothing) disableIndexesPred
           liftIO $ atomicModifyIORef' count (\cnt -> (cnt + length tfsCB, ()))
-    transferInserter count (startingHeight,endingHeight,Nothing,lim,off) = bool id (trackTime "Transfer actions" logg) True $ do
-        P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $ do
-          evs <- runSelectReturningList $ select $ eventSelector' startingHeight endingHeight Nothing lim off
-          let (rkEvs, coinbaseEvs) = splitEvents evs
-          -- I'm grouping the events by chainid because there could request key collisons across chains
-          iforM_ (groupEvByChain rkEvs) $ \cid evs' -> do
-            -- maximumBy/minimumBy (comparing _ev_height) evs' has type EventT Identity instead of Int64 ... strange
-            let minHeight = minimum $ map _ev_height evs'
-                maxHeight = maximum $ map _ev_height evs'
-            ts <- runSelectReturningList $ select $ creationTimesByRequestKeysNonCoinbase minHeight maxHeight cid evs'
-            let tfs = createTransfers evs' ts
-            runInsert $
-              insert (_cddb_transfers database) (insertValues tfs)
-              $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-            liftIO $ do
-              atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
-              logg Info "transfer insertion completed and accounted for"
-          -- I'm grouping the events by chainid because there could request key collisons across chains
-          iforM_ (groupEvByChain coinbaseEvs) $ \cid evs' -> do
-            let minHeight = minimum $ map _ev_height evs'
-                maxHeight = maximum $ map _ev_height evs'
-            ts <- runSelectReturningList $ select $ creationTimesByRequestKeysCoinbase minHeight maxHeight cid evs'
-            let tfs = createTransfers evs' ts
-            runInsert $
-              insert (_cddb_transfers database) (insertValues tfs)
-              $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-            liftIO $ do
-              atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
-              logg Info "transfer insertion completed and accounted for"
+          return $ case (maxHeightRK + fromIntegral chunkSize) `compare` endingHeight of
+            GT -> if maxHeightRK == endingHeight then Nothing
+              else Just (fromIntegral $ endingHeight - maxHeightRK, off + fromIntegral maxHeightRK)
+            EQ -> Just (chunkSize, off + fromIntegral maxHeightRK)
+            LT -> Just (chunkSize, off + fromIntegral maxHeightRK)
+
+    -- _transferInserter count startingHeight endingHeight Nothing lim off _chunkSize = bool id (trackTime "Transfer actions" logg) True $ do
+    --     P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $ do
+    --       evs <- runSelectReturningList $ select $ eventSelector' startingHeight endingHeight Nothing lim off
+    --       let (rkEvs, coinbaseEvs) = splitEvents evs
+    --       -- I'm grouping the events by chainid because there could request key collisons across chains
+    --       iforM_ (groupEvByChain rkEvs) $ \cid evs' -> do
+    --         -- maximumBy/minimumBy (comparing _ev_height) evs' has type EventT Identity instead of Int64 ... strange
+    --         let minHeight = minimum $ map _ev_height evs'
+    --             maxHeight = maximum $ map _ev_height evs'
+    --         ts <- runSelectReturningList $ select $ creationTimesByRequestKeysNonCoinbase minHeight maxHeight cid evs'
+    --         let tfs = createTransfers evs' ts
+    --         runInsert $
+    --           insert (_cddb_transfers database) (insertValues tfs)
+    --           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+    --         liftIO $ do
+    --           atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
+    --           logg Info "transfer insertion completed and accounted for"
+    --       -- I'm grouping the events by chainid because there could request key collisons across chains
+    --       iforM_ (groupEvByChain coinbaseEvs) $ \cid evs' -> do
+    --         let minHeight = minimum $ map _ev_height evs'
+    --             maxHeight = maximum $ map _ev_height evs'
+    --         ts <- runSelectReturningList $ select $ creationTimesByRequestKeysCoinbase minHeight maxHeight cid evs'
+    --         let tfs = createTransfers evs' ts
+    --         runInsert $
+    --           insert (_cddb_transfers database) (insertValues tfs)
+    --           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+    --         liftIO $ do
+    --           atomicModifyIORef' count (\cnt -> (cnt + length tfs, ()))
+    --           logg Info "transfer insertion completed and accounted for"
+    --     return Nothing
 
 trackTime :: String -> LogFunctionIO Text -> IO a -> IO a
 trackTime s logg action = do
@@ -168,36 +173,51 @@ trackTime s logg action = do
     logg Info $ fromString $ printf "%s actions took %s" s (show $ diffUTCTime t2 t1)
     return val
 
-data Chunk f a =
-  AllChains (f a)
-  | OnChain !Int64 !Int64 !Int64 (Maybe (f a))
 
-fillRegions :: Int64 -> [(Int64,Int64)] -> [Chunk Identity (Int64, Int64)]
+fillRegions :: Int64 -> [(Int64,Int64)] -> [Chunk Int64]
 fillRegions startingHeight minHeights = maybe id ((:)) largestRegion $ getRegions (drop 1 sortedHeights)
   where
     minMinHeights = snd $ head sortedHeights
     sortedHeights = sortOn snd minHeights
     largestRegion
-      | startingHeight /= minMinHeights = Just $ AllChains $ Identity (startingHeight , pred minMinHeights)
+      | startingHeight /= minMinHeights = Just $ AllChains startingHeight (pred minMinHeights)
       | otherwise = Nothing
-    getRegions = map (\(cid,h) -> OnChain cid minMinHeights (pred h) Nothing)
+    getRegions = map (\(cid,h) -> OnChain cid minMinHeights (pred h))
 
-limitsAndOffsets' :: Int64 -> Chunk Identity (Int64, Int64) -> Chunk [] (Int64, Int64)
-limitsAndOffsets' chunkSize = \case
-    AllChains (Identity (low,high)) -> AllChains $ limitsAndOffsets chunkSize low high
-    OnChain cid l h Nothing -> OnChain cid l h (pure $ limitsAndOffsets chunkSize l h)
-    _ -> error "limitsAndOffsets': impossible"
--- limitsAndOffsets' chunkSize (AllChains l h) = map (uncurry AllChains) $ limitsAndOffsets chunkSize l h
--- limitsAndOffsets' chunkSize (OnChain cid (l,h) _) = map (OnChain cid (l,h) . Just) $ limitsAndOffsets chunkSize l h
+data Chunk a =
+    AllChains !a !a
+  | OnChain !Int64 !a !a
 
-limitsAndOffsets :: (Ord a, Num a) => a -> a -> a -> [(a,a)]
-limitsAndOffsets chunkSize l h = go l h []
-  where
-    go low high
-      | chunkSize <= 0 = id
-      | low < high && low + chunkSize <= high = (go (low + chunkSize) high) .  ((chunkSize, low) :)
-      | low < high && low + chunkSize > high = (go (low + chunkSize) high) . ((high-low,low) :)
-      | otherwise = id
+-- data Chunk f a =
+--   AllChains (f a)
+--   | OnChain !Int64 !Int64 !Int64 (Maybe (f a))
+
+-- fillRegions :: Int64 -> [(Int64,Int64)] -> [Chunk Identity (Int64, Int64)]
+-- fillRegions startingHeight minHeights = maybe id ((:)) largestRegion $ getRegions (drop 1 sortedHeights)
+--   where
+--     minMinHeights = snd $ head sortedHeights
+--     sortedHeights = sortOn snd minHeights
+--     largestRegion
+--       | startingHeight /= minMinHeights = Just $ AllChains $ Identity (startingHeight , pred minMinHeights)
+--       | otherwise = Nothing
+--     getRegions = map (\(cid,h) -> OnChain cid minMinHeights (pred h) Nothing)
+
+-- limitsAndOffsets' :: Int64 -> Chunk Identity (Int64, Int64) -> Chunk [] (Int64, Int64)
+-- limitsAndOffsets' chunkSize = \case
+--     AllChains (Identity (low,high)) -> AllChains $ limitsAndOffsets chunkSize low high
+--     OnChain cid l h Nothing -> OnChain cid l h (pure $ limitsAndOffsets chunkSize l h)
+--     _ -> error "limitsAndOffsets': impossible"
+-- -- limitsAndOffsets' chunkSize (AllChains l h) = map (uncurry AllChains) $ limitsAndOffsets chunkSize l h
+-- -- limitsAndOffsets' chunkSize (OnChain cid (l,h) _) = map (OnChain cid (l,h) . Just) $ limitsAndOffsets chunkSize l h
+
+-- limitsAndOffsets :: (Ord a, Num a) => a -> a -> a -> [(a,a)]
+-- limitsAndOffsets chunkSize l h = go l h []
+--   where
+--     go low high
+--       | chunkSize <= 0 = id
+--       | low < high && low + chunkSize <= high = (go (low + chunkSize) high) .  ((chunkSize, low) :)
+--       | low < high && low + chunkSize > high = (go (low + chunkSize) high) . ((high-low,low) :)
+--       | otherwise = id
 
 dropIndexes :: P.Pool Connection -> [String] -> IO ()
 dropIndexes pool indexnames = forM_ indexnames $ \indexname -> P.withResource pool $ \conn ->
