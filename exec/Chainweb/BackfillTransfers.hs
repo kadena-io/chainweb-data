@@ -93,13 +93,15 @@ backfillTransfersCut env disableIndexesPred args = do
           Just _ -> Seq
     bool id (withDroppedIndexes pool) disableIndexesPred $
       catch
-        (race_ (progress logg ref (fromIntegral $ fromJust $ trueTotal))
-               (withScheduler_ strat (\s -> mapM_ (\(cid,mh) -> fix (\floop l o -> scheduleWork s $
-                transferInserter ref startingHeight (fromJust mh) cid l o >>= \case
-                    Just (nl,no) -> floop nl no
-                    Nothing -> return ()) chunkSize 0) minHeights)))
+        (race_ (progress logg ref (fromIntegral $ fromJust $ trueTotal)) $
+            flip (traverseConcurrently_ strat) minHeights $ \(cid,mh) ->
+                flip fix (chunkSize, 0) $ \floop (l,o) -> do
+                    result <- transferInserter ref startingHeight (fromJust mh) cid l o
+                    case result of
+                      Just (nl,no) -> floop (nl,no)
+                      Nothing -> return ())
         $ \(e :: SomeException) -> do
-            printf "Depending on the error you may need to run backfill for events\n%s\n" (show e)
+            printf "\nDepending on the error you may need to run backfill for events\n%s\n" (show e)
             exitFailure
 
   where
