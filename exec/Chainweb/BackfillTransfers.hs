@@ -105,13 +105,13 @@ backfillTransfersCut env disableIndexesPred args = do
             Just z -> go z
             Nothing -> pure ()
     chunkSize = maybe 1000 fromIntegral $ _backfillArgs_chunkSize args
-    getValidTransfer :: Event -> (Sum Int, Max Int64, [Transfer] -> [Transfer])
-    getValidTransfer ev = maybe mempty ((Sum 1, Max $ _ev_height ev, ) . (:)) $ createTransfer ev
+    getValidTransfer :: Event -> (Sum Int, Min Int64, [Transfer] -> [Transfer])
+    getValidTransfer ev = maybe mempty ((Sum 1, Min $ _ev_height ev, ) . (:)) $ createTransfer ev
     transferInserter :: IORef Int -> Int64 -> Int64 -> Integer -> Integer -> IO (Maybe Integer)
     transferInserter count startingHeight endingHeight lim off = trackTime "Transfer actions" logg $ do
         P.withResource pool $ \c -> withTransaction  c $ runBeamPostgres c $ do
           evs <- runSelectReturningList $ select $ eventSelector startingHeight lim off
-          let (Sum !cnt, Max !endingHeight', tfs) = foldMap getValidTransfer evs
+          let (Sum !cnt, Min !endingHeight', tfs) = foldMap getValidTransfer evs
           runInsert $
             insert (_cddb_transfers database) (insertValues (tfs []))
             $ bool (onConflict (conflictingFields primaryKey) onConflictDoNothing) onConflictDefault disableIndexesPred
