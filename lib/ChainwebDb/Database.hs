@@ -132,12 +132,10 @@ database = defaultDbSettings `withDbModification` dbModification
     }
   , _cddb_transfers = modifyEntityName modTableName <>
     modifyTableFields tableModification
-    { _tr_creationtime = "creationtime"
-    , _tr_requestkey = "requestkey"
+    {_tr_requestkey = "requestkey"
     , _tr_chainid = "chainid"
     , _tr_height = "height"
     , _tr_idx = "idx"
-    , _tr_qualName = "qualname"
     , _tr_modulename = "modulename"
     , _tr_moduleHash = "modulehash"
     , _tr_from_acct = "from_acct"

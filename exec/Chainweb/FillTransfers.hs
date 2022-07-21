@@ -91,8 +91,7 @@ eventSelector startingHeight = do
                  (ifThenElse_ (pgJsonTypeOf (_ev_params ev -># val_ 2 ->$ "int") ==. val_ "number") (_ev_params ev -># val_ 2 ->$ "int")
                         (_ev_params ev -># val_ 2))
     return Transfer
-      { _tr_creationtime = _tx_creationTime t
-      , _tr_block = _ev_block ev
+      { _tr_block = _ev_block ev
       , _tr_requestkey = _ev_requestkey ev
       , _tr_chainid = _ev_chainid ev
       , _tr_height = _ev_height ev

@@ -17,21 +17,17 @@ module ChainwebDb.Types.Transfer where
 ----------------------------------------------------------------------------
 import BasePrelude
 import Data.Text (Text)
-import Data.Time.Clock (UTCTime)
 import Database.Beam
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
 import ChainwebDb.Types.Common
 ------------------------------------------------------------------------------
 data TransferT f = Transfer
-  {
-    _tr_creationtime :: C f UTCTime
-  , _tr_block :: PrimaryKey BlockT f
+  { _tr_block :: PrimaryKey BlockT f
   , _tr_requestkey :: C f ReqKeyOrCoinbase
   , _tr_chainid :: C f Int64
   , _tr_height :: C f Int64
   , _tr_idx :: C f Int64
-  , _tr_qualName :: C f Text
   , _tr_modulename :: C f Text
   , _tr_moduleHash :: C f Text
   , _tr_from_acct :: C f Text
@@ -42,13 +38,11 @@ data TransferT f = Transfer
   deriving anyclass (Beamable)
 
 Transfer
-  (LensFor tr_creationtime)
   (BlockId (LensFor tr_block))
   (LensFor tr_requestkey)
   (LensFor tr_chainid)
   (LensFor tr_height)
   (LensFor tr_idx)
-  (LensFor tr_qualName)
   (LensFor tr_modulename)
   (LensFor tr_moduleHash)
   (LensFor tr_from_acct)

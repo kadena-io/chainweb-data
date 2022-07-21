@@ -236,7 +236,7 @@ eventsMinHeight = \case
   _version -> Nothing
 
 mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> UTCTime -> BlockPayloadWithOutputs -> Int -> [Transfer]
-mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeight =
+mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeight =
     let (coinbaseEvs, evs) = mkBlockEventsWithCreationTime height cid blockhash pl
     in if height >= fromIntegral eventMinHeight
           then createNonCoinBaseTransfers evs ++ createCoinBaseTransfers coinbaseEvs
@@ -252,13 +252,11 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
       evs <&> \ev ->
         Transfer
           {
-            _tr_creationtime = creationTime
-          , _tr_block = BlockId blockhash
+            _tr_block = BlockId blockhash
           , _tr_requestkey = RKCB_Coinbase
           , _tr_chainid = fromIntegral cid'
           , _tr_height = height
           , _tr_idx = _ev_idx ev
-          , _tr_qualName = _ev_qualName ev
           , _tr_modulename = _ev_module ev
           , _tr_moduleHash = _ev_moduleHash ev
           , _tr_from_acct =
@@ -275,17 +273,15 @@ mkTransferRows height cid@(ChainId cid') blockhash creationTime pl eventMinHeigh
                 parseEither (\v -> (fromRational @Double . toRational <$> decoder decimalCodec v) <|> (fromInteger <$> decoder integerCodec v)) param
           }
     createNonCoinBaseTransfers xs =
-        concat $ flip mapMaybe xs $ \(txhash, creationtime,  evs) -> flip traverse evs $ \ev ->
+        concat $ flip mapMaybe xs $ \(txhash, _creationtime,  evs) -> flip traverse evs $ \ev ->
           withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && fastLengthCheck 3 (unwrap (_ev_params ev))) $
                 Transfer
                   {
-                    _tr_creationtime = creationtime
-                  , _tr_block = BlockId blockhash
+                    _tr_block = BlockId blockhash
                   , _tr_requestkey = RKCB_RequestKey txhash
                   , _tr_chainid = fromIntegral cid'
                   , _tr_height = height
                   , _tr_idx = _ev_idx ev
-                  , _tr_qualName = _ev_qualName ev
                   , _tr_modulename = _ev_module ev
                   , _tr_moduleHash = _ev_moduleHash ev
                   , _tr_from_acct =
