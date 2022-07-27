@@ -17,6 +17,7 @@ import           Chainweb.Api.NodeInfo
 import           Chainweb.Lookups (eventsMinHeight)
 import           ChainwebDb.Database
 import           ChainwebData.Env
+import           ChainwebData.Types
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Transfer
 
@@ -56,7 +57,7 @@ backfillTransfersCut env _disableIndexesPred args = do
         exitFailure
       Nothing -> die "IMPOSSIBLE: This query (SELECT EXISTS (SELECT 1 as events);) failed somehow."
 
-    let startingHeight =
+    let eventsActivationHeight =
           maybe (error "Chainweb version: Unknown") fromIntegral
             (eventsMinHeight (_nodeInfo_chainwebVer $ _env_nodeInfo env))
 
@@ -67,40 +68,33 @@ backfillTransfersCut env _disableIndexesPred args = do
       exitFailure
     let maxMinHeights = maximum $ mapMaybe snd $ minHeights
     -- get maximum possible number of entries to fill
-    effectiveTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ bigEventCount startingHeight maxMinHeights
+    effectiveTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ bigEventCount eventsActivationHeight maxMinHeights
     unless (isJust effectiveTotal) $ die "Cannot get the number of entries needed to fill transfers table"
-    mapM_ (\(cid, h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to height %d." cid startingHeight (fromJust h)) minHeights
+    mapM_ (\(cid, h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to height %d." cid eventsActivationHeight (fromJust h)) minHeights
     ref <- newIORef 0
     catch
-      (race_ (progress logg ref (fromIntegral $ fromJust $ effectiveTotal)) $ loopOnJust (transferInserter startingHeight ref maxMinHeights chunkSize) 0)
-      $ \(e :: SomeException) -> do
+      (race_ (progress logg ref (fromIntegral $ fromJust $ effectiveTotal))
+          (forM_ (rangeToDescGroupsOf chunkSize (fromIntegral eventsActivationHeight) (fromIntegral maxMinHeights))
+           $ \(Low endingHeight, High startingHeight) ->
+              transferInserter ref (fromIntegral startingHeight) (fromIntegral endingHeight)))
+      (\(e :: SomeException) -> do
           printf "\nDepending on the error you may need to run backfill for events\n%s\n" (show e)
-          exitFailure
+          exitFailure)
   where
     logg = _env_logger env
     pool = _env_dbConnPool env
-    loopOnJust f = go
-      where
-        go x = do
-          mz <- f x
-          case mz of
-            Just z -> go z
-            Nothing -> pure ()
-    chunkSize = maybe 10_000 fromIntegral $ _backfillArgs_chunkSize args
+    chunkSize = fromMaybe 200 $ _backfillArgs_chunkSize args
     getValidTransfer :: Event -> (Sum Int, [Transfer] -> [Transfer])
     getValidTransfer ev = maybe mempty ((Sum 1, ) . (:)) $ createTransfer ev
-    transferInserter :: Int64 -> IORef Int -> Int64 -> Integer -> Integer -> IO (Maybe Integer)
-    transferInserter eventsActivationHeight count startingHeight lim off
-        | eventsActivationHeight == startingHeight = return Nothing
-        | otherwise = do
-            P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $ do
-              evs <- runSelectReturningList $ select $ eventSelector eventsActivationHeight startingHeight lim off
-              let (Sum !cnt, tfs) = foldMap getValidTransfer evs
-              runInsert $
-                insert (_cddb_transfers database) (insertValues (tfs []))
-                $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-              liftIO $ atomicModifyIORef' count (\cnt' -> (cnt' + cnt, ()))
-              return $ if cnt == 0 then Nothing else Just $ off + fromIntegral cnt
+    transferInserter :: IORef Int -> Int64 -> Int64 -> IO ()
+    transferInserter count startingHeight endingHeight = do
+        P.withResource pool $ \c -> withTransaction c $ runBeamPostgres c $ do
+          evs <- runSelectReturningList $ select $ eventSelector startingHeight endingHeight
+          let (Sum !cnt, tfs) = foldMap getValidTransfer evs
+          runInsert $
+            insert (_cddb_transfers database) (insertValues (tfs []))
+            $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+          liftIO $ atomicModifyIORef' count (\cnt' -> (cnt' + cnt, ()))
 
 chainMinHeights :: Pg [(Int64, Maybe Int64)]
 chainMinHeights = runSelectReturningList $ select $ aggregate_ (\t -> (group_ (_tr_chainid t), min_ (_tr_height t))) (all_ (_cddb_transfers database))
@@ -129,15 +123,17 @@ createTransfer ev =
     unwrap (PgJSONB a) = a
 
 eventSelector' :: Int64 -> Int64 -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
-eventSelector' eventsActivationHeight startingHeight = do
+eventSelector' startingHeight endingHeight = do
     ev <- all_ (_cddb_events database)
     guard_ $ _ev_height ev <=. val_ startingHeight
-    guard_ $ _ev_height ev >=. val_ eventsActivationHeight
+    guard_ $ _ev_height ev >=. val_ endingHeight
     guard_ $ _ev_name ev ==. val_ "TRANSFER"
     return ev
 
-eventSelector :: Int64 -> Int64 -> Integer -> Integer -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
-eventSelector eventsActivationHeight startingHeight limit offset = limit_ limit $ offset_ offset $ eventSelector' eventsActivationHeight startingHeight
+eventSelector :: Int64 -> Int64 -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
+eventSelector startingHeight endingHeight = orderBy_ getOrder $ eventSelector' startingHeight endingHeight
+  where
+    getOrder ev = (desc_ $ _ev_height ev, asc_ $ _ev_chainid ev)
 
 bigEventCount :: Int64 -> Int64 -> Q Postgres ChainwebDataDb s (QGenExpr QValueContext Postgres s Int64)
 bigEventCount startingHeight endingHeight = aggregate_  (\_ -> as_ @Int64 countAll_) $ eventSelector' startingHeight endingHeight
