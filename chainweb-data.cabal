@@ -114,7 +114,7 @@ executable chainweb-data
     , http-types
     , mtl
     , optparse-applicative     >=0.14 && <0.17
-    , pact
+    , pact                     >=4.3.1
     , postgresql-simple
     , process                  ^>=1.6
     , resource-pool      >= 0.3
