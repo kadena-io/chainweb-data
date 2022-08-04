@@ -68,7 +68,7 @@ backfillTransfersCut env _disableIndexesPred args = do
       exitFailure
     let maxMinHeights = maximum $ mapMaybe snd $ minHeights
     -- get maximum possible number of entries to fill
-    effectiveTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ bigEventCount eventsActivationHeight maxMinHeights
+    effectiveTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ bigEventCount maxMinHeights eventsActivationHeight
     unless (isJust effectiveTotal) $ die "Cannot get the number of entries needed to fill transfers table"
     mapM_ (\(cid, h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to height %d." cid eventsActivationHeight (fromJust h)) minHeights
     ref <- newIORef 0
