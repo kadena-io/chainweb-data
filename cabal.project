@@ -11,7 +11,7 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: d00953b7d76944e188c54fa7cd6235fe7f492a6e
+    tag: 4f62c721d0766e830d9318e93e5726e57cb35e2b
 
 source-repository-package
     type: git
@@ -44,8 +44,5 @@ package vault
     documentation: false
 
 write-ghc-environment-files: never
-
-constraints:
-    sbv == 8.8
 
 allow-newer: gargoyle:base
