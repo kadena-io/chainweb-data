@@ -148,7 +148,6 @@ executable chainweb-data
     Chainweb.BackfillTransfers
     Chainweb.Coins
     Chainweb.FillEvents
-    Chainweb.FillTransfers
     Chainweb.Gaps
     Chainweb.Listen
     Chainweb.Lookups

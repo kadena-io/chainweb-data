@@ -13,7 +13,6 @@ import           Chainweb.BackfillTransfers (backfillTransfersCut)
 import           ChainwebDb.Database (initializeTables)
 import           ChainwebData.Env
 import           Chainweb.FillEvents (fillEvents)
-import           Chainweb.FillTransfers (fillTransfers)
 import           Chainweb.Gaps
 import           Chainweb.Listen (listen)
 import           Chainweb.Lookups (getNodeInfo)
@@ -86,7 +85,6 @@ main = do
                       Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
-                      FillTransfers -> fillTransfers env
                       Server serverEnv -> apiServer env serverEnv
   where
     opts = info ((richListP <|> envP) <**> helper)

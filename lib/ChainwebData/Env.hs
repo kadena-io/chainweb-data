@@ -169,7 +169,6 @@ data Command
     | Fill FillArgs
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
-    | FillTransfers
     | BackFillTransfers Bool BackfillArgs
     deriving (Show)
 
@@ -291,8 +290,6 @@ commands = hsubparser
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
        (progDesc "Event Worker - Fills missing events"))
-  <> command "fill-transfers" (info (pure FillTransfers)
-       (progDesc "Transfer Worker - Fills an empty transfers table"))
   <> command "backfill-transfers" (info (BackFillTransfers <$> flag False True (long "disable-indexes" <> help "Delete indexes on transfers table") <*> bfArgsP)
        (progDesc "Backfill transfer table entries"))
   )
