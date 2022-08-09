@@ -14,7 +14,6 @@ module Chainweb.BackfillTransfers where
 import           BasePrelude hiding (insert, range, second)
 
 import           Chainweb.Api.NodeInfo
-import           Chainweb.Lookups (eventsMinHeight)
 import           ChainwebDb.Database
 import           ChainwebData.Env
 import           ChainwebData.Types
@@ -57,29 +56,29 @@ backfillTransfersCut env _disableIndexesPred args = do
         exitFailure
       Nothing -> die "IMPOSSIBLE: This query (SELECT EXISTS (SELECT 1 as events);) failed somehow."
 
-    let eventsActivationHeight =
-          maybe (error "Chainweb version: Unknown") fromIntegral
-            (eventsMinHeight (_nodeInfo_chainwebVer $ _env_nodeInfo env))
+    let err = "Chainweb version: Unknown"
+        version = _nodeInfo_chainwebVer $ _env_nodeInfo env
 
-    minHeights <- withDbDebug env Debug chainMinHeights
-    let checkMinHeights xs = getSum (foldMap (maybe mempty (const $ Sum 1) . snd) xs) == _nodeInfo_numChains (_env_nodeInfo env)
-    unless (checkMinHeights minHeights) $ do
-      logg Error "Make sure transfers table has an entry for every chain id!"
-      exitFailure
-    let maxMinHeights = maximum $ mapMaybe snd $ minHeights
-    -- get maximum possible number of entries to fill
-    effectiveTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ bigEventCount maxMinHeights eventsActivationHeight
-    unless (isJust effectiveTotal) $ die "Cannot get the number of entries needed to fill transfers table"
-    mapM_ (\(cid, h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to height %d." cid eventsActivationHeight (fromJust h)) minHeights
-    ref <- newIORef 0
-    catch
-      (race_ (progress logg ref (fromIntegral $ fromJust $ effectiveTotal))
-          (forM_ (rangeToDescGroupsOf chunkSize (fromIntegral eventsActivationHeight) (fromIntegral maxMinHeights))
-           $ \(Low endingHeight, High startingHeight) ->
-              transferInserter ref (fromIntegral startingHeight) (fromIntegral endingHeight)))
-      (\(e :: SomeException) -> do
-          printf "\nDepending on the error you may need to run backfill for events\n%s\n" (show e)
-          exitFailure)
+    withEventsMinHeight version err $ \eventsActivationHeight -> do
+      minHeights <- withDbDebug env Debug chainMinHeights
+      let checkMinHeights xs = getSum (foldMap (maybe mempty (const $ Sum 1) . snd) xs) == _nodeInfo_numChains (_env_nodeInfo env)
+      unless (checkMinHeights minHeights) $ do
+        logg Error "Make sure transfers table has an entry for every chain id!"
+        exitFailure
+      let maxMinHeights = maximum $ mapMaybe snd $ minHeights
+      -- get maximum possible number of entries to fill
+      effectiveTotal <- withDbDebug env Debug $ runSelectReturningOne $ select $ bigEventCount maxMinHeights eventsActivationHeight
+      unless (isJust effectiveTotal) $ die "Cannot get the number of entries needed to fill transfers table"
+      mapM_ (\(cid, h) -> logg Info $ fromString $ printf "Filling transfers table on chain %d from height %d to height %d." cid eventsActivationHeight (fromJust h)) minHeights
+      ref <- newIORef 0
+      catch
+        (race_ (progress logg ref (fromIntegral $ fromJust $ effectiveTotal))
+            (forM_ (rangeToDescGroupsOf chunkSize (fromIntegral eventsActivationHeight) (fromIntegral maxMinHeights))
+             $ \(Low endingHeight, High startingHeight) ->
+                transferInserter ref (fromIntegral startingHeight) (fromIntegral endingHeight)))
+        (\(e :: SomeException) -> do
+            printf "\nDepending on the error you may need to run backfill for events\n%s\n" (show e)
+            exitFailure)
   where
     logg = _env_logger env
     pool = _env_dbConnPool env

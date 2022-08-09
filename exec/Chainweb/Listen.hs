@@ -31,7 +31,6 @@ import           Database.Beam.Postgres (Connection)
 import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
-import           System.Exit (die)
 import           System.IO (hFlush, stdout)
 import           System.Logger.Types hiding (logg)
 import           Text.Printf
@@ -80,9 +79,8 @@ insertNewHeader version pool ph pl = do
       !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
 
       !k = bpwoMinerKeys pl
-  case eventsMinHeight version of
-    Nothing -> die $ printf "insertNewHeader failed because we don't know how to work this version %s" version
-    Just minHeight -> do
+      err = printf "insertNewHeader failed because we don't know how to work this version %s" version
+  withEventsMinHeight version err $ \minHeight -> do
       let !tf = mkTransferRows (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) (posixSecondsToUTCTime $ _blockHeader_creationTime $ _hwp_header ph) pl minHeight
       writes pool b k t es ss tf
 

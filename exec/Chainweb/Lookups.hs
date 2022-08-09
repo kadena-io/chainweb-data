@@ -27,8 +27,6 @@ module Chainweb.Lookups
   , ErrorType(..)
   , ApiError(..)
   , handleRequest
-  -- * Miscelaneous
-  , eventsMinHeight
   ) where
 
 import           Chainweb.Api.BlockHeader
@@ -228,12 +226,6 @@ mkBlockEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs
 mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
   where
     (cbes, txes) = mkBlockEvents' height cid blockhash pl
-
-eventsMinHeight :: T.Text -> Maybe Int
-eventsMinHeight = \case
-  "mainnet01" -> Just 1_722_500
-  "testnet04" -> Just 1_261_000
-  _version -> Nothing
 
 mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> UTCTime -> BlockPayloadWithOutputs -> Int -> [Transfer]
 mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeight =

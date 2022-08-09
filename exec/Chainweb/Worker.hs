@@ -138,14 +138,12 @@ writeBlock env pool count bh = do
           !es = mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl
           !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
           version = _nodeInfo_chainwebVer $ _env_nodeInfo env
-          mEvmap = eventsMinHeight version
           !k = bpwoMinerKeys pl
-      case mEvmap of
-        Just evmap -> do
-          let !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evmap
+          err = printf "writeBlock failed because we don't know how to work this version %s" version
+      withEventsMinHeight version err $ \evMinHeight -> do
+          let !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight
           atomicModifyIORef' count (\n -> (n+1, ()))
           writes pool b k t es ss tf
-        Nothing -> die $ printf "writeBlock failed because we don't know how to work this version %s" version
   where
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
@@ -164,16 +162,14 @@ writeBlocks env pool disableIndexesPred count bhs = do
               !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
               !tss = M.intersectionWith (flip mkBlockTransactions) pls bs
               version = _nodeInfo_chainwebVer $ _env_nodeInfo env
-              mEvMinHeight = eventsMinHeight version
               !ess = M.intersectionWith
                   (\pl bh -> mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pl)
                   pls
                   (makeBlockMap bhs')
               !sss = M.intersectionWith (\pl _ -> concat $ mkTransactionSigners . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
-          case mEvMinHeight of
-            Nothing -> die $ printf "writeBlocks failed because we don't know how to work this version %s" version
-            Just evMinHeight -> do
+              err = printf "writeBlocks failed because we don't know how to work this version %s" version
+          withEventsMinHeight version err $ \evMinHeight -> do
               let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
               batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
               atomicModifyIORef' count (\n -> (n + numWrites, ()))
@@ -209,9 +205,8 @@ writePayload
   -> IO ()
 writePayload pool chain blockHash blockHeight version creationTime bpwo = do
   let (cbEvents, txEvents) = mkBlockEvents' blockHeight chain blockHash bpwo
-  case eventsMinHeight version of
-    Nothing -> die $ printf "writePayload failed because we don't know how to work this version %s" version
-    Just evMinHeight -> do
+      err = printf "writePayload failed because we don't know how to work this version %s" version
+  withEventsMinHeight version err $ \evMinHeight -> do
       let !tfs = mkTransferRows blockHeight chain blockHash creationTime bpwo evMinHeight
       P.withResource pool $ \c ->
         withTransaction c $ do

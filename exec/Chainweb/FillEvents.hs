@@ -69,8 +69,8 @@ fillEventsCut env args et cutBS = do
 
   when (et == CoinbaseAndTx) $ do
     let version = _nodeInfo_chainwebVer $ _env_nodeInfo env
-        withJust m f =  maybe (die $ printf "fillEventsCut failed because we don't know how to work this version %s" version) f m
-    withJust (eventsMinHeight version) $ \startingHeight -> do
+        err = printf "fillEventsCut failed because we don't know how to work this version %s" version
+    withEventsMinHeight version err $ \(startingHeight :: Integer) -> do
       gaps <- getCoinbaseGaps env (fromIntegral startingHeight)
       mapM_ (logg Debug . fromString . show) gaps
       let numMissingCoinbase = sum $ map (\(_,a,b) -> b - a - 1) gaps
