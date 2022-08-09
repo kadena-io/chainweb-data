@@ -120,16 +120,25 @@ accountQueryStmt
     (QExprToIdentity
     (TransferT (QGenExpr QValueContext Postgres QBaseScope)))
 accountQueryStmt limit offset token account chain =
-    select $
-      limit_ lim $ offset_ off $ orderBy_ getOrder $ do
-        tr <- all_ (_cddb_transfers database)
-        guard_ (_tr_from_acct tr ==. val_ account ||. _tr_to_acct tr ==. val_ account)
-        guard_ (_tr_modulename tr ==. val_ token)
-        guard_ (_tr_chainid tr ==. val_ (fromIntegral chain))
-        return tr
+  select $
+  limit_ lim $
+  offset_ off $
+  orderBy_ getOrder $ do
+    tr <- unionAll_ fromAccountQuery toAccountQuery
+    guard_ $ _tr_modulename tr ==. val_ token
+    guard_ $ _tr_chainid tr ==. val_ (fromIntegral chain)
+    return tr
   where
-    lim = maybe 10 (min 100 . unLimit) limit
+    lim = maybe 20 (min 100 . unLimit) limit
     off = maybe 0 unOffset offset
     getOrder tr =
-      (desc_ $ _tr_height tr
-      ,asc_ $ _tr_idx tr)
+      ( desc_ $ _tr_height tr
+      , asc_ $ _tr_idx tr)
+    fromAccountQuery = do
+      tr <- all_ (_cddb_transfers database)
+      guard_ $ _tr_from_acct tr ==. val_ account
+      return tr
+    toAccountQuery = do
+      tr <- all_ (_cddb_transfers database)
+      guard_ $ _tr_to_acct tr ==. val_ account
+      return tr
