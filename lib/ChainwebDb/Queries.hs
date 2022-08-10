@@ -125,8 +125,6 @@ accountQueryStmt limit offset token account chain =
   offset_ off $
   orderBy_ getOrder $ do
     tr <- unionAll_ fromAccountQuery toAccountQuery
-    guard_ $ _tr_modulename tr ==. val_ token
-    guard_ $ _tr_chainid tr ==. val_ (fromIntegral chain)
     return tr
   where
     lim = maybe 20 (min 100 . unLimit) limit
@@ -134,11 +132,16 @@ accountQueryStmt limit offset token account chain =
     getOrder tr =
       ( desc_ $ _tr_height tr
       , asc_ $ _tr_idx tr)
-    fromAccountQuery = do
+    subQueryLimit =  lim + off
+    fromAccountQuery = limit_ subQueryLimit $ orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
       guard_ $ _tr_from_acct tr ==. val_ account
+      guard_ $ _tr_modulename tr ==. val_ token
+      guard_ $ _tr_chainid tr ==. val_ (fromIntegral chain)
       return tr
-    toAccountQuery = do
+    toAccountQuery = limit_ subQueryLimit $ orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
       guard_ $ _tr_to_acct tr ==. val_ account
+      guard_ $ _tr_modulename tr ==. val_ token
+      guard_ $ _tr_chainid tr ==. val_ (fromIntegral chain)
       return tr
