@@ -237,58 +237,31 @@ mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeig
     unwrap (PgJSONB a) = a
     withJust p a = if p then Just a else Nothing
     fastLengthCheck n = null . drop n
-    note n = \case
-      Just a -> Right a
-      Nothing -> Left n
-    createCoinBaseTransfers evs = do
-      evs <&> \ev ->
-        Transfer
-          {
-            _tr_block = BlockId blockhash
-          , _tr_requestkey = RKCB_Coinbase
-          , _tr_chainid = fromIntegral cid'
-          , _tr_height = height
-          , _tr_idx = _ev_idx ev
-          , _tr_modulename = _ev_module ev
-          , _tr_moduleHash = _ev_moduleHash ev
-          , _tr_from_acct =
-              case unwrap (_ev_params ev) ^? ix 0 of
-                Just (String s) -> s
-                _ -> error "mkTransferRows: from_account is not a string"
-          , _tr_to_acct =
-              case unwrap (_ev_params ev) ^? ix 1 of
-                Just (String s) -> s
-                _ -> error "mkTransferRows: to_account is not a string"
-          , _tr_amount = either error id $ do
-                let msg = "mkTransferRows: amount is somehow missing"
-                param <- note msg $ unwrap (_ev_params ev) ^? ix 2
-                parseEither (\v -> (fromRational @Double . toRational <$> decoder decimalCodec v) <|> (fromInteger <$> decoder integerCodec v)) param
-          }
+    note n = maybe (Left n) Right
+    mkTransfer mReqKey ev = Transfer
+      {
+        _tr_block = BlockId blockhash
+      , _tr_requestkey = maybe RKCB_Coinbase RKCB_RequestKey mReqKey
+      , _tr_chainid = fromIntegral cid'
+      , _tr_height = height
+      , _tr_idx = _ev_idx ev
+      , _tr_modulename = _ev_module ev
+      , _tr_moduleHash = _ev_moduleHash ev
+      , _tr_from_acct = case unwrap (_ev_params ev) ^? ix 0 . _String of
+          Just s -> s
+          _ -> error "mkTransferRows: from_acct is not a string"
+      , _tr_to_acct = case unwrap (_ev_params ev) ^? ix 1 . _String of
+          Just s -> s
+          _ -> error "mkTransferRows: to_acct is not a string"
+      , _tr_amount = either error id $ do
+          let msg = "mkTransferRows: amount is somehow missing"
+          param <- note msg $ unwrap (_ev_params ev) ^? ix 2
+          parseEither (\v -> (fromRational @Double . toRational <$> decoder decimalCodec v) <|> (fromInteger <$> decoder integerCodec v)) param
+      }
+    createCoinBaseTransfers = fmap (mkTransfer Nothing)
     createNonCoinBaseTransfers xs =
         concat $ flip mapMaybe xs $ \(txhash, _creationtime,  evs) -> flip traverse evs $ \ev ->
-          withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && fastLengthCheck 3 (unwrap (_ev_params ev))) $
-                Transfer
-                  {
-                    _tr_block = BlockId blockhash
-                  , _tr_requestkey = RKCB_RequestKey txhash
-                  , _tr_chainid = fromIntegral cid'
-                  , _tr_height = height
-                  , _tr_idx = _ev_idx ev
-                  , _tr_modulename = _ev_module ev
-                  , _tr_moduleHash = _ev_moduleHash ev
-                  , _tr_from_acct =
-                    case unwrap (_ev_params ev) ^? ix 0 . _String of
-                      Just s -> s
-                      _ -> error "mkTransferRows: from_account is not a string"
-                  , _tr_to_acct =
-                    case unwrap (_ev_params ev) ^? ix 1 . _String of
-                      Just s -> s
-                      _ -> error "mkTransferRows: to_account is not a string"
-                  , _tr_amount = either error id $ do
-                      let msg = "mkTransferRows: amount is somehow missing"
-                      param <- note msg $ unwrap (_ev_params ev) ^? ix 2
-                      parseEither (\v -> (fromRational @Double . toRational <$> decoder decimalCodec v) <|> (fromInteger <$> decoder integerCodec v)) param
-                  }
+          withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && fastLengthCheck 3 (unwrap (_ev_params ev))) $ mkTransfer (Just txhash) ev
 
 mkTransactionSigners :: CW.Transaction -> [Signer]
 mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
