@@ -32,6 +32,7 @@ import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Exception
 import           Data.ByteString (ByteString)
+import           Data.Char (toLower)
 import           Data.IORef
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -63,7 +64,7 @@ data MigrateStatus = RunMigration | DontMigrate
 data Args
   = Args Command Connect UrlScheme Url LogLevel MigrateStatus
     -- ^ arguments for all but the richlist command
-  | RichListArgs NodeDbPath LogLevel
+  | RichListArgs NodeDbPath LogLevel ChainwebVersion
     -- ^ arguments for the Richlist command
   deriving (Show)
 
@@ -223,6 +224,20 @@ richListP = hsubparser
         <> help "Chainweb node db filepath"
         )
       <*> logLevelParser
+      <*> simpleVersionParser
+
+versionReader :: ReadM ChainwebVersion
+versionReader = eitherReader $ \case
+  txt | map toLower txt == "mainnet01" || map toLower txt == "mainnet" -> Right "mainnet01"
+  txt | map toLower txt == "testnet04" || map toLower txt == "testnet" -> Right "testnet04"
+  txt -> Left $ printf "Can'txt read chainwebversion: got %" txt
+
+simpleVersionParser :: Parser ChainwebVersion
+simpleVersionParser =
+  option versionReader $
+    long "chainweb-version"
+    <> value "mainnet01"
+    <> help "Chainweb node version"
 
 connectP :: Parser Connect
 connectP = (PGString <$> pgstringP) <|> (PGInfo <$> connectInfoP) <|> (PGGargoyle <$> dbdirP)

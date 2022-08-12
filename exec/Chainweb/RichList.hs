@@ -24,11 +24,13 @@ import Text.Read
 import Database.SQLite3
 import Database.SQLite3.Direct (Utf8(..))
 
+import ChainwebData.Env (ChainwebVersion(..))
+
 import Pact.Types.SQLite
 
 
-richList :: LogFunctionIO Text -> FilePath -> IO ()
-richList logger fp = do
+richList :: LogFunctionIO Text -> FilePath -> ChainwebVersion -> IO ()
+richList logger fp (ChainwebVersion version) = do
 
     files <- doesPathExist fp >>= \case
         True -> checkChains
@@ -42,7 +44,7 @@ richList logger fp = do
   where
     checkChains :: IO [FilePath]
     checkChains = do
-        let sqlitePath = fp <> "chainweb-node/mainnet01/0/sqlite" -- TODO: notice this only works for mainnet
+        let sqlitePath = fp <> "chainweb-node/" <> T.unpack version <> "/0/sqlite"
 
         doesPathExist sqlitePath >>= \case
           False -> ioError $ userError "Cannot find sqlite data. Is your node synced?"

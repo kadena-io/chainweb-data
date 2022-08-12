@@ -19,6 +19,7 @@ module Chainweb.Server where
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.ChainId
 import           Chainweb.Api.Hash
+import           Chainweb.Api.NodeInfo (NodeInfo(..))
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
@@ -210,7 +211,7 @@ scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
     atomicModifyIORef' ssRef g
 
     h <- getHomeDirectory
-    richList logg (h </> ".local/share")
+    richList logg (h </> ".local/share") (ChainwebVersion $ _nodeInfo_chainwebVer $ _env_nodeInfo env)
     logg Info "Updated rich list"
 
     when runFill $ do

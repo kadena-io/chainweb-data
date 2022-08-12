@@ -44,7 +44,7 @@ main = do
     withLogger (config (getLevel args)) backend $ \logger -> do
       let logg = loggerFunIO logger
       case args of
-        RichListArgs (NodeDbPath mfp) _ -> do
+        RichListArgs (NodeDbPath mfp) _ version -> do
           fp <- case mfp of
             Nothing -> do
               h <- getHomeDirectory
@@ -54,7 +54,7 @@ main = do
             Just fp -> do
               logg Info $ "Constructing rich list using given db-path: " <> fromString fp
               return fp
-          richList logg fp
+          richList logg fp version
         Args c pgc us u _ ms -> do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
@@ -95,7 +95,7 @@ main = do
       _ -> False
     getLevel = \case
       Args _ _ _ _ level _ -> level
-      RichListArgs _ level -> level
+      RichListArgs _ level _ -> level
 
 
 data IndexCreationInfo = IndexCreationInfo
