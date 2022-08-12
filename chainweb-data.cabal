@@ -150,7 +150,6 @@ executable chainweb-data
     Chainweb.Listen
     Chainweb.Lookups
     Chainweb.RichList
-    Chainweb.RichListScript
     Chainweb.Server
     Chainweb.Single
     Chainweb.Worker
