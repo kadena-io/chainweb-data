@@ -37,7 +37,7 @@ richList logger fp = do
           <> fp
     logger Info "Aggregating richlist ..."
     results <- foldrM (\file acc -> (acc .) <$> withSQLiteConnection file richListQuery) id files
-    logger Info $ "Filterting top 100 richest accounts..."
+    logger Info $ "Filtering top 100 richest accounts..."
     pruneRichList (results [])
   where
     checkChains :: IO [FilePath]
