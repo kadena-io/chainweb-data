@@ -107,3 +107,21 @@ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh =
 _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString
 _bytequery = \case
   SqlSelect s -> pgRenderSyntaxScript $ fromPgSelect s
+
+txQueryStmt
+  :: Text
+  -> SqlSelect Postgres (QExprToIdentity (TransactionT (QExpr Postgres QBaseScope), BlockT (QExpr Postgres QBaseScope)))
+txQueryStmt rk = select $ do
+      tx <- all_ (_cddb_transactions database)
+      blk <- all_ (_cddb_blocks database)
+      guard_ (_tx_block tx `references_` blk)
+      guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
+      return (tx,blk)
+
+eventsOnRequestKeyStmt
+  :: Text
+  -> SqlSelect Postgres (QExprToIdentity (EventT (QExpr Postgres QBaseScope)))
+eventsOnRequestKeyStmt rk = select $ do
+    ev <- all_ (_cddb_events database)
+    guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
+    return ev

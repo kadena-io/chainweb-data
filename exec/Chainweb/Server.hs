@@ -308,16 +308,8 @@ txHandler _ _ Nothing = throw404 "You must specify a search string"
 txHandler logger pool (Just (RequestKey rk)) =
   may404 $ liftIO $ P.withResource pool $ \c ->
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
-    r <- runSelectReturningOne $ select $ do
-      tx <- all_ (_cddb_transactions database)
-      blk <- all_ (_cddb_blocks database)
-      guard_ (_tx_block tx `references_` blk)
-      guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
-      return (tx,blk)
-    evs <- runSelectReturningList $ select $ do
-       ev <- all_ (_cddb_events database)
-       guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
-       return ev
+    r <- runSelectReturningOne $ txQueryStmt rk
+    evs <- runSelectReturningList $ eventsOnRequestKeyStmt rk
     return $ (`fmap` r) $ \(tx,blk) -> TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx
         , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
@@ -364,16 +356,8 @@ txsHandler _ _ Nothing = throw404 "You must specify a search string"
 txsHandler logger pool (Just (RequestKey rk)) =
   emptyList404 $ liftIO $ P.withResource pool $ \c ->
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
-    r <- runSelectReturningList $ select $ do
-      tx <- all_ (_cddb_transactions database)
-      blk <- all_ (_cddb_blocks database)
-      guard_ (_tx_block tx `references_` blk)
-      guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
-      return (tx,blk)
-    evs <- runSelectReturningList $ select $ do
-       ev <- all_ (_cddb_events database)
-       guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
-       return ev
+    r <- runSelectReturningList $ txQueryStmt rk
+    evs <- runSelectReturningList $ eventsOnRequestKeyStmt rk
     return $ (`fmap` r) $ \(tx,blk) -> TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx
         , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
