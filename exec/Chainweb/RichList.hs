@@ -6,7 +6,7 @@ import Control.Exception
 import Control.Monad
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Csv as Csv
-import Data.Foldable (foldrM)
+import Data.Functor ((<&>))
 import Data.List (isPrefixOf, sort,sortOn)
 import qualified Data.Map.Strict as M
 import Data.Ord (Down(..))
@@ -38,9 +38,9 @@ richList logger fp (ChainwebVersion version) = do
           $ "Chainweb-node top-level db directory does not exist: "
           <> fp
     logger Info "Aggregating richlist ..."
-    results <- foldrM (\file acc -> (acc .) <$> withSQLiteConnection file richListQuery) id files
+    results <- fmap mconcat $ forM files $ \file -> withSQLiteConnection file richListQuery
     logger Info $ "Filtering top 100 richest accounts..."
-    pruneRichList (results [])
+    pruneRichList results
   where
     checkChains :: IO [FilePath]
     checkChains = do
@@ -81,13 +81,11 @@ pruneRichList = LBS.writeFile "richlist.csv"
 withSQLiteConnection :: FilePath -> (Database -> IO a) -> IO a
 withSQLiteConnection fp action = bracket (open (T.pack fp)) close action
 
-type DList a = [a] -> [a]
-
-richListQuery :: Database -> IO (DList (Text, Double))
+richListQuery :: Database -> IO [(Text, Double)]
 richListQuery db = do
     rows <- qry_ db (Utf8 richListQueryStmt) [RText, RInt, RDouble]
-    return $ (`foldMap` rows) $ \case
-      [SText (Utf8 account), SInt _txid, SDouble balance] -> ((toS account,balance) :)
+    return $ rows <&> \case
+      [SText (Utf8 account), SInt _txid, SDouble balance] -> (toS account,balance)
       _ -> error "impossible?" -- TODO: Make this use throwError/throwM instead of die
 
 richListQueryStmt :: IsString s => s
