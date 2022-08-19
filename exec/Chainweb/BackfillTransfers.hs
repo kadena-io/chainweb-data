@@ -27,6 +27,7 @@ import qualified Data.Aeson as A
 import           Data.Aeson.Lens
 import qualified Data.Pool as P
 import           Data.Scientific (toRealFloat)
+import qualified Data.Text.Read as TR
 
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
@@ -110,16 +111,25 @@ createTransfer ev =
       <*> pure (_ev_moduleHash ev)
       <*> from_acct
       <*> to_acct
-      <*> amount
+      <*> getAmount (unwrap $ _ev_params ev)
   where
-    amount = case _ev_params ev ^? to unwrap . ix 2 . key "decimal" of
-      Just (A.Number n) -> Just $ toRealFloat n
-      _ -> case _ev_params ev ^? to unwrap . ix 2 . key "int" of
-        Just (A.Number n) -> Just $ toRealFloat n
-        _ -> fmap toRealFloat $ _ev_params ev ^? to unwrap . ix 2 . _Number
     from_acct = _ev_params ev ^? to unwrap . ix 0 . _String
     to_acct = _ev_params ev ^? to unwrap . ix 1 . _String
     unwrap (PgJSONB a) = a
+
+getAmount :: [A.Value] -> Maybe Double
+getAmount params =
+    (params ^? ix 2 . key "decimal" . _Number . to toRealFloat)
+    <|>
+    (params ^? ix 2 . key "decimal" . _String . to TR.double  . _Right . _1)
+    <|>
+    (params ^? ix 2 . key "int" . _Number . to toRealFloat)
+    <|>
+    (params ^? ix 2 . key "int" . _String . to TR.double . _Right . _1)
+    <|>
+    (params ^? ix 2 . _Number . to toRealFloat)
+    <|>
+    (params ^? ix 2 . _String . to TR.double . _Right . _1)
 
 eventSelector' :: Int64 -> Int64 -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
 eventSelector' startingHeight endingHeight = do
