@@ -38,7 +38,6 @@ import           Chainweb.Api.MinerData
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
-import           Chainweb.Api.ParsedNumbers
 import           Chainweb.Api.Sig
 import qualified Chainweb.Api.Signer as CW
 import qualified Chainweb.Api.Transaction as CW
@@ -56,7 +55,6 @@ import           Control.Error.Util (hush)
 import           Control.Lens
 import           Control.Monad
 import           Data.Aeson
-import           Data.Aeson.Types
 import           Data.Aeson.Lens
 import           Data.ByteString.Lazy (ByteString,toStrict)
 import qualified Data.ByteString.Base64.URL as B64
@@ -68,6 +66,7 @@ import           Data.Maybe
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.Read as TR
 import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
@@ -237,7 +236,6 @@ mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeig
     unwrap (PgJSONB a) = a
     withJust p a = if p then Just a else Nothing
     fastLengthCheck n = null . drop n
-    note n = maybe (Left n) Right
     mkTransfer mReqKey ev = Transfer
       {
         _tr_block = BlockId blockhash
@@ -253,11 +251,21 @@ mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeig
       , _tr_to_acct = case unwrap (_ev_params ev) ^? ix 1 . _String of
           Just s -> s
           _ -> error "mkTransferRows: to_acct is not a string"
-      , _tr_amount = either error id $ do
-          let msg = "mkTransferRows: amount is somehow missing"
-          param <- note msg $ unwrap (_ev_params ev) ^? ix 2
-          parseEither (\v -> (fromRational @Double . toRational <$> decoder decimalCodec v) <|> (fromInteger <$> decoder integerCodec v)) param
+      , _tr_amount = fromMaybe (error "mkTransferRows: amount is somehow missing") (getAmount (unwrap $ _ev_params ev))
       }
+    getAmount :: [Value] -> Maybe KDAScientific
+    getAmount params = fmap KDAScientific $
+        (params ^? ix 2 . key "decimal" . _Number)
+        <|>
+        (params ^? ix 2 . key "decimal" . _String . to TR.rational  . _Right . _1)
+        <|>
+        (params ^? ix 2 . key "int" . _Number)
+        <|>
+        (params ^? ix 2 . key "int" . _String . to TR.rational . _Right . _1)
+        <|>
+        (params ^? ix 2 . _Number)
+        <|>
+        (params ^? ix 2 . _String . to TR.rational . _Right . _1)
     createCoinBaseTransfers = fmap (mkTransfer Nothing)
     createNonCoinBaseTransfers xs =
         concat $ flip mapMaybe xs $ \(txhash, _creationtime,  evs) -> flip traverse evs $ \ev ->

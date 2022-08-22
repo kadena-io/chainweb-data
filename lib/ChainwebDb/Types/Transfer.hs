@@ -11,13 +11,22 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module ChainwebDb.Types.Transfer where
 
 ----------------------------------------------------------------------------
 import BasePrelude
+import Data.Scientific
 import Data.Text (Text)
 import Database.Beam
+import Database.Beam.AutoMigrate.Types hiding (Table)
+import Database.Beam.Backend.SQL.SQL92
+import Database.Beam.Postgres
+import Database.Beam.Postgres.Syntax
+import qualified Database.Beam.AutoMigrate as BA
+import Database.PostgreSQL.Simple.ToField
+import Database.PostgreSQL.Simple.FromField
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.Block
 import ChainwebDb.Types.Common
@@ -32,7 +41,7 @@ data TransferT f = Transfer
   , _tr_moduleHash :: C f Text
   , _tr_from_acct :: C f Text
   , _tr_to_acct :: C f Text
-  , _tr_amount :: C f Double
+  , _tr_amount :: C f KDAScientific
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -58,3 +67,37 @@ instance Table TransferT where
     deriving stock (Generic)
     deriving anyclass (Beamable)
   primaryKey = TransferId <$> _tr_block <*> _tr_requestkey <*> _tr_chainid <*> _tr_idx <*> _tr_moduleHash
+
+{-
+
+The two values in given to the function numericType correspond to the precision
+and scale of the numeric type. Read here for more information
+https://www.postgresql.org/docs/current/datatype-numeric.html.
+
+Since the maximum amount of kda someone can have in their posssession is around
+1 billion and also the maximum precision of any number represented by pact needs
+12 digits past the decimal point, we have chosen the numbers 21 and 12 for the
+precision and scale of the newtype KDAScientific.
+
+-}
+
+newtype KDAScientific = KDAScientific { getKDAScientific :: Scientific }
+  deriving Eq
+
+instance Show KDAScientific where
+  show (KDAScientific s) = show s
+
+instance BA.HasColumnType KDAScientific where
+  defaultColumnType _ = SqlStdType $ numericType (Just (21, Just 12))
+  defaultTypeCast _ = Just "numeric"
+
+instance HasSqlValueSyntax PgValueSyntax KDAScientific where
+  sqlValueSyntax = defaultPgValueSyntax
+
+instance ToField KDAScientific where
+  toField (KDAScientific s) = toField s
+
+instance FromBackendRow Postgres KDAScientific where
+
+instance FromField KDAScientific where
+  fromField f mb = fmap KDAScientific $ fromField f mb
