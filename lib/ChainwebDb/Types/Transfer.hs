@@ -88,7 +88,8 @@ instance Show KDAScientific where
   show (KDAScientific s) = show s
 
 instance BA.HasColumnType KDAScientific where
-  defaultColumnType _ = SqlStdType $ numericType (Just (21, Just 12))
+  -- defaultColumnType _ = SqlStdType $ numericType (Just (21, Just 12))
+  defaultColumnType _ = SqlStdType $ numericType Nothing
   defaultTypeCast _ = Just "numeric"
 
 instance HasSqlValueSyntax PgValueSyntax KDAScientific where

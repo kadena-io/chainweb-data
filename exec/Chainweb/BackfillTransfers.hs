@@ -99,34 +99,39 @@ chainMinHeights :: Pg [(Int64, Maybe Int64)]
 chainMinHeights = runSelectReturningList $ select $ aggregate_ (\t -> (group_ (_tr_chainid t), min_ (_tr_height t))) (all_ (_cddb_transfers database))
 
 createTransfer :: Event -> Maybe Transfer
-createTransfer ev =
+createTransfer ev = do
+      guard $ lengthThree $ unwrap $ _ev_params ev
       Transfer
-      <$> pure (_ev_block ev)
-      <*> pure (_ev_requestkey ev)
-      <*> pure (_ev_chainid ev)
-      <*> pure (_ev_height ev)
-      <*> pure (_ev_idx ev)
-      <*> pure (_ev_module ev)
-      <*> pure (_ev_moduleHash ev)
-      <*> from_acct
-      <*> to_acct
-      <*> getAmount (unwrap $ _ev_params ev)
+        <$> pure (_ev_block ev)
+        <*> pure (_ev_requestkey ev)
+        <*> pure (_ev_chainid ev)
+        <*> pure (_ev_height ev)
+        <*> pure (_ev_idx ev)
+        <*> pure (_ev_module ev)
+        <*> pure (_ev_moduleHash ev)
+        <*> from_acct
+        <*> to_acct
+        <*> getAmount (unwrap $ _ev_params ev)
   where
     from_acct = _ev_params ev ^? to unwrap . ix 0 . _String
     to_acct = _ev_params ev ^? to unwrap . ix 1 . _String
     unwrap (PgJSONB a) = a
+    lengthThree = \case
+      [_,_,_] -> True
+      _ -> False
 
 getAmount :: [A.Value] -> Maybe KDAScientific
 getAmount params = fmap KDAScientific $
-    (params ^? ix 2 . key "decimal" . _Number)
-    <|>
     (params ^? ix 2 . key "decimal" . _String . to TR.rational  . _Right . _1)
-    <|>
-    (params ^? ix 2 . key "int" . _Number)
     <|>
     (params ^? ix 2 . key "int" . _String . to TR.rational . _Right . _1)
     <|>
     (params ^? ix 2 . _Number)
+    <|>
+    -- These cases shouldn't be ever reached but these are here just in case
+    (params ^? ix 2 . key "int" . _Number)
+    <|>
+    (params ^? ix 2 . key "decimal" . _Number)
     <|>
     (params ^? ix 2 . _String . to TR.rational . _Right . _1)
 
