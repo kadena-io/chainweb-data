@@ -2,24 +2,28 @@
 {-# LANGUAGE TypeApplications #-}
 module Chainweb.RichList ( richList ) where
 
+import Control.Applicative ((<|>))
 import Control.Exception
 import Control.Monad
+import Control.Lens
+import Data.Aeson.Lens
 import qualified Data.ByteString.Lazy as LBS
+import Data.ByteString (ByteString)
 import qualified Data.Csv as Csv
-import Data.Functor ((<&>))
 import Data.List (isPrefixOf, sort,sortOn)
 import qualified Data.Map.Strict as M
 import Data.Ord (Down(..))
 import qualified Data.Text as T
 import Data.Text (Text)
+import Data.Text.Read (double)
 import Data.String.Conv
-import Data.String
 
 import System.Directory
 import System.FilePath
 import System.Logger.Types
 
 import Text.Read
+import Text.Printf
 
 import Database.SQLite3
 import Database.SQLite3.Direct (Utf8(..))
@@ -40,8 +44,12 @@ richList logger fp (ChainwebVersion version) = do
     logger Info "Aggregating richlist ..."
     results <- fmap mconcat $ forM files $ \file -> withSQLiteConnection file richListQuery
     logger Info $ "Filtering top 100 richest accounts..."
-    pruneRichList results
+    pruneRichList (second (\b -> fromMaybe (error (show b)) $ getBalance b) <$> results)
   where
+    fromMaybe def = \case
+      Just v -> v
+      Nothing -> def
+    second f (a,b) = (a,f b)
     checkChains :: IO [FilePath]
     checkChains = do
         let sqlitePath = fp <> "chainweb-node/" <> T.unpack version <> "/0/sqlite"
@@ -56,7 +64,7 @@ richList logger fp (ChainwebVersion version) = do
                     case splitAt 14 (fst $ splitExtension p) of
                       (_, "") -> error $ "Found corrupt sqlite path: " <> p
                       (_, cid) -> case readMaybe @Int cid of
-                        Just c -> ((p :), (c :))
+                        Just c -> (((sqlitePath <> "/" <> p) :), (c :))
                         Nothing -> error "Couldn't read chain id"
                   | otherwise = mempty
                 (fdl, cdl) = foldMap go files
@@ -68,6 +76,17 @@ richList logger fp (ChainwebVersion version) = do
               $ ioError $ userError
               $ "Missing tables for some chain ids. Is your node synced?"
             return $ fdl []
+
+getBalance :: AsValue t => t -> Maybe Double
+getBalance bytes = foldr (\a b -> getBalance a <|> b) basecase (bytes ^.. members)
+  where
+    fromSci = fromRational . toRational
+    basecase =
+      (bytes ^? key "balance" . _Number . to fromSci)
+      <|>
+      (bytes ^? key "balance" . key "decimal" . _Number . to fromSci)
+      <|>
+      (bytes ^? key "balance" . key "decimal" . _String . to double . _Right . _1)
 
 pruneRichList :: [(Text,Double)] -> IO ()
 pruneRichList = LBS.writeFile "richlist.csv"
@@ -81,16 +100,16 @@ pruneRichList = LBS.writeFile "richlist.csv"
 withSQLiteConnection :: FilePath -> (Database -> IO a) -> IO a
 withSQLiteConnection fp action = bracket (open (T.pack fp)) close action
 
-richListQuery :: Database -> IO [(Text, Double)]
+richListQuery :: Database -> IO [(Text, ByteString)]
 richListQuery db = do
-    rows <- qry_ db (Utf8 richListQueryStmt) [RText, RInt, RDouble]
+    rows <- qry_ db richListQueryStmt [RText, RInt, RBlob]
     return $ rows <&> \case
-      [SText (Utf8 account), SInt _txid, SDouble balance] -> (toS account,balance)
-      _ -> error "impossible?" -- TODO: Make this use throwError/throwM instead of die
+      [SText (Utf8 account), SInt _txid, SBlob jsonvalue] -> (toS account,jsonvalue)
+      _ -> error "impossible?" -- TODO: Make this use throwError/throwM instead of error
 
-richListQueryStmt :: IsString s => s
+richListQueryStmt :: Utf8
 richListQueryStmt =
-   "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance'\
+   "select rowkey as acct_id, txid, rowdata \
      \ from [coin_coin-table] as coin\
      \ INNER JOIN (\
       \ select\
@@ -98,5 +117,4 @@ richListQueryStmt =
        \ max(txid) as last_txid\
       \ from 'coin_coin-table'\
       \ group by acct_id\
-     \ ) latest ON coin.rowkey = latest.acct_id AND coin.txid = latest.last_txid\
-     \ order by balance desc;"
+     \ ) latest ON coin.rowkey = latest.acct_id AND coin.txid = latest.last_txid;"
