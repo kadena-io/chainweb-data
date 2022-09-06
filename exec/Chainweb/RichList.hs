@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 module Chainweb.RichList ( richList ) where
 
@@ -6,10 +7,12 @@ import Control.Applicative ((<|>))
 import Control.Exception
 import Control.Monad
 import Control.Lens
+import Data.Aeson (eitherDecodeStrict, Value(..))
 import Data.Aeson.Lens
 import qualified Data.ByteString.Lazy as LBS
 import Data.ByteString (ByteString)
 import qualified Data.Csv as Csv
+import Data.Foldable (asum)
 import Data.List (isPrefixOf, sort,sortOn)
 import qualified Data.Map.Strict as M
 import Data.Ord (Down(..))
@@ -23,7 +26,6 @@ import System.FilePath
 import System.Logger.Types
 
 import Text.Read
-import Text.Printf
 
 import Database.SQLite3
 import Database.SQLite3.Direct (Utf8(..))
@@ -44,12 +46,12 @@ richList logger fp (ChainwebVersion version) = do
     logger Info "Aggregating richlist ..."
     results <- fmap mconcat $ forM files $ \file -> withSQLiteConnection file richListQuery
     logger Info $ "Filtering top 100 richest accounts..."
-    pruneRichList (second (\b -> fromMaybe (error (show b)) $ getBalance b) <$> results)
+    pruneRichList (either error id . parseResult <$> results)
   where
-    fromMaybe def = \case
-      Just v -> v
-      Nothing -> def
-    second f (a,b) = (a,f b)
+    parseResult (a,b) = do
+      validJSON <- eitherDecodeStrict b
+      let msg = "Unable to get balance\n invalid JSON " <> show validJSON
+      maybe (Left msg) (Right . (a,)) $ getBalance validJSON
     checkChains :: IO [FilePath]
     checkChains = do
         let sqlitePath = fp <> "chainweb-node/" <> T.unpack version <> "/0/sqlite"
@@ -77,16 +79,20 @@ richList logger fp (ChainwebVersion version) = do
               $ "Missing tables for some chain ids. Is your node synced?"
             return $ fdl []
 
-getBalance :: AsValue t => t -> Maybe Double
-getBalance bytes = foldr (\a b -> getBalance a <|> b) basecase (bytes ^.. members)
+getBalance :: Value -> Maybe Double
+getBalance bytes = asum $ basecase : (fmap getBalance $ bytes ^.. members)
   where
     fromSci = fromRational . toRational
     basecase =
-      (bytes ^? key "balance" . _Number . to fromSci)
+      bytes ^? key "balance" . _Number . to fromSci
       <|>
-      (bytes ^? key "balance" . key "decimal" . _Number . to fromSci)
+      bytes ^? key "balance" . key "decimal" . _Number . to fromSci
       <|>
-      (bytes ^? key "balance" . key "decimal" . _String . to double . _Right . _1)
+      bytes ^? key "balance" . key "int" . _Number . to fromSci
+      <|>
+      bytes ^? key "balance" . key "decimal" . _String . to double . _Right . _1
+      <|>
+      bytes ^? key "balance" . key "int" . _String . to double . _Right . _1
 
 pruneRichList :: [(Text,Double)] -> IO ()
 pruneRichList = LBS.writeFile "richlist.csv"
