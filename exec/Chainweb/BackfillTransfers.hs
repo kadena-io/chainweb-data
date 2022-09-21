@@ -25,10 +25,8 @@ import           Control.Lens hiding ((<.), reuse)
 
 import qualified Data.Aeson as A
 import           Data.Aeson.Lens
-import           Data.Decimal
 import qualified Data.Pool as P
 import qualified Data.Text.Read as TR
-import           Data.Scientific
 
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
@@ -122,23 +120,20 @@ createTransfer ev = do
       [_,_,_] -> True
       _ -> False
 
-getAmount :: [A.Value] -> Maybe KDADecimal
-getAmount params = fmap KDADecimal $
+getAmount :: [A.Value] -> Maybe KDAScientific
+getAmount params = fmap KDAScientific $
     (params ^? ix 2 . key "decimal" . _String . to TR.rational  . _Right . _1)
     <|>
     (params ^? ix 2 . key "int" . _String . to TR.rational . _Right . _1)
     <|>
-    (params ^? ix 2 . _Number . to f)
+    (params ^? ix 2 . _Number)
     <|>
     -- These cases shouldn't be ever reached but these are here just in case
-    (params ^? ix 2 . key "int" . _Number . to f)
+    (params ^? ix 2 . key "int" . _Number)
     <|>
-    (params ^? ix 2 . key "decimal" . _Number . to f)
+    (params ^? ix 2 . key "decimal" . _Number)
     <|>
     (params ^? ix 2 . _String . to TR.rational . _Right . _1)
-  where
-    f :: Scientific -> Decimal
-    f = undefined
 
 eventSelector' :: Int64 -> Int64 -> Q Postgres ChainwebDataDb s (EventT (QExpr Postgres s))
 eventSelector' startingHeight endingHeight = do

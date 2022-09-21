@@ -17,10 +17,9 @@ module ChainwebDb.Types.Transfer where
 
 ----------------------------------------------------------------------------
 import BasePrelude
-import Data.Decimal
+import Data.Scientific
 import Data.Text (Text)
 import Database.Beam
-import Database.Beam.AutoMigrate.Types hiding (Table)
 import Database.Beam.Backend.SQL.SQL92
 import Database.Beam.Postgres
 import Database.Beam.Postgres.Syntax
@@ -41,7 +40,7 @@ data TransferT f = Transfer
   , _tr_moduleHash :: C f Text
   , _tr_from_acct :: C f Text
   , _tr_to_acct :: C f Text
-  , _tr_amount :: C f KDADecimal
+  , _tr_amount :: C f KDAScientific
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)
@@ -81,30 +80,5 @@ precision and scale of the newtype KDAScientific.
 
 -}
 
-newtype KDADecimal = KDADecimal { getKDADecimal :: Decimal }
-  deriving Eq
-
-instance Show KDADecimal where
-  show (KDADecimal d) = show d
-
-instance BA.HasColumnType KDADecimal where
-  -- defaultColumnType _ = SqlStdType $ numericType (Just (21, Just 12))
-  defaultColumnType _ = SqlStdType $ numericType Nothing
-  defaultTypeCast _ = Just "numeric"
-
-instance HasSqlValueSyntax PgValueSyntax KDADecimal where
-  sqlValueSyntax = defaultPgValueSyntax
-
-instance ToField KDADecimal where
-  toField (KDADecimal s) = toField s
-
-instance ToField Decimal where
-  toField = undefined
-
-instance FromField Decimal where
-  fromField = undefined
-
-instance FromBackendRow Postgres KDADecimal where
-
-instance FromField KDADecimal where
-  fromField f mb = fmap KDADecimal $ fromField f mb
+newtype KDAScientific = KDAScientific { getKDAScientific :: Scientific }
+  deriving newtype (Eq, Show, BA.HasColumnType, HasSqlValueSyntax PgValueSyntax, ToField, FromField, FromBackendRow Postgres)
