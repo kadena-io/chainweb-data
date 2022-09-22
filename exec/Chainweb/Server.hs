@@ -437,12 +437,10 @@ accountHandler logger pool token account chain limit offset =
       , _acDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
       , _acDetail_requestKey = getTxHash $ _tr_requestkey tr
       , _acDetail_idx = fromIntegral $ _tr_idx tr
-      , _acDetail_amount = toDecimal $ _tr_amount tr
+      , _acDetail_amount = getKDAScientific $ _tr_amount tr
       , _acDetail_fromAccount = _tr_from_acct tr
       , _acDetail_toAccount = _tr_to_acct tr
       }
-  where
-    toDecimal = fromRational . toRational . getKDAScientific
 
 evHandler
   :: LogFunctionIO Text
