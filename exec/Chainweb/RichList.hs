@@ -57,7 +57,7 @@ richList logger fp (ChainwebVersion version) = do
         let sqlitePath = fp <> "chainweb-node/" <> T.unpack version <> "/0/sqlite"
 
         doesPathExist sqlitePath >>= \case
-          False -> ioError $ userError "Cannot find sqlite data. Is your node synced?"
+          False -> ioError $ userError $ printf "Cannot find sqlite data (at \"%s\"). Is your node synced?" sqlitePath
           True -> do
             files <- filter ((==) ".sqlite" . takeExtension) <$> listDirectory sqlitePath
 
