@@ -25,6 +25,7 @@ import System.Directory
 import System.FilePath
 import System.Logger.Types
 
+import Text.Printf (printf)
 import Text.Read
 
 import Database.SQLite3
