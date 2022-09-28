@@ -3,7 +3,7 @@
 
 for i in $(seq 0 $1);
 do
-   sqlite3 -header -csv pact-v1-chain-$i.sqlite "select rowkey as acct_id, txid, cast(ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')) as REAL) as 'balance'
+   sqlite3 -header -csv pact-v1-chain-$i.sqlite "select rowkey as acct_id, txid, cast( ifnull( ifnull(json_extract(rowdata, '$.balance.decimal'), json_extract(rowdata, '$.balance')), json_extract(rowdata, '$.\$d.balance') ) as REAL) as 'balance'
      from [coin_coin-table] as coin
      INNER JOIN (
       select
