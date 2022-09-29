@@ -167,7 +167,11 @@ test_initializeDb pgc annotatedDb' = withPool pgc $ \pool ->
   P.withResource pool $ \conn -> do
     BA.calcMigrationSteps annotatedDb' conn >>= \case
       Left err -> error $ show err
-      Right _ -> putStrLn "something happened"
+      Right [] -> putStrLn "No database migration needed. Continuing..."
+      Right _ -> do
+        putStrLn "Database migration needed."
+        BA.tryRunMigrationsWithEditUpdate annotatedDb' conn
+        putStrLn "Done with database migration."
 
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
