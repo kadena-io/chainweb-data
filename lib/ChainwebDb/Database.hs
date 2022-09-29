@@ -15,6 +15,7 @@ module ChainwebDb.Database
   , database
   , initializeTables
   , bench_initializeTables
+  , test_initializeDb
 
   , withDb
   , withDbDebug
@@ -160,6 +161,14 @@ initializeTables logg migrateStatus conn = do
             logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
             showMigration conn
             exitFailure
+
+-- test_initializeDb :: Database be => Connect -> BA.AnnotatedDatabaseSettings be a -> IO ()
+test_initializeDb pgc annotatedDb' = withPool pgc $ \pool ->
+  P.withResource pool $ \conn -> do
+    BA.calcMigrationSteps annotatedDb' conn >>= \case
+      Left err -> error $ show err
+      Right _ -> putStrLn "something happened"
+
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
 bench_initializeTables migrate loggInfo loggError conn = do
