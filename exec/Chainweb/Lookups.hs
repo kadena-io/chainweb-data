@@ -140,7 +140,7 @@ payloadWithOutputsBatch env (ChainId cid) m _f = do
             Right (as :: [BlockPayloadWithOutputs]) -> Right $ foldr go [] as
     pure res
   where
-    rest = T.pack $ "\nHashes: ( " ++ (L.intercalate " " $ M.elems (show . _f <$> m)) ++ " )"
+    rest = T.pack $ "\nHashes: ( " ++ (L.intercalate " " $ M.elems (show . hashB64U . _f <$> m)) ++ " )"
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
