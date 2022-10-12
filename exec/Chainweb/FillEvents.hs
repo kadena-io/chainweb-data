@@ -91,7 +91,7 @@ fillEventsCut env args et cutBS = do
                   Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show (chunkLow, chunkHigh)
                   Right headers -> do
                     let payloadHashes = M.fromList $ map (\header -> (hashToDbHash $ _blockHeader_payloadHash header, header)) headers
-                    payloadWithOutputsBatch env (ChainId $ fromIntegral chain) payloadHashes >>= \case
+                    payloadWithOutputsBatch env (ChainId $ fromIntegral chain) payloadHashes _blockHeader_hash >>= \case
                       Left e -> do
                         -- TODO Possibly also check for "key not found" message
                         if (apiError_type e == ClientError)

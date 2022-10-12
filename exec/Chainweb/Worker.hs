@@ -152,7 +152,7 @@ writeBlocks :: Env -> P.Pool Connection -> Bool -> IORef Int -> [BlockHeader] ->
 writeBlocks env pool disableIndexesPred count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
-      retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs'))) >>= \case
+      retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs')) id) >>= \case
         Left e -> do
           logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
           print e

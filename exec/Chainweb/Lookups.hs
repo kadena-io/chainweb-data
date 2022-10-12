@@ -62,6 +62,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import           Data.Foldable
 import           Data.Int
+import qualified Data.List as L (intercalate)
 import           Data.Maybe
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
@@ -125,19 +126,21 @@ payloadWithOutputsBatch
   :: Env
   -> ChainId
   -> M.Map (DbHash PayloadHash) a
+  -> (a -> Hash)
   -> IO (Either ApiError [(a, BlockPayloadWithOutputs)])
-payloadWithOutputsBatch env (ChainId cid) m = do
+payloadWithOutputsBatch env (ChainId cid) m _f = do
     initReq <- parseRequest url
     let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
     eresp <- handleRequest req (_env_httpManager env)
     let res = do
           resp <- eresp
           case eitherDecode' (responseBody resp) of
-            Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e)
+            Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e <> rest)
                                       (responseStatus resp) (responseBody resp)
             Right (as :: [BlockPayloadWithOutputs]) -> Right $ foldr go [] as
     pure res
   where
+    rest = T.pack $ "\nHashes: ( " ++ (L.intercalate " " $ M.elems (show . _f <$> m)) ++ " )"
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
