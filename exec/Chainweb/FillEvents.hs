@@ -70,6 +70,7 @@ fillEventsCut env args et cutBS = do
     let startingHeight = case _nodeInfo_chainwebVer $ _env_nodeInfo env of
           "mainnet01" -> 1722501
           "testnet04" -> 1261001
+          "developmenet" -> 80
           _ -> error "Chainweb version: Unknown"
     gaps <- getCoinbaseGaps env startingHeight
     mapM_ (logg Debug . fromString . show) gaps
