@@ -55,7 +55,8 @@ richList logger fp (ChainwebVersion version) = do
       maybe (Left msg) (Right . (a,)) $ getBalance validJSON
     checkChains :: IO [FilePath]
     checkChains = do
-        let sqlitePath = fp <> "chainweb-node/" <> T.unpack version <> "/0/sqlite"
+        let sqlitePath = appendSlash fp <> "chainweb-node/" <> T.unpack version <> "/0/sqlite"
+            appendSlash str = if last str == '/' then str else str <> "/"
 
         doesPathExist sqlitePath >>= \case
           False -> ioError $ userError $ printf "Cannot find sqlite data (at \"%s\"). Is your node synced?" sqlitePath
