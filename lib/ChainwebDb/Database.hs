@@ -27,6 +27,7 @@ import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import           Control.Exception
 import qualified Data.Pool as P
 import           Data.Proxy
 import           Data.Text (Text)
@@ -34,6 +35,8 @@ import qualified Data.Text as T
 import           Data.String
 import           Database.Beam
 import qualified Database.Beam.AutoMigrate as BA
+import qualified Database.Beam.AutoMigrate.Postgres as BA
+import           Database.Beam.AutoMigrate.Diff (diff)
 import           Database.Beam.Postgres
 import           System.Exit
 import           System.Logger hiding (logg)
@@ -159,8 +162,8 @@ showMigration conn =
 -- | Create the DB tables if necessary.
 initializeTables :: LogFunctionIO Text -> MigrateStatus -> Connection -> IO ()
 initializeTables logg migrateStatus conn = do
-    diff <- BA.calcMigrationSteps annotatedDb conn
-    case diff of
+    diffA <- BA.calcMigrationSteps annotatedDb conn
+    case diffA of
       Left err -> do
           logg Error "Error detecting database migration requirements: "
           logg Error $ fromString $ show err
@@ -175,11 +178,24 @@ initializeTables logg migrateStatus conn = do
             logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
             showMigration conn
             exitFailure
+          UnsafeRunMigration -> do
+            let expectedHaskellSchema = BA.fromAnnotatedDbSettings annotatedDb (Proxy @' [])
+            actualDatabaseSchema <- BA.getSchema conn
+            case diff expectedHaskellSchema actualDatabaseSchema of
+              Left _ -> undefined
+              Right _ -> do
+                -- ignore any possible edits
+                try (BA.runMigrationWithEditUpdate (const []) conn expectedHaskellSchema) >>= \case
+                  Left (e :: SomeException) ->
+                    error $ "Database migration error: " <> displayException e
+                  Right _ -> pure ()
+
+            logg Info "NOTE! Done with unsafe database migration."
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
 bench_initializeTables migrate loggInfo loggError conn = do
-    diff <- BA.calcMigrationSteps annotatedDb conn
-    case diff of
+    diffA <- BA.calcMigrationSteps annotatedDb conn
+    case diffA of
       Left err -> do
           loggError "Error detecting database migration requirements: "
           loggError $ fromString $ show err
