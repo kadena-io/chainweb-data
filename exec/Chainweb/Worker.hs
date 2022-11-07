@@ -155,7 +155,7 @@ writeBlocks env pool disableIndexesPred count bhs = do
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs')) id) >>= \case
         Left e -> do
           logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
-          print e
+          logger Error $ fromString $ show e
         Right pls' -> do
           let !pls = M.fromList pls'
               !ms = _blockPayloadWithOutputs_minerData <$> pls
