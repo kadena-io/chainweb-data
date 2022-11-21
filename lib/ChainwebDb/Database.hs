@@ -178,19 +178,8 @@ initializeTables logg migrateStatus conn = do
             logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
             showMigration conn
             exitFailure
-          UnsafeRunMigration -> do
-            let expectedHaskellSchema = BA.fromAnnotatedDbSettings annotatedDb (Proxy @' [])
-            actualDatabaseSchema <- BA.getSchema conn
-            case diff expectedHaskellSchema actualDatabaseSchema of
-              Left _ -> undefined
-              Right _ -> do
-                -- ignore any possible edits
-                try (BA.runMigrationWithEditUpdate (const []) conn expectedHaskellSchema) >>= \case
-                  Left (e :: SomeException) ->
-                    error $ "Database migration error: " <> displayException e
-                  Right _ -> pure ()
+          UnsafeRunMigration -> logg Info "NOTE! Done with unsafe database migration." -- We don't have to do anything!
 
-            logg Info "NOTE! Done with unsafe database migration."
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
 bench_initializeTables migrate loggInfo loggError conn = do

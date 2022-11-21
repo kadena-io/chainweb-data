@@ -237,8 +237,6 @@ mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeig
           else []
   where
     unwrap (PgJSONB a) = a
-    withJust p a = if p then Just a else Nothing
-    fastLengthCheck n = null . drop n
     mkTransfer mReqKey ev = Transfer
       {
         _tr_block = BlockId blockhash
@@ -270,9 +268,12 @@ mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeig
         <|>
         (params ^? ix 2 . _String . to TR.rational . _Right . _1)
     createCoinBaseTransfers = fmap (mkTransfer Nothing)
-    createNonCoinBaseTransfers xs =
-        concat $ flip mapMaybe xs $ \(txhash, _creationtime,  evs) -> flip traverse evs $ \ev ->
-          withJust (T.takeEnd 8 (_ev_qualName ev) == "TRANSFER" && fastLengthCheck 3 (unwrap (_ev_params ev))) $ mkTransfer (Just txhash) ev
+    createNonCoinBaseTransfers xs = [ mkTransfer (Just txhash) ev
+      | (txhash,_,evs) <- xs
+      , ev <- evs
+      , T.takeEnd 8 (_ev_qualName ev) == "TRANSFER"
+      , length (unwrap (_ev_params ev)) == 3
+      ]
 
 mkTransactionSigners :: CW.Transaction -> [Signer]
 mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
