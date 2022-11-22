@@ -237,23 +237,24 @@ mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeig
           else []
   where
     unwrap (PgJSONB a) = a
-    mkTransfer mReqKey ev = Transfer
-      {
-        _tr_block = BlockId blockhash
-      , _tr_requestkey = maybe RKCB_Coinbase RKCB_RequestKey mReqKey
-      , _tr_chainid = fromIntegral cid'
-      , _tr_height = height
-      , _tr_idx = _ev_idx ev
-      , _tr_modulename = _ev_module ev
-      , _tr_moduleHash = _ev_moduleHash ev
-      , _tr_from_acct = case unwrap (_ev_params ev) ^? ix 0 . _String of
-          Just s -> s
-          _ -> error "mkTransferRows: from_acct is not a string"
-      , _tr_to_acct = case unwrap (_ev_params ev) ^? ix 1 . _String of
-          Just s -> s
-          _ -> error "mkTransferRows: to_acct is not a string"
-      , _tr_amount = fromMaybe (error "mkTransferRows: amount is somehow missing") (getAmount (unwrap $ _ev_params ev))
-      }
+    mkTransfer mReqKey ev = do
+      let (PgJSONB params) = _ev_params ev
+      amount <- getAmount params
+      fromAccount <- params ^? ix 0 . _String
+      toAccount <- params ^? ix 1 . _String
+      return Transfer
+        {
+          _tr_block = BlockId blockhash
+        , _tr_requestkey = maybe RKCB_Coinbase RKCB_RequestKey mReqKey
+        , _tr_chainid = fromIntegral cid'
+        , _tr_height = height
+        , _tr_idx = _ev_idx ev
+        , _tr_modulename = _ev_module ev
+        , _tr_moduleHash = _ev_moduleHash ev
+        , _tr_from_acct = fromAccount
+        , _tr_to_acct = toAccount
+        , _tr_amount = amount
+        }
     getAmount :: [Value] -> Maybe KDAScientific
     getAmount params = fmap KDAScientific $
         (params ^? ix 2 . key "decimal" . _Number)
@@ -267,12 +268,13 @@ mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeig
         (params ^? ix 2 . _Number)
         <|>
         (params ^? ix 2 . _String . to TR.rational . _Right . _1)
-    createCoinBaseTransfers = fmap (mkTransfer Nothing)
-    createNonCoinBaseTransfers xs = [ mkTransfer (Just txhash) ev
+    createCoinBaseTransfers = fmap (fromMaybe (error "<impossible>") . mkTransfer Nothing)
+    createNonCoinBaseTransfers xs = [ transfer
       | (txhash,_,evs) <- xs
       , ev <- evs
       , T.takeEnd 8 (_ev_qualName ev) == "TRANSFER"
       , length (unwrap (_ev_params ev)) == 3
+      , transfer <- maybeToList $ mkTransfer (Just txhash) ev
       ]
 
 mkTransactionSigners :: CW.Transaction -> [Signer]

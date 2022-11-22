@@ -178,7 +178,7 @@ initializeTables logg migrateStatus conn = do
             logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
             showMigration conn
             exitFailure
-          UnsafeRunMigration -> logg Info "NOTE! Done with unsafe database migration." -- We don't have to do anything!
+
 
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool

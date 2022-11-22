@@ -57,7 +57,7 @@ import           Text.Printf
 
 ---
 
-data MigrateStatus = RunMigration | DontMigrate | UnsafeRunMigration
+data MigrateStatus = RunMigration | DontMigrate
   deriving (Eq,Ord,Show,Read)
 
 data Args
@@ -199,7 +199,7 @@ envP = Args
 
 migrationP :: Parser MigrateStatus
 migrationP =
-  flag DontMigrate RunMigration (short 'm' <> long "migrate" <> help "Run DB migration") <|> flag' UnsafeRunMigration (short 'u')
+  flag DontMigrate RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
 
 logLevelParser :: Parser LogLevel
 logLevelParser =
