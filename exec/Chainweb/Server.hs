@@ -304,6 +304,9 @@ searchTxs logger pool req limit offset (Just search) = do
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
 
+throw400 :: MonadError ServerError m => ByteString -> m a
+throw400 msg = throwError $ err400 { errBody = msg }
+
 txHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
@@ -425,14 +428,19 @@ accountHandler
   -> Text -- ^ account identifier
   -> Maybe Text -- ^ token type
   -> Maybe ChainId -- ^ chain identifier
+  -> Maybe BlockHeight
   -> Maybe Limit
   -> Maybe Offset
   -> Handler [AccountDetail]
-accountHandler logger pool req account token chain limit offset = do
+accountHandler logger pool req account token chain fromHeight limit offset = do
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
+  boundedOffset <- Offset <$> case offset of
+    Just (Offset o) -> if o >= 10000 then throw400 "" else return o
+    Nothing -> return 0
   liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt limit offset account (fromMaybe "coin" token) chain
+    let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt boundedLimit boundedOffset account (fromMaybe "coin" token) chain fromHeight
     return $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr

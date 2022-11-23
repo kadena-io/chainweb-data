@@ -20,6 +20,7 @@ import           Database.Beam.Backend.SQL.SQL92
 import           Database.Beam.Backend.SQL
 ------------------------------------------------------------------------------
 import           Chainweb.Api.ChainId
+import           Chainweb.Api.Common (BlockHeight)
 import           ChainwebData.Api
 import           ChainwebData.Pagination
 import           ChainwebDb.Database
@@ -111,39 +112,32 @@ _bytequery = \case
   SqlSelect s -> pgRenderSyntaxScript $ fromPgSelect s
 
 accountQueryStmt
-    :: Maybe Limit
-    -> Maybe Offset
+    :: Limit
+    -> Offset
     -> Text
     -> Text
     -> Maybe ChainId
+    -> Maybe BlockHeight
     -> SqlSelect
     Postgres
     (QExprToIdentity
     (TransferT (QGenExpr QValueContext Postgres QBaseScope)))
-accountQueryStmt limit offset account token chain =
+accountQueryStmt (Limit limit) (Offset offset) account token chain fromHeight =
   select $
-  limit_ lim $
-  offset_ off $
+  limit_ limit $
+  offset_ offset $
   orderBy_ getOrder $ do
-    tr <- unionAll_ fromAccountQuery toAccountQuery
-    return tr
+    unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
   where
-    lim = maybe 20 (min 100 . unLimit) limit
-    off = maybe 0 unOffset offset
     getOrder tr =
       ( desc_ $ _tr_height tr
       , asc_ $ _tr_idx tr)
-    subQueryLimit =  lim + off
+    subQueryLimit = limit + offset
     whenArg p a = maybe (return ()) a p
-    fromAccountQuery = limit_ subQueryLimit $ orderBy_ getOrder $ do
+    accountQuery accountField = limit_ subQueryLimit $ orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
-      guard_ $ _tr_from_acct tr ==. val_ account
+      guard_ $ accountField tr ==. val_ account
       guard_ $ _tr_modulename tr ==. val_ token
       whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. val_ (fromIntegral c)
-      return tr
-    toAccountQuery = limit_ subQueryLimit $ orderBy_ getOrder $ do
-      tr <- all_ (_cddb_transfers database)
-      guard_ $ _tr_to_acct tr ==. val_ account
-      guard_ $ _tr_modulename tr ==. val_ token
-      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. val_ (fromIntegral c)
+      whenArg fromHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
       return tr
