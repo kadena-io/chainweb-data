@@ -167,7 +167,7 @@ apiServerCut env senv cutBS = do
             :<|> evHandler logg pool req
             :<|> txHandler logg pool
             :<|> txsHandler logg pool
-            :<|> accountHandler logg pool
+            :<|> accountHandler logg pool req
           )
             :<|> statsHandler ssRef
             :<|> coinsHandler ssRef
@@ -421,13 +421,16 @@ txsHandler logger pool (Just (RequestKey rk)) =
 accountHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
+  -> Request
   -> Text -- ^ account identifier
   -> Maybe Text -- ^ token type
   -> Maybe ChainId -- ^ chain identifier
   -> Maybe Limit
   -> Maybe Offset
   -> Handler [AccountDetail]
-accountHandler logger pool account token chain limit offset =
+accountHandler logger pool req account token chain limit offset = do
+  liftIO $ logger Info $
+    fromString $ printf "Account search from %s for: %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt limit offset account (fromMaybe "coin" token) chain
     return $ (`map` r) $ \tr -> AccountDetail
