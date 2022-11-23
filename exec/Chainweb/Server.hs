@@ -429,7 +429,7 @@ accountHandler
   -> Handler [AccountDetail]
 accountHandler logger pool account token chain limit offset =
   liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt limit offset (fromMaybe "coin" token) account chain
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt limit offset account (fromMaybe "coin" token) chain
     return $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
