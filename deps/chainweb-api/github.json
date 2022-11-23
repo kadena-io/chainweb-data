@@ -1,8 +1,8 @@
 {
   "owner": "kadena-io",
   "repo": "chainweb-api",
-  "branch": "master",
+  "branch": "emmanuel/fix-account-api",
   "private": false,
-  "rev": "122761ea15ca8899775ad755dcfcf278534cf42c",
-  "sha256": "0vf71vf4lnzyvbl7ai4bd49igfj81ilrxi3vcply5cq6c0f6fpph"
+  "rev": "ad9d682af6cecade86340ca4c57b530c1a79fc4e",
+  "sha256": "1h4nvag4lyliaw41c9bdcm2f4vl65gxk1x663r347rqx59jqzwpf"
 }

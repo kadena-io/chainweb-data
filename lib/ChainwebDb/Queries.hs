@@ -19,9 +19,10 @@ import           Database.Beam.Postgres.Syntax
 import           Database.Beam.Backend.SQL.SQL92
 import           Database.Beam.Backend.SQL
 ------------------------------------------------------------------------------
+import           Chainweb.Api.ChainId
 import           ChainwebData.Api
-import           ChainwebDb.Database
 import           ChainwebData.Pagination
+import           ChainwebDb.Database
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
@@ -114,12 +115,12 @@ accountQueryStmt
     -> Maybe Offset
     -> Text
     -> Text
-    -> Int
+    -> Maybe ChainId
     -> SqlSelect
     Postgres
     (QExprToIdentity
     (TransferT (QGenExpr QValueContext Postgres QBaseScope)))
-accountQueryStmt limit offset token account chain =
+accountQueryStmt limit offset account token chain =
   select $
   limit_ lim $
   offset_ off $
@@ -133,15 +134,16 @@ accountQueryStmt limit offset token account chain =
       ( desc_ $ _tr_height tr
       , asc_ $ _tr_idx tr)
     subQueryLimit =  lim + off
+    whenArg p a = maybe (return ()) a p
     fromAccountQuery = limit_ subQueryLimit $ orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
       guard_ $ _tr_from_acct tr ==. val_ account
       guard_ $ _tr_modulename tr ==. val_ token
-      guard_ $ _tr_chainid tr ==. val_ (fromIntegral chain)
+      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. val_ (fromIntegral c)
       return tr
     toAccountQuery = limit_ subQueryLimit $ orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
       guard_ $ _tr_to_acct tr ==. val_ account
       guard_ $ _tr_modulename tr ==. val_ token
-      guard_ $ _tr_chainid tr ==. val_ (fromIntegral chain)
+      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. val_ (fromIntegral c)
       return tr
