@@ -436,7 +436,8 @@ accountHandler logger pool req account token chain fromHeight limit offset = do
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
   boundedOffset <- Offset <$> case offset of
-    Just (Offset o) -> if o >= 10000 then throw400 "" else return o
+    Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
+      where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
     Nothing -> return 0
   liftIO $ P.withResource pool $ \c -> do
     let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
