@@ -20,6 +20,7 @@
       - [[#endpoints][endpoints]]
     - [[#fill][fill]]
     - [[#backfill][backfill]]
+    - [[#backfill-transfers][backfill-transfers]]
     - [[#gaps][gaps]]
     - [[#single][single]]
 
@@ -31,7 +32,9 @@ can easily determine mining statistics and confirm transaction contents.
 
 * Requirements
 
-~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]].
+~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]]. If you plan to host a chainweb-data instance
+on a cloud machine (e.g. Amazon EC2), we recommend that you run the postgres
+instance on an instance attached storage unit.
 
 * Building 
 
@@ -187,6 +190,17 @@ empty chains, it won't proceed.
 #+end_example
 
 ~backfill~ will stop when it reaches height 0.
+
+*** backfill-transfers
+
+~backfill-transfers~ fills entries in the transfers table from the highest block
+height it can find for each chain up until the height that events for coinbase
+transfers began to exist.
+
+*Note:* If the transfers table is empty, you must fetch at least one row for each
+chain first via ~listen~ before doing ~backfill-transfers~! If ~backfill-transfers~ detects any
+empty chains, it won't proceed.
+
 
 *** gaps
 

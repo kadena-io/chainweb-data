@@ -19,45 +19,12 @@ module ChainwebDb.Types.Event where
 import           Data.Aeson
 import           Data.Int
 import           Data.Text (Text)
-import qualified Data.Text as T
 import           Database.Beam
-import           Database.Beam.AutoMigrate hiding (Table)
-import           Database.Beam.Backend.SQL hiding (tableName)
-import           Database.Beam.Backend.SQL.Row (FromBackendRow)
-import           Database.Beam.Backend.SQL.SQL92 (HasSqlValueSyntax)
-import           Database.Beam.Backend.Types
-import           Database.Beam.Migrate
 import           Database.Beam.Postgres
 ------------------------------------------------------------------------------
 import           ChainwebDb.Types.Block
-import           ChainwebDb.Types.DbHash
+import           ChainwebDb.Types.Common
 ------------------------------------------------------------------------------
-
-data ReqKeyOrCoinbase = RKCB_RequestKey (DbHash TxHash) | RKCB_Coinbase
-  deriving (Eq, Ord, Generic)
-
-instance Show ReqKeyOrCoinbase where
-  show RKCB_Coinbase = "cb"
-  show (RKCB_RequestKey rk) = T.unpack $ unDbHash rk
-
-rkcbFromText :: Text -> ReqKeyOrCoinbase
-rkcbFromText "cb" = RKCB_Coinbase
-rkcbFromText rk = RKCB_RequestKey $ DbHash rk
-
-instance BeamMigrateSqlBackend be => HasSqlEqualityCheck be ReqKeyOrCoinbase
-
-instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be ReqKeyOrCoinbase where
-  defaultSqlDataType _ _ _ = varCharType Nothing Nothing
-
-instance HasSqlValueSyntax be String => HasSqlValueSyntax be ReqKeyOrCoinbase where
-  sqlValueSyntax = autoSqlValueSyntax
-
-instance (BeamBackend be, FromBackendRow be Text) => FromBackendRow be ReqKeyOrCoinbase where
-  fromBackendRow = rkcbFromText <$> fromBackendRow
-
-instance HasColumnType ReqKeyOrCoinbase where
-  defaultColumnType _ = SqlStdType $ varCharType Nothing Nothing
-  defaultTypeCast _ = Just "character varying"
 
 data EventT f = Event
   { _ev_requestkey :: C f ReqKeyOrCoinbase
