@@ -68,13 +68,16 @@ library
     ChainwebDb.Database
     ChainwebDb.Queries
     ChainwebDb.Types.Block
+    ChainwebDb.Types.Common
     ChainwebDb.Types.DbHash
     ChainwebDb.Types.Event
     ChainwebDb.Types.MinerKey
     ChainwebDb.Types.Signer
     ChainwebDb.Types.Transaction
+    ChainwebDb.Types.Transfer
   build-depends:
     base64-bytestring        ^>=1.0
+    , Decimal
     , gargoyle
     , gargoyle-postgresql
     , http-client              ^>=0.6
@@ -145,6 +148,7 @@ executable chainweb-data
   -- , gargoyle-postgresql-nix
   other-modules:
     Chainweb.Backfill
+    Chainweb.BackfillTransfers
     Chainweb.Coins
     Chainweb.FillEvents
     Chainweb.Gaps

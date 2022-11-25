@@ -170,11 +170,12 @@ data Command
     | Fill FillArgs
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
+    | BackFillTransfers Bool BackfillArgs
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
-  , _backfillArgs_eventChunkSize :: Maybe Integer
+  , _backfillArgs_chunkSize :: Maybe Int
   } deriving (Eq,Ord,Show)
 
 data FillArgs = FillArgs
@@ -304,6 +305,8 @@ commands = hsubparser
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
        (progDesc "Event Worker - Fills missing events"))
+  <> command "backfill-transfers" (info (BackFillTransfers <$> flag False True (long "disable-indexes" <> help "Delete indexes on transfers table") <*> bfArgsP)
+       (progDesc "Backfill transfer table entries"))
   )
 
 progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a

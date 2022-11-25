@@ -9,6 +9,7 @@ module Main where
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Backfill (backfill)
+import           Chainweb.BackfillTransfers (backfillTransfersCut)
 import           ChainwebDb.Database (initializeTables)
 import           ChainwebData.Env
 import           Chainweb.FillEvents (fillEvents)
@@ -66,6 +67,8 @@ main = do
                 addTransactionsHeightIndex logg conn
                 addEventsHeightChainIdIdxIndex logg conn
                 addEventsHeightNameParamsIndex logg conn
+                addFromAccountsIndex logg conn
+                addToAccountsIndex logg conn
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -80,6 +83,7 @@ main = do
                     case c of
                       Listen -> listen env
                       Backfill as -> backfill env as
+                      BackFillTransfers indexP as -> backfillTransfersCut env indexP as
                       Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
@@ -146,6 +150,24 @@ addEventsModuleNameIndex =
     {
       message = "Adding \"(height desc, chainid, module)\" index"
     , statement = "CREATE INDEX IF NOT EXISTS events_height_chainid_module ON events (height DESC, chainid, module);"
+    }
+
+addFromAccountsIndex :: LogFunctionIO Text -> Connection -> IO ()
+addFromAccountsIndex =
+  addIndex
+    IndexCreationInfo
+    {
+      message = "Adding \"(from_acct, height desc, idx)\" index on transfers table"
+    , statement = "CREATE INDEX IF NOT EXISTS transfers_from_acct_height_idx ON transfers (from_acct, height desc, idx);"
+    }
+
+addToAccountsIndex :: LogFunctionIO Text -> Connection -> IO ()
+addToAccountsIndex =
+  addIndex
+    IndexCreationInfo
+    {
+      message = "Adding \"(to_acct, height desc,idx)\" index on transfers table"
+    , statement = "CREATE INDEX IF NOT EXISTS transfers_to_acct_height_idx_idx ON transfers (to_acct, height desc, idx);"
     }
 
 {-

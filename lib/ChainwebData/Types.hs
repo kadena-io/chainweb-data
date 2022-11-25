@@ -1,5 +1,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -15,6 +17,7 @@ module ChainwebData.Types
   , groupsOf
   , rangeToDescGroupsOf
   , blockHeaderRequestSize
+  , withEventsMinHeight
   ) where
 
 import           BasePrelude
@@ -104,3 +107,16 @@ instance ToJSON BlockHeader where
 -- This constant defines the maximum number of blockheaders we can retrieve from a node at a time.
 blockHeaderRequestSize :: Int
 blockHeaderRequestSize = 360
+
+withVersion :: T.Text -> (T.Text -> a) -> (a -> b) -> b
+withVersion version onVersion action = action $ onVersion version
+
+withEventsMinHeight :: Num a => MonadIO m => T.Text -> String -> (a -> m b) -> m b
+withEventsMinHeight version errorMessage action = withVersion version onVersion $ \case
+    Just height -> action height
+    Nothing -> liftIO $ die errorMessage
+  where
+    onVersion = \case
+      "mainnet01" -> Just 1_722_500
+      "testnet04" -> Just 1_261_000
+      _ -> Nothing

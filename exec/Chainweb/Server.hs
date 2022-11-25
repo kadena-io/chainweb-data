@@ -19,7 +19,7 @@ module Chainweb.Server where
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.ChainId
 import           Chainweb.Api.Hash
-import           Chainweb.Api.NodeInfo (NodeInfo(..))
+import           Chainweb.Api.NodeInfo
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
@@ -70,11 +70,14 @@ import           ChainwebData.Types
 import           ChainwebData.Api
 import           ChainwebData.AccountDetail
 import           ChainwebData.EventDetail
+import           ChainwebData.AccountDetail ()
 import           ChainwebData.Pagination
 import           ChainwebData.TxDetail
 import           ChainwebData.TxSummary
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.Common
 import           ChainwebDb.Types.DbHash
+import           ChainwebDb.Types.Transfer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
 ------------------------------------------------------------------------------
@@ -164,7 +167,7 @@ apiServerCut env senv cutBS = do
             :<|> evHandler logg pool req
             :<|> txHandler logg pool
             :<|> txsHandler logg pool
-            :<|> accountHandler logg pool
+            :<|> accountHandler logg pool req
           )
             :<|> statsHandler ssRef
             :<|> coinsHandler ssRef
@@ -248,6 +251,7 @@ recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ r
 serverHeaderHandler :: Env -> IORef ServerState -> PowHeader -> IO ()
 serverHeaderHandler env ssRef ph@(PowHeader h _) = do
   let pool = _env_dbConnPool env
+  let ni = _env_nodeInfo env
   let chain = _blockHeader_chainId h
   let height = _blockHeader_height h
   let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
@@ -274,7 +278,7 @@ serverHeaderHandler env ssRef ph@(PowHeader h _) = do
       mapM_ (logg Debug . fromString . show) tos
 
       atomicModifyIORef' ssRef f
-      insertNewHeader pool ph pl
+      insertNewHeader (_nodeInfo_chainwebVer ni) pool ph pl
 
 
 instance BeamSqlBackendIsString Postgres (Maybe Text)
@@ -299,6 +303,9 @@ searchTxs logger pool req limit offset (Just search) = do
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
+
+throw400 :: MonadError ServerError m => ByteString -> m a
+throw400 msg = throwError $ err400 { errBody = msg }
 
 txHandler
   :: LogFunctionIO Text
@@ -417,13 +424,35 @@ txsHandler logger pool (Just (RequestKey rk)) =
 accountHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
-  -> Text
-  -> Text
-  -> Int
+  -> Request
+  -> Text -- ^ account identifier
+  -> Maybe Text -- ^ token type
+  -> Maybe ChainId -- ^ chain identifier
+  -> Maybe BlockHeight
   -> Maybe Limit
   -> Maybe Offset
   -> Handler [AccountDetail]
-accountHandler _logger _pool _token _accountName _chain _limit _offset = throw404 "accounts endpoint has yet to be implemented"
+accountHandler logger pool req account token chain fromHeight limit offset = do
+  liftIO $ logger Info $
+    fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
+  boundedOffset <- Offset <$> case offset of
+    Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
+      where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
+    Nothing -> return 0
+  liftIO $ P.withResource pool $ \c -> do
+    let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt boundedLimit boundedOffset account (fromMaybe "coin" token) chain fromHeight
+    return $ (`map` r) $ \tr -> AccountDetail
+      { _acDetail_name = _tr_modulename tr
+      , _acDetail_chainid = fromIntegral $ _tr_chainid tr
+      , _acDetail_height = fromIntegral $ _tr_height tr
+      , _acDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
+      , _acDetail_requestKey = getTxHash $ _tr_requestkey tr
+      , _acDetail_idx = fromIntegral $ _tr_idx tr
+      , _acDetail_amount = getKDAScientific $ _tr_amount tr
+      , _acDetail_fromAccount = _tr_from_acct tr
+      , _acDetail_toAccount = _tr_to_acct tr
+      }
 
 evHandler
   :: LogFunctionIO Text
@@ -443,9 +472,6 @@ evHandler logger pool req limit offset qSearch qParam qName qModuleName bh = do
   liftIO $ logger Debug $ toS $ _bytequery $ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh
-    let getTxHash = \case
-         RKCB_RequestKey txhash -> unDbHash txhash
-         RKCB_Coinbase -> "<coinbase>"
     return $ (`map` r) $ \(blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
       , _evDetail_params = unPgJsonb $ _ev_params ev
