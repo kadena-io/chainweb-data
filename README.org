@@ -157,6 +157,11 @@ few endpoints for doing common queries.
 - ~/txs/events?search=foo&limit=20&offset=40~ gets the details of a transaction with the given request key
 - ~/stats~ returns a few stats such as transaction count and coins in circulation
 - ~/coins~ returns just the coins in circulation
+- ~/txs/account/<account-identifier>?token=<token-name>&chainid=<chainid>&fromheight=<blockheight>&limit=<some-limit>&offset=<some-offset>~
+  returns account information given some ~account-identifier~, ~token~ and
+  ~chainid~. The optional parameter ~fromheight~ forces the results to only have
+  blockheights less than or equal to it. If ~token~ is omitted, the token ~coin~
+  is assumed. If ~chainid~ is omitted, all chains are searched.
 
 For more detailed information, see the API definition [[https://github.com/kadena-io/chainweb-api/blob/master/lib/ChainwebData/Api.hs#L24][here]].
 
