@@ -45,15 +45,15 @@ richList logger fp (ChainwebVersion version) = do
           $ "Chainweb-node top-level db directory does not exist: "
           <> fp
     logger Info "Aggregating richlist ..."
-    results <- fmap mconcat $ forM files $ \file -> withSQLiteConnection file richListQuery
+    results <- fmap mconcat $ forM files $ \(cid, file) -> fmap (fmap (\(acct,bal) -> (cid,acct,bal))) $ withSQLiteConnection file richListQuery
     logger Info $ "Filtering top 100 richest accounts..."
     pruneRichList (either error id . parseResult <$> results)
   where
-    parseResult (a,b) = do
+    parseResult (cid, a,b) = do
       validJSON <- eitherDecodeStrict b
       let msg = "Unable to get balance\n invalid JSON " <> show validJSON
-      maybe (Left msg) (Right . (a,)) $ getBalance validJSON
-    checkChains :: IO [FilePath]
+      maybe (Left msg) (Right . (cid,a,)) $ getBalance validJSON
+    checkChains :: IO [(Int, FilePath)]
     checkChains = do
         let sqlitePath = appendSlash fp <> "chainweb-node/" <> T.unpack version <> "/0/sqlite"
             appendSlash str = if last str == '/' then str else str <> "/"
@@ -79,7 +79,7 @@ richList logger fp (ChainwebVersion version) = do
             unless (isConsecutive chains)
               $ ioError $ userError
               $ "Missing tables for some chain ids. Is your node synced?"
-            return $ fdl []
+            return $ zip (cdl []) $ fdl []
 
 getBalance :: Value -> Maybe Double
 getBalance bytes = asum $ basecase : (fmap getBalance $ bytes ^.. members)
@@ -96,13 +96,15 @@ getBalance bytes = asum $ basecase : (fmap getBalance $ bytes ^.. members)
       <|>
       bytes ^? key "balance" . key "int" . _String . to double . _Right . _1
 
-pruneRichList :: [(Text,Double)] -> IO ()
+pruneRichList :: [(Int, Text,Double)] -> IO ()
 pruneRichList = LBS.writeFile "richlist.csv"
     . Csv.encode
     . take 100
+    . map (\((cid,acct),bal) -> (cid,acct,bal))
     . sortOn (Down . snd)
     . M.toList
     . M.fromListWith (+)
+    . map (\(cid,acct,balance) -> ((cid,acct), balance))
 
 -- WARNING: This function will throw errors if found. We don't "catch" errors in an Either type
 withSQLiteConnection :: FilePath -> (Database -> IO a) -> IO a
