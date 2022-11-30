@@ -101,7 +101,7 @@ pruneRichList :: [(Int, Text,Int64, Double)] -> IO ()
 pruneRichList = LBS.writeFile "richlist.csv"
     . Csv.encode
     . take 100
-    . map (\((cid,acct,txid),bal) -> (cid,acct,txid,bal))
+    . map (\((cid,acct,txid),bal) -> (cid,acct,bal,txid))
     . sortOn (Down . snd)
     . M.toList
     . M.fromListWith (+)
