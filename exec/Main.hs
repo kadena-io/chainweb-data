@@ -69,6 +69,8 @@ main = do
                 addEventsHeightNameParamsIndex logg conn
                 addFromAccountsIndex logg conn
                 addToAccountsIndex logg conn
+                addTransactionsRequestKeyIndex logg conn
+                addEventsRequestKeyIndex logg conn
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -168,6 +170,24 @@ addToAccountsIndex =
     {
       message = "Adding \"(to_acct, height desc,idx)\" index on transfers table"
     , statement = "CREATE INDEX IF NOT EXISTS transfers_to_acct_height_idx_idx ON transfers (to_acct, height desc, idx);"
+    }
+
+addTransactionsRequestKeyIndex :: LogFunctionIO Text -> Connection -> IO ()
+addTransactionsRequestKeyIndex =
+  addIndex
+    IndexCreationInfo
+    {
+      message = "Adding \"(requestkey)\" index on transactions table"
+    , statement = "CREATE INDEX IF NOT EXISTS transactions_requestkey_idx ON transactions (requestkey);"
+    }
+
+addEventsRequestKeyIndex :: LogFunctionIO Text -> Connection -> IO ()
+addEventsRequestKeyIndex =
+  addIndex
+    IndexCreationInfo
+    {
+      message = "Adding \"(requestkey)\" index on events table"
+    , statement = "CREATE INDEX IF NOT EXISTS events_requestkey_idx ON events (requestkey);"
     }
 
 {-
