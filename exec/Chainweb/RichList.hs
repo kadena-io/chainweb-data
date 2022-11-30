@@ -13,6 +13,7 @@ import qualified Data.ByteString.Lazy as LBS
 import Data.ByteString (ByteString)
 import qualified Data.Csv as Csv
 import Data.Foldable (asum)
+import Data.Int (Int64)
 import Data.List (isPrefixOf, sort,sortOn)
 import qualified Data.Map.Strict as M
 import Data.Ord (Down(..))
@@ -45,14 +46,14 @@ richList logger fp (ChainwebVersion version) = do
           $ "Chainweb-node top-level db directory does not exist: "
           <> fp
     logger Info "Aggregating richlist ..."
-    results <- fmap mconcat $ forM files $ \(cid, file) -> fmap (fmap (\(acct,bal) -> (cid,acct,bal))) $ withSQLiteConnection file richListQuery
+    results <- fmap mconcat $ forM files $ \(cid, file) -> fmap (fmap (\(acct,txid, bal) -> (cid,acct,txid,bal))) $ withSQLiteConnection file richListQuery
     logger Info $ "Filtering top 100 richest accounts..."
     pruneRichList (either error id . parseResult <$> results)
   where
-    parseResult (cid, a,b) = do
+    parseResult (cid, a,txid, b) = do
       validJSON <- eitherDecodeStrict b
       let msg = "Unable to get balance\n invalid JSON " <> show validJSON
-      maybe (Left msg) (Right . (cid,a,)) $ getBalance validJSON
+      maybe (Left msg) (Right . (cid,a,txid,)) $ getBalance validJSON
     checkChains :: IO [(Int, FilePath)]
     checkChains = do
         let sqlitePath = appendSlash fp <> "chainweb-node/" <> T.unpack version <> "/0/sqlite"
@@ -96,25 +97,25 @@ getBalance bytes = asum $ basecase : (fmap getBalance $ bytes ^.. members)
       <|>
       bytes ^? key "balance" . key "int" . _String . to double . _Right . _1
 
-pruneRichList :: [(Int, Text,Double)] -> IO ()
+pruneRichList :: [(Int, Text,Int64, Double)] -> IO ()
 pruneRichList = LBS.writeFile "richlist.csv"
     . Csv.encode
     . take 100
-    . map (\((cid,acct),bal) -> (cid,acct,bal))
+    . map (\((cid,acct,txid),bal) -> (cid,acct,txid,bal))
     . sortOn (Down . snd)
     . M.toList
     . M.fromListWith (+)
-    . map (\(cid,acct,balance) -> ((cid,acct), balance))
+    . map (\(cid,acct,txid, balance) -> ((cid,acct,txid), balance))
 
 -- WARNING: This function will throw errors if found. We don't "catch" errors in an Either type
 withSQLiteConnection :: FilePath -> (Database -> IO a) -> IO a
 withSQLiteConnection fp action = bracket (open (T.pack fp)) close action
 
-richListQuery :: Database -> IO [(Text, ByteString)]
+richListQuery :: Database -> IO [(Text, Int64, ByteString)]
 richListQuery db = do
     rows <- qry_ db richListQueryStmt [RText, RInt, RBlob]
     return $ rows <&> \case
-      [SText (Utf8 account), SInt _txid, SBlob jsonvalue] -> (toS account,jsonvalue)
+      [SText (Utf8 account), SInt txid, SBlob jsonvalue] -> (toS account,txid, jsonvalue)
       _ -> error "impossible?" -- TODO: Make this use throwError/throwM instead of error
 
 richListQueryStmt :: Utf8
