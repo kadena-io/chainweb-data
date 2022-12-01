@@ -26,7 +26,6 @@ import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transaction
 
-import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
 
 import           Data.ByteString.Lazy (ByteString)

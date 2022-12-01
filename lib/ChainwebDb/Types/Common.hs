@@ -21,8 +21,8 @@ import qualified Data.Text as T
 import           Database.Beam
 import           Database.Beam.AutoMigrate hiding (Table)
 import           Database.Beam.Backend.SQL hiding (tableName)
-import           Database.Beam.Backend.SQL.Row (FromBackendRow)
-import           Database.Beam.Backend.SQL.SQL92 (HasSqlValueSyntax)
+import           Database.Beam.Backend.SQL.Row ()
+import           Database.Beam.Backend.SQL.SQL92 ()
 import           Database.Beam.Backend.Types
 import           Database.Beam.Migrate
 ------------------------------------------------------------------------------

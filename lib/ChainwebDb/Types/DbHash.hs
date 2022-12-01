@@ -10,8 +10,8 @@ import Data.Aeson
 import Data.Text (Text)
 import Database.Beam.AutoMigrate
 import Database.Beam.Backend.SQL hiding (tableName)
-import Database.Beam.Backend.SQL.Row (FromBackendRow)
-import Database.Beam.Backend.SQL.SQL92 (HasSqlValueSyntax)
+import Database.Beam.Backend.SQL.Row ()
+import Database.Beam.Backend.SQL.SQL92 ()
 import Database.Beam.Migrate (HasDefaultSqlDataType)
 import Database.Beam.Postgres (Postgres)
 import Database.Beam.Postgres.Syntax (PgValueSyntax)

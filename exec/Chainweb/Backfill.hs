@@ -24,7 +24,6 @@ import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
 
-import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (race_)
 import           Control.Scheduler hiding (traverse_)
 
@@ -32,8 +31,8 @@ import           Data.ByteString.Lazy (ByteString)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Pool as P
-import           Data.Witherable.Class (wither)
 
+import           Witherable
 
 import           System.Logger.Types hiding (logg)
 

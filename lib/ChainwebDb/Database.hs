@@ -27,7 +27,6 @@ import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
-import           Control.Exception
 import qualified Data.Pool as P
 import           Data.Proxy
 import           Data.Text (Text)
@@ -35,8 +34,6 @@ import qualified Data.Text as T
 import           Data.String
 import           Database.Beam
 import qualified Database.Beam.AutoMigrate as BA
-import qualified Database.Beam.AutoMigrate.Postgres as BA
-import           Database.Beam.AutoMigrate.Diff (diff)
 import           Database.Beam.Postgres
 import           System.Exit
 import           System.Logger hiding (logg)
