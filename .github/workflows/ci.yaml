@@ -11,7 +11,7 @@ jobs:
       matrix:
         ghc: ['8.8.4']
         cabal: ['3.4']
-        os: ['ubuntu-18.04', 'ubuntu-20.04', 'macOS-latest']
+        os: ['ubuntu-20.04', 'ubuntu-22.04', 'macOS-latest']
 
     steps:
     - name: 'GitHub actions env workaround'
