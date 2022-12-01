@@ -1,7 +1,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Chainweb.Lookups
   ( -- * Endpoints
@@ -15,8 +18,10 @@ module Chainweb.Lookups
   , mkBlockTransactions
   , mkBlockEvents
   , mkBlockEvents'
+  , mkBlockEventsWithCreationTime
   , mkCoinbaseEvents
   , mkTransactionSigners
+  , mkTransferRows
   , bpwoMinerKeys
 
   , ErrorType(..)
@@ -39,10 +44,12 @@ import qualified Chainweb.Api.Transaction as CW
 import           ChainwebData.Env
 import           ChainwebData.Types
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.Common
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Transfer
 import           Control.Applicative
 import           Control.Error.Util (hush)
 import           Control.Lens
@@ -55,10 +62,13 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import           Data.Foldable
 import           Data.Int
+import qualified Data.List as L (intercalate)
 import           Data.Maybe
 import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.Read as TR
+import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
@@ -116,19 +126,21 @@ payloadWithOutputsBatch
   :: Env
   -> ChainId
   -> M.Map (DbHash PayloadHash) a
+  -> (a -> Hash)
   -> IO (Either ApiError [(a, BlockPayloadWithOutputs)])
-payloadWithOutputsBatch env (ChainId cid) m = do
+payloadWithOutputsBatch env (ChainId cid) m _f = do
     initReq <- parseRequest url
     let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
     eresp <- handleRequest req (_env_httpManager env)
     let res = do
           resp <- eresp
           case eitherDecode' (responseBody resp) of
-            Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e)
+            Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e <> rest)
                                       (responseStatus resp) (responseBody resp)
             Right (as :: [BlockPayloadWithOutputs]) -> Right $ foldr go [] as
     pure res
   where
+    rest = T.pack $ "\nHashes: ( " ++ (L.intercalate " " $ M.elems (show . hashB64U . _f <$> m)) ++ " )"
     url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
@@ -204,10 +216,66 @@ mkBlockEvents' height cid blockhash pl =
     mkPair p = ( DbHash $ hashB64U $ CW._transaction_hash $ fst p
                , mkTxEvents height cid blockhash p)
 
+mkBlockEventsWithCreationTime :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ([Event], [(DbHash TxHash, UTCTime, [Event])])
+mkBlockEventsWithCreationTime height cid blockhash pl = (mkCoinbaseEvents height cid blockhash pl, map mkTriple tos)
+  where
+    tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
+    mkTriple p = (DbHash $ hashB64U $ CW._transaction_hash $ fst p
+                 , posixSecondsToUTCTime $ _chainwebMeta_creationTime $ _pactCommand_meta $ CW._transaction_cmd $ fst p
+                 , mkTxEvents height cid blockhash p)
+
 mkBlockEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkBlockEvents height cid blockhash pl =  cbes ++ concatMap snd txes
   where
     (cbes, txes) = mkBlockEvents' height cid blockhash pl
+
+mkTransferRows :: Int64 -> ChainId -> DbHash BlockHash -> UTCTime -> BlockPayloadWithOutputs -> Int -> [Transfer]
+mkTransferRows height cid@(ChainId cid') blockhash _creationTime pl eventMinHeight =
+    let (coinbaseEvs, evs) = mkBlockEventsWithCreationTime height cid blockhash pl
+    in if height >= fromIntegral eventMinHeight
+          then createNonCoinBaseTransfers evs ++ createCoinBaseTransfers coinbaseEvs
+          else []
+  where
+    unwrap (PgJSONB a) = a
+    mkTransfer mReqKey ev = do
+      let (PgJSONB params) = _ev_params ev
+      amount <- getAmount params
+      fromAccount <- params ^? ix 0 . _String
+      toAccount <- params ^? ix 1 . _String
+      return Transfer
+        {
+          _tr_block = BlockId blockhash
+        , _tr_requestkey = maybe RKCB_Coinbase RKCB_RequestKey mReqKey
+        , _tr_chainid = fromIntegral cid'
+        , _tr_height = height
+        , _tr_idx = _ev_idx ev
+        , _tr_modulename = _ev_module ev
+        , _tr_moduleHash = _ev_moduleHash ev
+        , _tr_from_acct = fromAccount
+        , _tr_to_acct = toAccount
+        , _tr_amount = amount
+        }
+    getAmount :: [Value] -> Maybe KDAScientific
+    getAmount params = fmap KDAScientific $
+        (params ^? ix 2 . key "decimal" . _Number)
+        <|>
+        (params ^? ix 2 . key "decimal" . _String . to TR.rational  . _Right . _1)
+        <|>
+        (params ^? ix 2 . key "int" . _Number)
+        <|>
+        (params ^? ix 2 . key "int" . _String . to TR.rational . _Right . _1)
+        <|>
+        (params ^? ix 2 . _Number)
+        <|>
+        (params ^? ix 2 . _String . to TR.rational . _Right . _1)
+    createCoinBaseTransfers = fmap (fromMaybe (error "<impossible>") . mkTransfer Nothing)
+    createNonCoinBaseTransfers xs = [ transfer
+      | (txhash,_,evs) <- xs
+      , ev <- evs
+      , T.takeEnd 8 (_ev_qualName ev) == "TRANSFER"
+      , length (unwrap (_ev_params ev)) == 3
+      , transfer <- maybeToList $ mkTransfer (Just txhash) ev
+      ]
 
 mkTransactionSigners :: CW.Transaction -> [Signer]
 mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]

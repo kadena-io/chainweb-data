@@ -26,6 +26,7 @@ import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Transfer
 import qualified Data.Pool as P
 import           Data.Proxy
 import           Data.Text (Text)
@@ -45,6 +46,7 @@ data ChainwebDataDb f = ChainwebDataDb
   , _cddb_minerkeys :: f (TableEntity MinerKeyT)
   , _cddb_events :: f (TableEntity EventT)
   , _cddb_signers :: f (TableEntity SignerT)
+  , _cddb_transfers :: f (TableEntity TransferT)
   }
   deriving stock (Generic)
   deriving anyclass (Database be)
@@ -128,6 +130,19 @@ database = defaultDbSettings `withDbModification` dbModification
     , _signer_caps = "caps"
     , _signer_sig = "sig"
     }
+  , _cddb_transfers = modifyEntityName modTableName <>
+    modifyTableFields tableModification
+    {_tr_requestkey = "requestkey"
+    , _tr_chainid = "chainid"
+    , _tr_height = "height"
+    , _tr_idx = "idx"
+    , _tr_modulename = "modulename"
+    , _tr_moduleHash = "modulehash"
+    , _tr_from_acct = "from_acct"
+    , _tr_to_acct = "to_acct"
+    , _tr_amount = "amount"
+    , _tr_block = BlockId "block"
+    }
   }
 
 annotatedDb :: BA.AnnotatedDatabaseSettings be ChainwebDataDb
@@ -144,8 +159,8 @@ showMigration conn =
 -- | Create the DB tables if necessary.
 initializeTables :: LogFunctionIO Text -> MigrateStatus -> Connection -> IO ()
 initializeTables logg migrateStatus conn = do
-    diff <- BA.calcMigrationSteps annotatedDb conn
-    case diff of
+    diffA <- BA.calcMigrationSteps annotatedDb conn
+    case diffA of
       Left err -> do
           logg Error "Error detecting database migration requirements: "
           logg Error $ fromString $ show err
@@ -161,10 +176,12 @@ initializeTables logg migrateStatus conn = do
             showMigration conn
             exitFailure
 
+
+
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
 bench_initializeTables migrate loggInfo loggError conn = do
-    diff <- BA.calcMigrationSteps annotatedDb conn
-    case diff of
+    diffA <- BA.calcMigrationSteps annotatedDb conn
+    case diffA of
       Left err -> do
           loggError "Error detecting database migration requirements: "
           loggError $ fromString $ show err

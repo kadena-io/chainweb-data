@@ -68,13 +68,16 @@ library
     ChainwebDb.Database
     ChainwebDb.Queries
     ChainwebDb.Types.Block
+    ChainwebDb.Types.Common
     ChainwebDb.Types.DbHash
     ChainwebDb.Types.Event
     ChainwebDb.Types.MinerKey
     ChainwebDb.Types.Signer
     ChainwebDb.Types.Transaction
+    ChainwebDb.Types.Transfer
   build-depends:
     base64-bytestring        ^>=1.0
+    , Decimal
     , gargoyle
     , gargoyle-postgresql
     , http-client              ^>=0.6
@@ -105,6 +108,7 @@ executable chainweb-data
     , connection
     , containers               ^>=0.6
     , Decimal
+    , direct-sqlite
     , errors                   ^>=2.3
     , file-embed
     , gargoyle
@@ -112,6 +116,7 @@ executable chainweb-data
     , http-client              ^>=0.6
     , http-client-tls          ^>=0.3
     , http-types
+    , lens-aeson
     , mtl
     , optparse-applicative     >=0.14 && <0.17
     , pact                     >=4.3.1
@@ -137,12 +142,13 @@ executable chainweb-data
     , wai-middleware-throttle
     , warp
     , warp-tls
-    , witherable-class         ^>=0
+    , witherable
     , yet-another-logger
 
   -- , gargoyle-postgresql-nix
   other-modules:
     Chainweb.Backfill
+    Chainweb.BackfillTransfers
     Chainweb.Coins
     Chainweb.FillEvents
     Chainweb.Gaps

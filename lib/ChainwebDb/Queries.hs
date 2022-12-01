@@ -19,13 +19,17 @@ import           Database.Beam.Postgres.Syntax
 import           Database.Beam.Backend.SQL.SQL92
 import           Database.Beam.Backend.SQL
 ------------------------------------------------------------------------------
+import           Chainweb.Api.ChainId
+import           Chainweb.Api.Common (BlockHeight)
 import           ChainwebData.Api
-import           ChainwebDb.Database
 import           ChainwebData.Pagination
+import           ChainwebDb.Database
 import           ChainwebDb.Types.Block
+import           ChainwebDb.Types.Common
 import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Transfer
 ------------------------------------------------------------------------------
 
 searchTxsQueryStmt
@@ -125,3 +129,34 @@ eventsOnRequestKeyStmt rk = select $ do
     ev <- all_ (_cddb_events database)
     guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
     return ev
+
+accountQueryStmt
+    :: Limit
+    -> Offset
+    -> Text
+    -> Text
+    -> Maybe ChainId
+    -> Maybe BlockHeight
+    -> SqlSelect
+    Postgres
+    (QExprToIdentity
+    (TransferT (QGenExpr QValueContext Postgres QBaseScope)))
+accountQueryStmt (Limit limit) (Offset offset) account token chain fromHeight =
+  select $
+  limit_ limit $
+  offset_ offset $
+  orderBy_ getOrder $ do
+    unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
+  where
+    getOrder tr =
+      ( desc_ $ _tr_height tr
+      , asc_ $ _tr_idx tr)
+    subQueryLimit = limit + offset
+    whenArg p a = maybe (return ()) a p
+    accountQuery accountField = limit_ subQueryLimit $ orderBy_ getOrder $ do
+      tr <- all_ (_cddb_transfers database)
+      guard_ $ accountField tr ==. val_ account
+      guard_ $ _tr_modulename tr ==. val_ token
+      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. val_ (fromIntegral c)
+      whenArg fromHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
+      return tr
