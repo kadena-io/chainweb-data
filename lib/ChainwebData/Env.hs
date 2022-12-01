@@ -94,14 +94,30 @@ withGargoyleDb dbPath func = do
   let pg = defaultPostgres
   withGargoyle pg dbPath $ \dbUri -> do
     caps <- getNumCapabilities
-    pool <- createPool (connectPostgreSQL dbUri) close 1 5 caps
+    let poolConfig =
+          PoolConfig
+            {
+              createResource = connectPostgreSQL dbUri
+            , freeResource = close
+            , poolCacheTTL = 5
+            , poolMaxResources = caps
+            }
+    pool <- newPool poolConfig
     func pool
 
 -- | Create a `Pool` based on `Connect` settings designated on the command line.
 getPool :: IO Connection -> IO (Pool Connection)
 getPool getConn = do
   caps <- getNumCapabilities
-  createPool getConn close 1 5 caps
+  let poolConfig =
+        PoolConfig
+          {
+            createResource = getConn
+          , freeResource = close
+          , poolCacheTTL = 5
+          , poolMaxResources = caps
+          }
+  newPool poolConfig
 
 -- | A bracket for `Pool` interaction.
 withPool :: Connect -> (Pool Connection -> IO a) -> IO a

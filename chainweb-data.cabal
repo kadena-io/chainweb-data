@@ -142,7 +142,7 @@ executable chainweb-data
     , wai-middleware-throttle
     , warp
     , warp-tls
-    , witherable-class         ^>=0
+    , witherable
     , yet-another-logger
 
   -- , gargoyle-postgresql-nix
