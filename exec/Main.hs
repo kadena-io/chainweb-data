@@ -198,7 +198,7 @@ initializePGSimpleMigrations logg conn = do
   Mg.runMigration (Mg.MigrationContext Mg.MigrationInitialization False conn) >>= \case
     Mg.MigrationError err -> do
       let msg = "Error initializing migrations: " ++ err
-      logg Error $ fromString msg 
+      logg Error $ fromString msg
       error msg
     Mg.MigrationSuccess -> logg Info "Initialized migrations"
 
