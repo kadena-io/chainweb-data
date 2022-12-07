@@ -26,6 +26,7 @@ import qualified Data.Pool as P
 import           Data.String
 import           Data.Text (Text)
 import           Database.PostgreSQL.Simple
+import qualified Database.PostgreSQL.Simple.Migration as Mg
 import           Network.Connection hiding (Connection)
 import           Network.HTTP.Client hiding (withConnection)
 import           Network.HTTP.Client.TLS
@@ -71,6 +72,7 @@ main = do
                 addToAccountsIndex logg conn
                 addTransactionsRequestKeyIndex logg conn
                 addEventsRequestKeyIndex logg conn
+                initializePGSimpleMigrations logg conn
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -189,6 +191,16 @@ addEventsRequestKeyIndex =
       message = "Adding \"(requestkey)\" index on events table"
     , statement = "CREATE INDEX IF NOT EXISTS events_requestkey_idx ON events (requestkey);"
     }
+
+initializePGSimpleMigrations :: LogFunctionIO Text -> Connection -> IO ()
+initializePGSimpleMigrations logg conn = do
+  logg Info "Initializing the incremental migrations table"
+  Mg.runMigration (Mg.MigrationContext Mg.MigrationInitialization False conn) >>= \case
+    Mg.MigrationError err -> do
+      let msg = "Error initializing migrations: " ++ err
+      logg Error $ fromString msg
+      die msg
+    Mg.MigrationSuccess -> logg Info "Initialized migrations"
 
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https

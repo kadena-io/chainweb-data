@@ -121,6 +121,7 @@ executable chainweb-data
     , optparse-applicative     >=0.14 && <0.17
     , pact                     >=4.3.1
     , postgresql-simple
+    , postgresql-simple-migration
     , process                  ^>=1.6
     , resource-pool      >= 0.3
     , retry                    ^>=0.8
