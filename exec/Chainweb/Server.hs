@@ -26,6 +26,8 @@ import           Control.Error
 import           Control.Monad.Except
 import           Control.Retry
 import           Data.Aeson hiding (Error)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64.URL as B64
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Decimal
 import           Data.Foldable
@@ -439,7 +441,7 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
   queryStart <- case (mbNext, fromHeight, offset) of
-    (Just (NextToken nextToken), Nothing, Nothing) -> case readMay (T.unpack nextToken) of
+    (Just (NextToken nextToken), Nothing, Nothing) -> case readMay $ toS $ B64.decodeLenient $ toS nextToken of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> nextToken
       Just ((hgt, reqkey, idx) :: AccountNextToken) -> return $
         AQSContinue (fromIntegral hgt) (rkcbFromText reqkey) (fromIntegral idx)
@@ -461,7 +463,7 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
           else case lastMay r of
                  Nothing -> noHeader
                  Just tr -> addHeader $ NextToken $ T.pack $ show @AccountNextToken
-                   (_tr_height tr, T.pack $ show $ _tr_requestkey tr, _tr_idx tr )
+                   (_tr_height tr, toS $ BS.filter (/= 0x3d) $ B64.encode $ toS $ show $ _tr_requestkey tr, _tr_idx tr )
     return $ withHeader $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
