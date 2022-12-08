@@ -425,6 +425,13 @@ txsHandler logger pool (Just (RequestKey rk)) =
 
 type AccountNextToken = (Int64, T.Text, Int64)
 
+readToken :: Read a => NextToken -> Maybe a
+readToken (NextToken nextToken) = readMay $ toS $ B64.decodeLenient $ toS nextToken
+
+mkToken :: Show a => a -> NextToken
+mkToken contents = NextToken $ T.pack $
+  toS $ BS.filter (/= 0x3d) $ B64.encode $ toS $ show contents
+
 accountHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
@@ -441,8 +448,8 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
   queryStart <- case (mbNext, fromHeight, offset) of
-    (Just (NextToken nextToken), Nothing, Nothing) -> case readMay $ toS $ B64.decodeLenient $ toS nextToken of
-      Nothing -> throw400 $ toS $ "Invalid next token: " <> nextToken
+    (Just nextToken, Nothing, Nothing) -> case readToken nextToken of
+      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
       Just ((hgt, reqkey, idx) :: AccountNextToken) -> return $
         AQSContinue (fromIntegral hgt) (rkcbFromText reqkey) (fromIntegral idx)
     (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
@@ -462,8 +469,7 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
           then noHeader
           else case lastMay r of
                  Nothing -> noHeader
-                 Just tr -> addHeader $ NextToken $ T.pack $
-                   toS $ BS.filter (/= 0x3d) $ B64.encode $ toS $ show @AccountNextToken
+                 Just tr -> addHeader $ mkToken @AccountNextToken
                      (_tr_height tr, toS $ show $ _tr_requestkey tr, _tr_idx tr )
     return $ withHeader $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
