@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
@@ -150,7 +151,7 @@ accountQueryStmt (Limit limit) account token chain aqs =
       AQSNewQuery mbHeight ofst -> (,) ofst $ \tr ->
         whenArg mbHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
       AQSContinue height (ChainId chainId) idx -> (,) (Offset 0) $ \tr ->
-        guard_ $ tupleCmpSm
+        guard_ $ tupleCmp (<.)
           [ _tr_height tr :<> fromIntegral height
           , negate (_tr_chainid tr) :<> negate (fromIntegral chainId)
           , negate (_tr_idx tr) :<> negate (fromIntegral idx)
@@ -158,7 +159,11 @@ accountQueryStmt (Limit limit) account token chain aqs =
 
 data CompPair be s = forall t. (:<>) (QExpr be s t ) (QExpr be s t)
 
-tupleCmpSm :: [CompPair Postgres s] -> QExpr Postgres s Bool
-tupleCmpSm cps = QExpr lExp <. QExpr rExp where
+tupleCmp
+  :: IsSql92ExpressionSyntax (BeamSqlBackendExpressionSyntax be)
+  => (forall t. QExpr be s t -> QExpr be s t -> QExpr be s Bool)
+  -> [CompPair be s]
+  -> QExpr be s Bool
+tupleCmp cmp cps = QExpr lExp `cmp` QExpr rExp where
   lExp = rowE <$> sequence [e | QExpr e :<> _ <- cps]
   rExp = rowE <$> sequence [e | _ :<> QExpr e <- cps]
