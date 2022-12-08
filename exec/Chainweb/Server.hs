@@ -26,6 +26,8 @@ import           Control.Error
 import           Control.Monad.Except
 import           Control.Retry
 import           Data.Aeson hiding (Error)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64.URL as B64
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Decimal
 import           Data.Foldable
@@ -421,6 +423,15 @@ txsHandler logger pool (Just (RequestKey rk)) =
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
 
+type AccountNextToken = (Int64, T.Text, Int64)
+
+readToken :: Read a => NextToken -> Maybe a
+readToken (NextToken nextToken) = readMay $ toS $ B64.decodeLenient $ toS nextToken
+
+mkToken :: Show a => a -> NextToken
+mkToken contents = NextToken $ T.pack $
+  toS $ BS.filter (/= 0x3d) $ B64.encode $ toS $ show contents
+
 accountHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
@@ -431,18 +442,36 @@ accountHandler
   -> Maybe BlockHeight
   -> Maybe Limit
   -> Maybe Offset
-  -> Handler [AccountDetail]
-accountHandler logger pool req account token chain fromHeight limit offset = do
+  -> Maybe NextToken
+  -> Handler (NextHeaders [AccountDetail])
+accountHandler logger pool req account token chain fromHeight limit offset mbNext = do
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
-  boundedOffset <- Offset <$> case offset of
-    Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
-      where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
-    Nothing -> return 0
+  queryStart <- case (mbNext, fromHeight, offset) of
+    (Just nextToken, Nothing, Nothing) -> case readToken nextToken of
+      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
+      Just ((hgt, reqkey, idx) :: AccountNextToken) -> return $
+        AQSContinue (fromIntegral hgt) (rkcbFromText reqkey) (fromIntegral idx)
+    (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
+    (Just _, _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
+    (Nothing, _, _) -> do
+      boundedOffset <- Offset <$> case offset of
+        Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
+          where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
+        Nothing -> return 0
+      return $ AQSNewQuery fromHeight boundedOffset
   liftIO $ P.withResource pool $ \c -> do
     let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt boundedLimit boundedOffset account (fromMaybe "coin" token) chain fromHeight
-    return $ (`map` r) $ \tr -> AccountDetail
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $
+      runSelectReturningList $
+        accountQueryStmt boundedLimit account (fromMaybe "coin" token) chain queryStart
+    let withHeader = if length r < fromIntegral (unLimit boundedLimit)
+          then noHeader
+          else case lastMay r of
+                 Nothing -> noHeader
+                 Just tr -> addHeader $ mkToken @AccountNextToken
+                     (_tr_height tr, toS $ show $ _tr_requestkey tr, _tr_idx tr )
+    return $ withHeader $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
       , _acDetail_height = fromIntegral $ _tr_height tr

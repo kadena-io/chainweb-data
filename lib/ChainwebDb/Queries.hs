@@ -1,6 +1,8 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
@@ -29,6 +31,7 @@ import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import ChainwebDb.Types.Common (ReqKeyOrCoinbase)
 ------------------------------------------------------------------------------
 
 searchTxsQueryStmt
@@ -111,18 +114,21 @@ _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => Sq
 _bytequery = \case
   SqlSelect s -> pgRenderSyntaxScript $ fromPgSelect s
 
+data AccountQueryStart
+  = AQSNewQuery (Maybe BlockHeight) Offset
+  | AQSContinue BlockHeight ReqKeyOrCoinbase Int
+
 accountQueryStmt
     :: Limit
-    -> Offset
     -> Text
     -> Text
     -> Maybe ChainId
-    -> Maybe BlockHeight
+    -> AccountQueryStart
     -> SqlSelect
     Postgres
     (QExprToIdentity
     (TransferT (QGenExpr QValueContext Postgres QBaseScope)))
-accountQueryStmt (Limit limit) (Offset offset) account token chain fromHeight =
+accountQueryStmt (Limit limit) account token chain aqs =
   select $
   limit_ limit $
   offset_ offset $
@@ -131,6 +137,7 @@ accountQueryStmt (Limit limit) (Offset offset) account token chain fromHeight =
   where
     getOrder tr =
       ( desc_ $ _tr_height tr
+      , desc_ $ _tr_requestkey tr
       , asc_ $ _tr_idx tr)
     subQueryLimit = limit + offset
     whenArg p a = maybe (return ()) a p
@@ -138,6 +145,26 @@ accountQueryStmt (Limit limit) (Offset offset) account token chain fromHeight =
       tr <- all_ (_cddb_transfers database)
       guard_ $ accountField tr ==. val_ account
       guard_ $ _tr_modulename tr ==. val_ token
-      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. val_ (fromIntegral c)
-      whenArg fromHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
+      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. fromIntegral c
+      rowFilter tr
       return tr
+    (Offset offset, rowFilter) = case aqs of
+      AQSNewQuery mbHeight ofst -> (,) ofst $ \tr ->
+        whenArg mbHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
+      AQSContinue height reqKey idx -> (,) (Offset 0) $ \tr ->
+        guard_ $ tupleCmp (<.)
+          [ _tr_height tr :<> fromIntegral height
+          , _tr_requestkey tr :<> val_ reqKey
+          , negate (_tr_idx tr) :<> negate (fromIntegral idx)
+          ]
+
+data CompPair be s = forall t. (:<>) (QExpr be s t ) (QExpr be s t)
+
+tupleCmp
+  :: IsSql92ExpressionSyntax (BeamSqlBackendExpressionSyntax be)
+  => (forall t. QExpr be s t -> QExpr be s t -> QExpr be s Bool)
+  -> [CompPair be s]
+  -> QExpr be s Bool
+tupleCmp cmp cps = QExpr lExp `cmp` QExpr rExp where
+  lExp = rowE <$> sequence [e | QExpr e :<> _ <- cps]
+  rExp = rowE <$> sequence [e | _ :<> QExpr e <- cps]
