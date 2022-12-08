@@ -421,6 +421,8 @@ txsHandler logger pool (Just (RequestKey rk)) =
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
 
+type AccountNextToken = (Int64, Int64, Int64)
+
 accountHandler
   :: LogFunctionIO Text
   -> P.Pool Connection
@@ -431,21 +433,36 @@ accountHandler
   -> Maybe BlockHeight
   -> Maybe Limit
   -> Maybe Offset
-  -> Handler [AccountDetail]
-accountHandler logger pool req account token chain fromHeight limit offset = do
+  -> Maybe NextToken
+  -> Handler (NextHeaders [AccountDetail])
+accountHandler logger pool req account token chain fromHeight limit offset mbNext = do
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
-  boundedOffset <- Offset <$> case offset of
-    Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
-      where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
-    Nothing -> return 0
+  queryStart <- case (mbNext, fromHeight, offset) of
+    (Just (NextToken nextToken), Nothing, Nothing) -> case readMay (T.unpack nextToken) of
+      Nothing -> throw400 $ toS $ "Invalid next token: " <> nextToken
+      Just ((hgt, cid, idx) :: AccountNextToken) -> return $
+        AQSContinue (fromIntegral hgt) (ChainId $ fromIntegral cid) (fromIntegral idx)
+    (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
+    (Just _, _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
+    (Nothing, _, _) -> do
+      boundedOffset <- Offset <$> case offset of
+        Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
+          where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
+        Nothing -> return 0
+      return $ AQSNewQuery fromHeight boundedOffset
   liftIO $ P.withResource pool $ \c -> do
     let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
-        queryStart = AQSNewQuery fromHeight boundedOffset
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $
       runSelectReturningList $
         accountQueryStmt boundedLimit account (fromMaybe "coin" token) chain queryStart
-    return $ (`map` r) $ \tr -> AccountDetail
+    let withHeader = if length r < fromIntegral (unLimit boundedLimit)
+          then noHeader
+          else case lastMay r of
+                 Nothing -> noHeader
+                 Just tr -> addHeader $ NextToken $ T.pack $ show @AccountNextToken
+                   (_tr_height tr, _tr_chainid tr, _tr_idx tr )
+    return $ withHeader $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
       , _acDetail_height = fromIntegral $ _tr_height tr
