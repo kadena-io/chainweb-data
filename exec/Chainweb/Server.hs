@@ -462,8 +462,9 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
           then noHeader
           else case lastMay r of
                  Nothing -> noHeader
-                 Just tr -> addHeader $ NextToken $ T.pack $ show @AccountNextToken
-                   (_tr_height tr, toS $ BS.filter (/= 0x3d) $ B64.encode $ toS $ show $ _tr_requestkey tr, _tr_idx tr )
+                 Just tr -> addHeader $ NextToken $ T.pack $
+                   toS $ BS.filter (/= 0x3d) $ B64.encode $ toS $ show @AccountNextToken
+                     (_tr_height tr, toS $ show $ _tr_requestkey tr, _tr_idx tr )
     return $ withHeader $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
