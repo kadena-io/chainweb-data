@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -111,18 +112,21 @@ _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => Sq
 _bytequery = \case
   SqlSelect s -> pgRenderSyntaxScript $ fromPgSelect s
 
+data AccountQueryStart
+  = AQSNewQuery (Maybe BlockHeight) Offset
+  | AQSContinue BlockHeight ChainId Int
+
 accountQueryStmt
     :: Limit
-    -> Offset
     -> Text
     -> Text
     -> Maybe ChainId
-    -> Maybe BlockHeight
+    -> AccountQueryStart
     -> SqlSelect
     Postgres
     (QExprToIdentity
     (TransferT (QGenExpr QValueContext Postgres QBaseScope)))
-accountQueryStmt (Limit limit) (Offset offset) account token chain fromHeight =
+accountQueryStmt (Limit limit) account token chain aqs =
   select $
   limit_ limit $
   offset_ offset $
@@ -131,6 +135,7 @@ accountQueryStmt (Limit limit) (Offset offset) account token chain fromHeight =
   where
     getOrder tr =
       ( desc_ $ _tr_height tr
+      , asc_ $ _tr_chainid tr
       , asc_ $ _tr_idx tr)
     subQueryLimit = limit + offset
     whenArg p a = maybe (return ()) a p
@@ -138,6 +143,22 @@ accountQueryStmt (Limit limit) (Offset offset) account token chain fromHeight =
       tr <- all_ (_cddb_transfers database)
       guard_ $ accountField tr ==. val_ account
       guard_ $ _tr_modulename tr ==. val_ token
-      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. val_ (fromIntegral c)
-      whenArg fromHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
+      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. fromIntegral c
+      rowFilter tr
       return tr
+    (Offset offset, rowFilter) = case aqs of
+      AQSNewQuery mbHeight ofst -> (,) ofst $ \tr ->
+        whenArg mbHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
+      AQSContinue height (ChainId chainId) idx -> (,) (Offset 0) $ \tr ->
+        guard_ $ tupleCmpSm
+          [ _tr_height tr :<> fromIntegral height
+          , negate (_tr_chainid tr) :<> negate (fromIntegral chainId)
+          , negate (_tr_idx tr) :<> negate (fromIntegral idx)
+          ]
+
+data CompPair be s = forall t. (:<>) (QExpr be s t ) (QExpr be s t)
+
+tupleCmpSm :: [CompPair Postgres s] -> QExpr Postgres s Bool
+tupleCmpSm cps = QExpr lExp <. QExpr rExp where
+  lExp = rowE <$> sequence [e | QExpr e :<> _ <- cps]
+  rExp = rowE <$> sequence [e | _ :<> QExpr e <- cps]

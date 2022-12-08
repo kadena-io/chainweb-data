@@ -441,7 +441,10 @@ accountHandler logger pool req account token chain fromHeight limit offset = do
     Nothing -> return 0
   liftIO $ P.withResource pool $ \c -> do
     let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ accountQueryStmt boundedLimit boundedOffset account (fromMaybe "coin" token) chain fromHeight
+        queryStart = AQSNewQuery fromHeight boundedOffset
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $
+      runSelectReturningList $
+        accountQueryStmt boundedLimit account (fromMaybe "coin" token) chain queryStart
     return $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
