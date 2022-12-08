@@ -31,6 +31,7 @@ import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import ChainwebDb.Types.Common (ReqKeyOrCoinbase)
 ------------------------------------------------------------------------------
 
 searchTxsQueryStmt
@@ -115,7 +116,7 @@ _bytequery = \case
 
 data AccountQueryStart
   = AQSNewQuery (Maybe BlockHeight) Offset
-  | AQSContinue BlockHeight ChainId Int
+  | AQSContinue BlockHeight ReqKeyOrCoinbase Int
 
 accountQueryStmt
     :: Limit
@@ -136,7 +137,7 @@ accountQueryStmt (Limit limit) account token chain aqs =
   where
     getOrder tr =
       ( desc_ $ _tr_height tr
-      , asc_ $ _tr_chainid tr
+      , desc_ $ _tr_requestkey tr
       , asc_ $ _tr_idx tr)
     subQueryLimit = limit + offset
     whenArg p a = maybe (return ()) a p
@@ -150,10 +151,10 @@ accountQueryStmt (Limit limit) account token chain aqs =
     (Offset offset, rowFilter) = case aqs of
       AQSNewQuery mbHeight ofst -> (,) ofst $ \tr ->
         whenArg mbHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
-      AQSContinue height (ChainId chainId) idx -> (,) (Offset 0) $ \tr ->
+      AQSContinue height reqKey idx -> (,) (Offset 0) $ \tr ->
         guard_ $ tupleCmp (<.)
           [ _tr_height tr :<> fromIntegral height
-          , negate (_tr_chainid tr) :<> negate (fromIntegral chainId)
+          , _tr_requestkey tr :<> val_ reqKey
           , negate (_tr_idx tr) :<> negate (fromIntegral idx)
           ]
 

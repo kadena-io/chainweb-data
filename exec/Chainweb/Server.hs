@@ -421,7 +421,7 @@ txsHandler logger pool (Just (RequestKey rk)) =
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
 
-type AccountNextToken = (Int64, Int64, Int64)
+type AccountNextToken = (Int64, T.Text, Int64)
 
 accountHandler
   :: LogFunctionIO Text
@@ -441,8 +441,8 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
   queryStart <- case (mbNext, fromHeight, offset) of
     (Just (NextToken nextToken), Nothing, Nothing) -> case readMay (T.unpack nextToken) of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> nextToken
-      Just ((hgt, cid, idx) :: AccountNextToken) -> return $
-        AQSContinue (fromIntegral hgt) (ChainId $ fromIntegral cid) (fromIntegral idx)
+      Just ((hgt, reqkey, idx) :: AccountNextToken) -> return $
+        AQSContinue (fromIntegral hgt) (rkcbFromText reqkey) (fromIntegral idx)
     (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
     (Just _, _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
     (Nothing, _, _) -> do
@@ -461,7 +461,7 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
           else case lastMay r of
                  Nothing -> noHeader
                  Just tr -> addHeader $ NextToken $ T.pack $ show @AccountNextToken
-                   (_tr_height tr, _tr_chainid tr, _tr_idx tr )
+                   (_tr_height tr, T.pack $ show $ _tr_requestkey tr, _tr_idx tr )
     return $ withHeader $ (`map` r) $ \tr -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
