@@ -89,6 +89,7 @@ import           ChainwebDb.Types.Event
 setCors :: Middleware
 setCors = cors . const . Just $ simpleCorsResourcePolicy
     { corsRequestHeaders = simpleHeaders
+    , corsExposedHeaders = Just ["Chainweb-Next"]
     }
 
 data ServerState = ServerState
@@ -505,9 +506,13 @@ evHandler
 evHandler logger pool req limit offset qSearch qParam qName qModuleName bh = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
   liftIO $ logger Debug $ fromString "Printing raw query"
-  liftIO $ logger Debug $ toS $ _bytequery $ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh
+  boundedOffset <- Offset <$> case offset of
+    Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
+      where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
+    Nothing -> return 0
+  liftIO $ logger Debug $ toS $ _bytequery $ eventsQueryStmt limit (Just boundedOffset) qSearch qParam qName qModuleName bh
   liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit offset qSearch qParam qName qModuleName bh
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit (Just boundedOffset) qSearch qParam qName qModuleName bh
     return $ (`map` r) $ \(blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
       , _evDetail_params = unPgJsonb $ _ev_params ev
