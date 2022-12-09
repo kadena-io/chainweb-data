@@ -87,6 +87,7 @@ import           ChainwebDb.Types.Event
 setCors :: Middleware
 setCors = cors . const . Just $ simpleCorsResourcePolicy
     { corsRequestHeaders = simpleHeaders
+    , corsExposedHeaders = Just ["Chainweb-Next"]
     }
 
 data ServerState = ServerState
