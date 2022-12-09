@@ -27,8 +27,8 @@ import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import           Data.Functor ((<&>))
 import qualified Data.Pool as P
-import           Data.Proxy
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.String
@@ -148,18 +148,22 @@ database = defaultDbSettings `withDbModification` dbModification
 annotatedDb :: BA.AnnotatedDatabaseSettings be ChainwebDataDb
 annotatedDb = BA.defaultAnnotatedDbSettings database
 
-hsSchema :: BA.Schema
-hsSchema = BA.fromAnnotatedDbSettings annotatedDb (Proxy @'[])
+calcCWMigrationSteps :: Connection -> IO BA.Diff
+calcCWMigrationSteps conn = BA.calcMigrationSteps annotatedDb conn <&> \eiSteps ->
+  flip fmap eiSteps $ filter $ \step -> case BA._editAction $ fst $ BA.unPriority step of
+    BA.TableRemoved _ -> False
+    _ -> True
 
 showMigration :: Connection -> IO ()
-showMigration conn =
+showMigration conn = do
+  diff <- calcCWMigrationSteps conn
   runBeamPostgres conn $
-    BA.printMigration $ BA.migrate conn hsSchema
+    BA.printMigration $ BA.createMigration diff
 
 -- | Create the DB tables if necessary.
 initializeTables :: LogFunctionIO Text -> MigrateStatus -> Connection -> IO ()
 initializeTables logg migrateStatus conn = do
-    diffA <- BA.calcMigrationSteps annotatedDb conn
+    diffA <- calcCWMigrationSteps conn
     case diffA of
       Left err -> do
           logg Error "Error detecting database migration requirements: "
@@ -180,7 +184,7 @@ initializeTables logg migrateStatus conn = do
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
 bench_initializeTables migrate loggInfo loggError conn = do
-    diffA <- BA.calcMigrationSteps annotatedDb conn
+    diffA <- calcCWMigrationSteps conn
     case diffA of
       Left err -> do
           loggError "Error detecting database migration requirements: "
