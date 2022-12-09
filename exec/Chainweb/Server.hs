@@ -53,6 +53,7 @@ import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
 import           Servant.API
 import           Servant.Server
+import           Servant.Swagger.UI
 import           System.Directory
 import           System.FilePath
 import           System.Logger.Types hiding (logg)
@@ -73,6 +74,7 @@ import           ChainwebData.Api
 import           ChainwebData.AccountDetail
 import           ChainwebData.EventDetail
 import           ChainwebData.AccountDetail ()
+import qualified ChainwebData.Spec as Spec
 import           ChainwebData.Pagination
 import           ChainwebData.TxDetail
 import           ChainwebData.TxSummary
@@ -135,8 +137,13 @@ type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
 type TheApi =
   ChainwebDataApi
   :<|> RichlistEndpoint
-theApi :: Proxy TheApi
-theApi = Proxy
+
+type ApiWithSwaggerUI
+      = TheApi
+  :<|> SwaggerSchemaUI "cwd-spec" "cwd-spec.json"
+
+api :: Proxy ApiWithSwaggerUI
+api = Proxy
 
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
@@ -176,7 +183,7 @@ apiServerCut env senv cutBS = do
           )
           :<|> richlistHandler
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
-    serve theApi (serverApp req) req f
+    serve api (serverApp req :<|> swaggerSchemaUIServer Spec.spec) req f
 
 retryingListener :: Env -> IORef ServerState -> IO ()
 retryingListener env ssRef = do
