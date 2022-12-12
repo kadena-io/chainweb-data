@@ -294,13 +294,14 @@ searchTxs
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text
-  -> Handler [TxSummary]
-searchTxs _ _ _ _ _ Nothing = throw404 "You must specify a search string"
-searchTxs logger pool req limit offset (Just search) = do
+  -> Maybe NextToken
+  -> Handler (NextHeaders [TxSummary])
+searchTxs _ _ _ _ _ Nothing _ = throw404 "You must specify a search string"
+searchTxs logger pool req limit offset (Just search) mbNext = do
     liftIO $ logger Info $ fromString $ printf "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
     liftIO $ P.withResource pool $ \c -> do
       res <- runBeamPostgresDebug (logger Debug . fromString) c $ runSelectReturningList $ searchTxsQueryStmt limit offset search
-      return $ mkSummary <$> res
+      return $ noHeader $ mkSummary <$> res
   where
     mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
 
@@ -495,8 +496,9 @@ evHandler
   -> Maybe EventName
   -> Maybe EventModuleName
   -> Maybe BlockHeight
-  -> Handler [EventDetail]
-evHandler logger pool req limit offset qSearch qParam qName qModuleName bh = do
+  -> Maybe NextToken
+  -> Handler (NextHeaders [EventDetail])
+evHandler logger pool req limit offset qSearch qParam qName qModuleName bh mbNext = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
   liftIO $ logger Debug $ fromString "Printing raw query"
   boundedOffset <- Offset <$> case offset of
@@ -506,7 +508,7 @@ evHandler logger pool req limit offset qSearch qParam qName qModuleName bh = do
   liftIO $ logger Debug $ toS $ _bytequery $ eventsQueryStmt limit (Just boundedOffset) qSearch qParam qName qModuleName bh
   liftIO $ P.withResource pool $ \c -> do
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit (Just boundedOffset) qSearch qParam qName qModuleName bh
-    return $ (`map` r) $ \(blk,ev) -> EventDetail
+    return $ noHeader $ (`map` r) $ \(blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
       , _evDetail_params = unPgJsonb $ _ev_params ev
       , _evDetail_moduleHash = _ev_moduleHash ev
