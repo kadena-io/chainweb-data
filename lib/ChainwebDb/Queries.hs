@@ -34,6 +34,10 @@ import           ChainwebDb.Types.Transfer
 import ChainwebDb.Types.Common (ReqKeyOrCoinbase)
 ------------------------------------------------------------------------------
 
+type PgSelect a = SqlSelect Postgres (QExprToIdentity a)
+type PgExpr s = QGenExpr QValueContext Postgres s
+type PgBaseExpr = PgExpr QBaseScope
+
 searchTxsQueryStmt
   :: Maybe Limit
   -> Maybe Offset
@@ -73,42 +77,44 @@ searchTxsQueryStmt limit offset search =
     getHeight (_,a,_,_,_,_,_) = a
     searchString = "%" <> search <> "%"
 
-eventsQueryStmt :: Maybe Limit
-                -> Maybe Offset
-                -> Maybe Text
-                -> Maybe EventParam
-                -> Maybe EventName
-                -> Maybe EventModuleName
-                -> Maybe Int -- BlockHeight
-                -> SqlSelect
-                   Postgres
-                   (QExprToIdentity
-                    (BlockT (QGenExpr QValueContext Postgres QBaseScope)
-                    , EventT (QGenExpr QValueContext Postgres QBaseScope)))
-eventsQueryStmt limit offset qSearch qParam qName qModuleName bh =
-  select $
-    limit_ lim $ offset_ off $ orderBy_ getOrder $ do
-      blk <- all_ (_cddb_blocks database)
-      ev <- all_ (_cddb_events database)
-      guard_ (_ev_block ev `references_` blk)
-      whenArg qSearch $ \s -> guard_
-        ((_ev_qualName ev `like_` val_ (searchString s)) ||.
-         (_ev_paramText ev `like_` val_ (searchString s))
-        )
-      whenArg qName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
-      whenArg qParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
-      whenArg qModuleName $ \(EventModuleName m) -> guard_ (_ev_module ev ==. val_ m)
-      whenArg bh $ \bh' -> guard_ (_ev_height ev >=. val_ (fromIntegral bh'))
-      return (blk,ev)
+data EventSearchParams = EventSearchParams
+  { espSearch :: Maybe Text
+  , espParam :: Maybe EventParam
+  , espName :: Maybe EventName
+  , espModuleName :: Maybe EventModuleName
+  }
+
+eventSearch ::
+  EventSearchParams ->
+  Q Postgres ChainwebDataDb s (EventT (PgExpr s))
+eventSearch EventSearchParams{..} = do
+  ev <- all_ (_cddb_events database)
+  whenArg espSearch $ \s -> guard_
+    ((_ev_qualName ev `like_` val_ (searchString s)) ||.
+      (_ev_paramText ev `like_` val_ (searchString s))
+    )
+  whenArg espName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
+  whenArg espParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
+  whenArg espModuleName $ \(EventModuleName m) -> guard_ (_ev_module ev ==. val_ m)
+  return ev
   where
-    whenArg p a = maybe (return ()) a p
-    lim = maybe 10 (min 100 . unLimit) limit
-    off = maybe 0 unOffset offset
+    searchString search = "%" <> search <> "%"
+
+eventsQueryFull ::
+  EventSearchParams ->
+  Maybe Int -> -- BlockHeight
+  Q Postgres ChainwebDataDb s (BlockT (PgExpr s), EventT (PgExpr s))
+eventsQueryFull esp bh = orderBy_ getOrder $ do
+    blk <- all_ (_cddb_blocks database)
+    ev <- eventSearch esp
+    guard_ (_ev_block ev `references_` blk)
+    whenArg bh $ \bh' -> guard_ (_ev_height ev >=. val_ (fromIntegral bh'))
+    return (blk, ev)
+  where
     getOrder (_,ev) =
       (desc_ $ _ev_height ev
       ,asc_ $ _ev_chainid ev
       ,asc_ $ _ev_idx ev)
-    searchString search = "%" <> search <> "%"
 
 _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString
 _bytequery = \case
@@ -140,7 +146,6 @@ accountQueryStmt (Limit limit) account token chain aqs =
       , desc_ $ _tr_requestkey tr
       , asc_ $ _tr_idx tr)
     subQueryLimit = limit + offset
-    whenArg p a = maybe (return ()) a p
     accountQuery accountField = limit_ subQueryLimit $ orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
       guard_ $ accountField tr ==. val_ account
@@ -168,3 +173,6 @@ tupleCmp
 tupleCmp cmp cps = QExpr lExp `cmp` QExpr rExp where
   lExp = rowE <$> sequence [e | QExpr e :<> _ <- cps]
   rExp = rowE <$> sequence [e | _ :<> QExpr e <- cps]
+
+whenArg :: Monad m => Maybe a -> (a -> m ()) -> m ()
+whenArg p a = maybe (return ()) a p

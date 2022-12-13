@@ -501,13 +501,25 @@ evHandler
 evHandler logger pool req limit offset qSearch qParam qName qModuleName bh mbNext = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
   liftIO $ logger Debug $ fromString "Printing raw query"
-  boundedOffset <- Offset <$> case offset of
+  boundedOffset <- case offset of
     Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
       where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
     Nothing -> return 0
-  liftIO $ logger Debug $ toS $ _bytequery $ eventsQueryStmt limit (Just boundedOffset) qSearch qParam qName qModuleName bh
+  let
+    searchParams = EventSearchParams
+          { espSearch = qSearch
+          , espParam = qParam
+          , espName = qName
+          , espModuleName = qModuleName
+          }
+    boundedLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
+    queryFull = eventsQueryFull searchParams bh
+    queryLimited = limit_ boundedLimit $ offset_ boundedOffset queryFull
+
+  liftIO $ logger Debug $ toS $ _bytequery $ select queryLimited
   liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit (Just boundedOffset) qSearch qParam qName qModuleName bh
+    r <- runBeamPostgresDebug (logger Debug . T.pack) c $
+      runSelectReturningList $ select queryLimited
     return $ noHeader $ (`map` r) $ \(blk,ev) -> EventDetail
       { _evDetail_name = _ev_qualName ev
       , _evDetail_params = unPgJsonb $ _ev_params ev
