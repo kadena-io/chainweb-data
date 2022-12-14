@@ -1,9 +1,20 @@
+-- We're disabling the missing-signatures warning because some Beam types are
+-- too unwieldy to type and some types aren't even exported so they can't even
+-- be typed explicitly.
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
+
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |
 
@@ -13,6 +24,7 @@ module ChainwebDb.Queries where
 import           Data.Aeson hiding (Error)
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Int
+import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import           Data.Time
 import           Database.Beam hiding (insert)
@@ -84,37 +96,117 @@ data EventSearchParams = EventSearchParams
   , espModuleName :: Maybe EventModuleName
   }
 
-eventSearch ::
+eventSearchCond ::
   EventSearchParams ->
-  Q Postgres ChainwebDataDb s (EventT (PgExpr s))
-eventSearch EventSearchParams{..} = do
-  ev <- all_ (_cddb_events database)
-  whenArg espSearch $ \s -> guard_
-    ((_ev_qualName ev `like_` val_ (searchString s)) ||.
-      (_ev_paramText ev `like_` val_ (searchString s))
-    )
-  whenArg espName $ \(EventName n) -> guard_ (_ev_qualName ev `like_` val_ (searchString n))
-  whenArg espParam $ \(EventParam p) -> guard_ (_ev_paramText ev `like_` val_ (searchString p))
-  whenArg espModuleName $ \(EventModuleName m) -> guard_ (_ev_module ev ==. val_ m)
-  return ev
+  EventT (PgExpr s) ->
+  PgExpr s Bool
+eventSearchCond EventSearchParams{..} ev = foldr (&&.) (val_ True) $
+  concat [searchCond, qualNameCond, paramCond, moduleCond]
   where
     searchString search = "%" <> search <> "%"
+    searchCond = fromMaybeArg espSearch $ \s ->
+      (_ev_qualName ev `like_` val_ (searchString s)) ||.
+      (_ev_paramText ev `like_` val_ (searchString s))
+    qualNameCond = fromMaybeArg espName $ \(EventName n) ->
+      _ev_qualName ev `like_` val_ (searchString n)
+    paramCond = fromMaybeArg espParam $ \(EventParam p) ->
+      _ev_paramText ev `like_` val_ (searchString p)
+    moduleCond = fromMaybeArg espModuleName $ \(EventModuleName m) ->
+      _ev_module ev ==. val_ m
+    fromMaybeArg mbA f = f <$> maybeToList mbA
 
-eventsQueryFull ::
+data EventCursorT f = EventCursor
+  { ecHeight :: C f Int64
+  , ecReqKey :: C f ReqKeyOrCoinbase
+  , ecIdx :: C f Int64
+  } deriving (Generic, Beamable)
+
+type EventCursor = EventCursorT Identity
+deriving instance Show EventCursor
+
+eventsCursorOrder ev =
+  ( desc_ $ _ev_height ev
+  , desc_ $ _ev_requestkey ev
+  , asc_ $ _ev_idx ev
+  )
+
+eventAfterCursor ::
+  EventCursor ->
+  EventT (PgExpr s) ->
+  PgExpr s Bool
+eventAfterCursor EventCursor{..} ev = tupleCmp (<.)
+  [ _ev_height ev :<> fromIntegral ecHeight
+  , _ev_requestkey ev :<> val_ ecReqKey
+  , negate (_ev_idx ev) :<> negate (fromIntegral ecIdx)
+  ]
+
+eventToCursor :: Event -> EventCursor
+eventToCursor ev = EventCursor (_ev_height ev) (_ev_requestkey ev) (_ev_idx ev)
+
+data EventQueryStart
+  = EQLatest
+  | EQFromHeight BlockHeight
+  | EQFromCursor EventCursor
+
+eventsAfterStart ::
+  EventQueryStart ->
+  Q Postgres ChainwebDataDb s (EventT (PgExpr s))
+eventsAfterStart eqs = do
+  ev <- all_ $ _cddb_events database
+  case eqs of
+    EQLatest -> return ()
+    EQFromHeight hgt -> guard_ $ _ev_height ev <=. val_ (fromIntegral hgt)
+    EQFromCursor cur -> guard_ $ eventAfterCursor cur ev
+  return ev
+
+eventsSearchOffset ::
   EventSearchParams ->
-  Maybe Int -> -- BlockHeight
-  Q Postgres ChainwebDataDb s (BlockT (PgExpr s), EventT (PgExpr s))
-eventsQueryFull esp bh = orderBy_ getOrder $ do
-    blk <- all_ (_cddb_blocks database)
-    ev <- eventSearch esp
-    guard_ (_ev_block ev `references_` blk)
-    whenArg bh $ \bh' -> guard_ (_ev_height ev >=. val_ (fromIntegral bh'))
-    return (blk, ev)
-  where
-    getOrder (_,ev) =
-      (desc_ $ _ev_height ev
-      ,asc_ $ _ev_chainid ev
-      ,asc_ $ _ev_idx ev)
+  EventQueryStart ->
+  Offset ->
+  Int64 ->
+  PgSelect (EventCursorT PgBaseExpr, PgBaseExpr Int64, PgBaseExpr Int64)
+eventsSearchOffset esp eqs (Offset o) scanLimit = select $ limit_ 1 noLimitQuery where
+  -- For some reason, beam fails to unify the types here unless we move noLimitQuery
+  -- to a separate definition and explicitly specify its type
+  noLimitQuery :: Q Postgres ChainwebDataDb s (EventCursorT (PgExpr s), PgExpr s Int64, PgExpr s Int64)
+  noLimitQuery = do
+    ((hgt, reqkey, idx), matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
+      (\ev ->
+        ( frame_ (noPartition_ @Int) (Just $ eventsCursorOrder ev) noBounds_
+        , frame_ (noPartition_ @Int) (Just $ eventsCursorOrder ev) (fromBound_ unbounded_)
+        )
+      )
+      (\ev (wNoBounds, wTrailing) ->
+        ( (_ev_height ev, _ev_requestkey ev, _ev_idx ev)
+        , eventSearchCond esp ev
+        , rowNumber_ `over_` wNoBounds
+        , countAll_ `filterWhere_` eventSearchCond esp ev `over_` wTrailing
+        )
+      )
+      (eventsAfterStart eqs)
+    guard_ $ scan_num ==. val_ scanLimit ||. (matchingRow &&. found_num ==. val_ (fromInteger o))
+    return (EventCursor hgt reqkey idx, found_num, scan_num)
+
+eventsSearchLimit ::
+  EventSearchParams ->
+  EventQueryStart ->
+  Limit ->
+  Int64 ->
+  SqlSelect Postgres (Event, Block, Int64, Bool)
+eventsSearchLimit esp eqs (Limit l) scanLimit = select $ limit_ l $ do
+  (ev, scan_num) <- subselect_ $ limit_ (fromIntegral scanLimit) $ withWindow_
+    (\ev -> frame_ (noPartition_ @Int) (Just $ eventsCursorOrder ev) noBounds_)
+    (\ev window ->
+      ( ev
+      , rowNumber_ `over_` window
+      )
+    )
+    (eventsAfterStart eqs)
+  blk <- all_ $ _cddb_blocks database
+  guard_ $ _ev_block ev `references_` blk
+  let scan_end = scan_num ==. val_ scanLimit
+  guard_ $ scan_end ||. eventSearchCond esp ev
+  return (ev, blk, scan_num, eventSearchCond esp ev)
 
 _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString
 _bytequery = \case
