@@ -164,7 +164,7 @@ eventsSearchOffset ::
   EventQueryStart ->
   Offset ->
   Int64 ->
-  PgSelect (EventCursorT PgBaseExpr, PgBaseExpr Int64, PgBaseExpr Int64)
+  SqlSelect Postgres (EventCursor, Int64, Int64)
 eventsSearchOffset esp eqs (Offset o) scanLimit = select $ limit_ 1 noLimitQuery where
   -- For some reason, beam fails to unify the types here unless we move noLimitQuery
   -- to a separate definition and explicitly specify its type
