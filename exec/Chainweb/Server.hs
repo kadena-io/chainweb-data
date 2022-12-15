@@ -566,7 +566,7 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName bh mbN
           mbCursor <- runBeamPostgresDebug debugLog c $ runSelectReturningOne $
             eventsSearchOffset searchParams givenQueryStart (Offset offset) scanLimit
           case mbCursor of
-            Nothing -> error "Empty event search offset query, is the database empty?"
+            Nothing -> return $ noHeader []
             Just (cursor, fromIntegral -> found_cnt, scan_cnt) -> if found_cnt < offset
               then do
                 let remainingOffset = Offset $ offset - found_cnt
