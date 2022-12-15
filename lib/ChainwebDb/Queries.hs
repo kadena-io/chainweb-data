@@ -1,8 +1,3 @@
--- We're disabling the missing-signatures warning because some Beam types are
--- too unwieldy to type and some types aren't even exported so they can't even
--- be typed explicitly.
-{-# OPTIONS_GHC -Wno-missing-signatures #-}
-
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -28,6 +23,7 @@ import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import           Data.Time
 import           Database.Beam hiding (insert)
+import           Database.Beam.Query.Internal (QOrd, QNested)
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Syntax
 import           Database.Beam.Backend.SQL.SQL92
@@ -124,6 +120,12 @@ data EventCursorT f = EventCursor
 type EventCursor = EventCursorT Identity
 deriving instance Show EventCursor
 
+eventsCursorOrder ::
+  EventT (PgExpr s) ->
+  ( QOrd Postgres s Int64
+  , QOrd Postgres s ReqKeyOrCoinbase
+  , QOrd Postgres s Int64
+  )
 eventsCursorOrder ev =
   ( desc_ $ _ev_height ev
   , desc_ $ _ev_requestkey ev
@@ -140,7 +142,7 @@ eventAfterCursor EventCursor{..} ev = tupleCmp (<.)
   , negate (_ev_idx ev) :<> negate (fromIntegral ecIdx)
   ]
 
-eventToCursor :: Event -> EventCursor
+eventToCursor :: EventT f -> EventCursorT f
 eventToCursor ev = EventCursor (_ev_height ev) (_ev_requestkey ev) (_ev_idx ev)
 
 data EventQueryStart
@@ -165,27 +167,51 @@ eventsSearchOffset ::
   Offset ->
   Int64 ->
   SqlSelect Postgres (EventCursor, Int64, Int64)
-eventsSearchOffset esp eqs (Offset o) scanLimit = select $ limit_ 1 noLimitQuery where
+eventsSearchOffset esp eqs =
+  boundedScanOffset (eventSearchCond esp) (eventsAfterStart eqs) eventsCursorOrder eventToCursor
+
+type B = QBaseScope
+type NB = QNested B
+type N2B = QNested NB
+type N3B = QNested N2B
+
+boundedScanOffset :: forall a rowT cursorT.
+  (SqlOrderable Postgres a, Beamable rowT, Beamable cursorT) =>
+  (forall s. rowT (PgExpr s) -> PgExpr s Bool) ->
+  Q Postgres ChainwebDataDb N3B (rowT (PgExpr N3B)) ->
+--  (forall s. Q Postgres ChainwebDataDb s (EventT (PgExpr s))) ->
+  (rowT (PgExpr N3B) -> a) ->
+  (rowT (PgExpr N3B) -> cursorT (PgExpr N3B)) ->
+  Offset ->
+  Int64 ->
+  SqlSelect Postgres (cursorT Identity, Int64, Int64)
+boundedScanOffset condExp toScan order toCursor (Offset o) scanLimit =
+  select $ limit_ 1 noLimitQuery where
   -- For some reason, beam fails to unify the types here unless we move noLimitQuery
   -- to a separate definition and explicitly specify its type
-  noLimitQuery :: Q Postgres ChainwebDataDb s (EventCursorT (PgExpr s), PgExpr s Int64, PgExpr s Int64)
+  noLimitQuery :: Q Postgres ChainwebDataDb NB
+    ( cursorT (PgExpr NB)
+    , PgExpr NB Int64
+    , PgExpr NB Int64
+    )
   noLimitQuery = do
-    ((hgt, reqkey, idx), matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
+    (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
       (\ev ->
-        ( frame_ (noPartition_ @Int) (Just $ eventsCursorOrder ev) noBounds_
-        , frame_ (noPartition_ @Int) (Just $ eventsCursorOrder ev) (fromBound_ unbounded_)
+        ( frame_ (noPartition_ @Int) (Just $ order ev) noBounds_
+        , frame_ (noPartition_ @Int) (Just $ order ev) (fromBound_ unbounded_)
         )
       )
       (\ev (wNoBounds, wTrailing) ->
-        ( (_ev_height ev, _ev_requestkey ev, _ev_idx ev)
-        , eventSearchCond esp ev
+        ( toCursor ev
+        , condExp ev
         , rowNumber_ `over_` wNoBounds
-        , countAll_ `filterWhere_` eventSearchCond esp ev `over_` wTrailing
+        , countAll_ `filterWhere_` condExp ev `over_` wTrailing
         )
       )
-      (eventsAfterStart eqs)
+      toScan
     guard_ $ scan_num ==. val_ scanLimit ||. (matchingRow &&. found_num ==. val_ (fromInteger o))
-    return (EventCursor hgt reqkey idx, found_num, scan_num)
+    return (cursor, found_num, scan_num)
+
 
 eventsSearchLimit ::
   EventSearchParams ->
