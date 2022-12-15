@@ -165,8 +165,8 @@ eventsSearchOffset ::
   Offset ->
   Int64 ->
   SqlSelect Postgres (EventCursor, Int64, Int64)
-eventsSearchOffset esp eqs =
-  boundedScanOffset (eventSearchCond esp) (eventsAfterStart eqs) eventsCursorOrder eventToCursor
+eventsSearchOffset esp eqs = boundedScanOffset
+  (eventSearchCond esp) (eventsAfterStart eqs) eventsCursorOrder eventToCursor
 
 eventsSearchLimit ::
   EventSearchParams ->
