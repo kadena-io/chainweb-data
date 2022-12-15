@@ -145,7 +145,7 @@ eventToCursor ev = EventCursor (_ev_height ev) (_ev_requestkey ev) (_ev_idx ev)
 
 data EventQueryStart
   = EQLatest
-  | EQFromHeight BlockHeight
+  | EQMinHeight BlockHeight
   | EQFromCursor EventCursor
 
 eventsAfterStart ::
@@ -155,7 +155,7 @@ eventsAfterStart eqs = do
   ev <- all_ $ _cddb_events database
   case eqs of
     EQLatest -> return ()
-    EQFromHeight hgt -> guard_ $ _ev_height ev <=. val_ (fromIntegral hgt)
+    EQMinHeight hgt -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
     EQFromCursor cur -> guard_ $ eventAfterCursor cur ev
   return ev
 

@@ -533,16 +533,16 @@ evHandler
   -> Maybe BlockHeight
   -> Maybe NextToken
   -> Handler (NextHeaders [EventDetail])
-evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName bh mbNext = do
+evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minheight mbNext = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
   liftIO $ logger Debug $ fromString "Printing raw query"
-  (givenQueryStart, mbGivenOffset) <- case (mbNext, bh, mbOffset) of
+  (givenQueryStart, mbGivenOffset) <- case (mbNext, minheight, mbOffset) of
     (Just nextToken, Nothing, Nothing) -> case readEventToken nextToken of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
       Just est -> return ( EQFromCursor $ estCursor est, estOffset est)
     (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
     (Just _, _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _, _) -> return (maybe EQLatest EQFromHeight bh, mbOffset)
+    (Nothing, _, _) -> return (maybe EQLatest EQMinHeight minheight, mbOffset)
   mbBoundedOffset <- forM mbGivenOffset $ \(Offset o) -> do
     let errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
     if o >= 10000 then throw400 errMsg else return o
