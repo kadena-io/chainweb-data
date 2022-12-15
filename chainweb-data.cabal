@@ -65,6 +65,7 @@ library
     ChainwebData.Genesis
     ChainwebData.Types
     ChainwebData.Env
+    ChainwebDb.BoundedScan
     ChainwebDb.Database
     ChainwebDb.Queries
     ChainwebDb.Types.Block
