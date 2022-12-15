@@ -77,17 +77,55 @@ txToSummary tx = DbTxSummary
   , dtsGoodResult = _tx_goodResult tx
   }
 
-searchTxsQueryStmt ::
-  Limit ->
-  Offset ->
+data TxCursorT f = TxCursor
+  { txcHeight :: C f Int64
+  , txcReqKey :: C f (DbHash TxHash)
+  } deriving (Generic, Beamable)
+
+type TxCursor = TxCursorT Identity
+
+type TxQueryStart = BSStart () TxCursor
+
+txSearchCond :: Text -> TransactionT (PgExpr s) -> PgExpr s Bool
+txSearchCond search tx =
+  fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ searchString
+  where searchString = "%" <> search <> "%"
+
+txSearchAfter :: TxQueryStart -> Q Postgres ChainwebDataDb s (TransactionT (PgExpr s))
+txSearchAfter bss = do
+  tx <- all_ $ _cddb_transactions database
+  case bss of
+    BSNewQuery () -> return ()
+    BSFromCursor TxCursor{..} -> guard_ $ tupleCmp (<.)
+      [ _tx_height tx :<> fromIntegral txcHeight
+      , _tx_requestKey tx :<> val_ txcReqKey
+      ]
+  return tx
+
+txSearchOrder tx = (desc_ $ _tx_height tx, desc_ $ _tx_requestKey tx)
+
+txToCursor :: TransactionT f -> TxCursorT f
+txToCursor tx = TxCursor (_tx_height tx) (_tx_requestKey tx)
+
+txSearchOffset ::
   Text ->
-  SqlSelect Postgres DbTxSummary
-searchTxsQueryStmt (Limit lim) (Offset off) search = select $ do
-  let searchString = "%" <> search <> "%"
-  limit_ lim $ offset_ off $ orderBy_ (desc_ . dtsHeight) $ do
-    tx <- all_ (_cddb_transactions database)
-    guard_ (fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ searchString)
-    return $ txToSummary tx
+  TxQueryStart ->
+  Offset ->
+  Int64 ->
+  SqlSelect Postgres (TxCursor, Int64, Int64)
+txSearchOffset search tqs = boundedScanOffset
+  (txSearchCond search) (txSearchAfter tqs) txSearchOrder txToCursor
+
+txSearchLimit ::
+  Text ->
+  TxQueryStart ->
+  Limit ->
+  Int64 ->
+  SqlSelect Postgres (DbTxSummary, Int64, Bool)
+txSearchLimit search tqs limit scanLimit = select $ do
+  (tx, scan_num, matchingRow) <- boundedScanLimit
+    (txSearchCond search) (txSearchAfter tqs) txSearchOrder limit scanLimit
+  return (txToSummary tx, scan_num, matchingRow)
 
 data EventSearchParams = EventSearchParams
   { espSearch :: Maybe Text

@@ -289,6 +289,15 @@ serverHeaderHandler env ssRef ph@(PowHeader h _) = do
 instance BeamSqlBackendIsString Postgres (Maybe Text)
 instance BeamSqlBackendIsString Postgres (Maybe String)
 
+type TxSearchToken = BSContinuation TxCursor
+
+readTxToken :: NextToken -> Maybe TxSearchToken
+readTxToken tok = readBSToken tok <&> \mbBSC -> mbBSC <&> \(hgt, reqkey) ->
+  TxCursor hgt (DbHash reqkey)
+
+mkTxToken :: TxSearchToken -> NextToken
+mkTxToken txt = mkBSToken $ txt <&> \c -> (txcHeight c, unDbHash $ txcReqKey c)
+
 searchTxs
   :: LogFunctionIO Text
   -> P.Pool Connection
@@ -299,28 +308,44 @@ searchTxs
   -> Maybe NextToken
   -> Handler (NextHeaders [TxSummary])
 searchTxs _ _ _ _ _ Nothing _ = throw404 "You must specify a search string"
-searchTxs logger pool req givenMbLim givenMbOff (Just search) mbNext = do
-    let
-      boundedLim = Limit $ maybe 10 (min 100 . unLimit) givenMbLim
-      boundedOff = Offset $ maybe 0 unOffset givenMbOff
-    liftIO $ logger Info $ fromString $
-      printf "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
-    liftIO $ P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug (logger Debug . fromString) c $ runSelectReturningList $
-        searchTxsQueryStmt boundedLim boundedOff search
-      return $ noHeader $ toApiSummary <$> res
-  where
-    toApiSummary s = TxSummary
-      { _txSummary_chain = fromIntegral $ dtsChainId s
-      , _txSummary_height = fromIntegral $ dtsHeight s
-      , _txSummary_blockHash = unDbHash $ dtsBlock s
-      , _txSummary_creationTime = dtsCreationTime s
-      , _txSummary_requestKey = unDbHash $ dtsReqKey s
-      , _txSummary_sender = dtsSender s
-      , _txSummary_code = dtsCode s
-      , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
-      , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
-      }
+searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
+  liftIO $ logger Info $ fromString $ printf
+    "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
+  (givenQueryStart, mbGivenOffset) <- case (mbNext, mbOffset) of
+    (Just nextToken, Nothing) -> case readTxToken nextToken of
+      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
+      Just txt -> return ( BSFromCursor $ bscCursor txt, bscOffset txt)
+    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with fromheight"
+    (Nothing, _) -> return (BSNewQuery (), mbOffset)
+
+  liftIO $ P.withResource pool $ \c ->
+    PG.withTransactionLevel PG.RepeatableRead c $ do
+      let debugLog = logger Debug . fromString
+      (mbCont, results) <- performBoundedScan BoundedScan
+        { bsScanLimit = 20000
+        , bsRunOffset = \start offset scanLimit ->
+            runBeamPostgresDebug debugLog c $ runSelectReturningOne $
+              txSearchOffset search start offset scanLimit
+        , bsRunLimit = \start lim scanLimit ->
+            runBeamPostgresDebug debugLog c $ runSelectReturningList $
+              txSearchLimit search start lim scanLimit
+        , bsOffset = unOffset <$> mbGivenOffset
+        , bsLimit = maybe 10 (min 100 . unLimit) givenMbLim
+        , bsStart = givenQueryStart
+        , bsRowToCursor = \s -> TxCursor (dtsHeight s) (dtsReqKey s)
+        }
+      return $ maybe noHeader (addHeader . mkTxToken) mbCont $
+        results <&> \s -> TxSummary
+          { _txSummary_chain = fromIntegral $ dtsChainId s
+          , _txSummary_height = fromIntegral $ dtsHeight s
+          , _txSummary_blockHash = unDbHash $ dtsBlock s
+          , _txSummary_creationTime = dtsCreationTime s
+          , _txSummary_requestKey = unDbHash $ dtsReqKey s
+          , _txSummary_sender = dtsSender s
+          , _txSummary_code = dtsCode s
+          , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
+          , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
+          }
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
