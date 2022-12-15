@@ -50,44 +50,44 @@ type PgSelect a = SqlSelect Postgres (QExprToIdentity a)
 type PgExpr s = QGenExpr QValueContext Postgres s
 type PgBaseExpr = PgExpr QBaseScope
 
-searchTxsQueryStmt
-  :: Maybe Limit
-  -> Maybe Offset
-  -> Text
-  -> SqlSelect
-        Postgres
-        (QExprToIdentity
-                (QGenExpr QValueContext Postgres QBaseScope Int64,
-                QGenExpr QValueContext Postgres QBaseScope Int64,
-                QGenExpr QValueContext Postgres QBaseScope (DbHash BlockHash),
-                QGenExpr QValueContext Postgres QBaseScope UTCTime,
-                QGenExpr QValueContext Postgres QBaseScope (DbHash TxHash),
-                QGenExpr QValueContext Postgres QBaseScope Text,
-                (QGenExpr QValueContext Postgres QBaseScope (Maybe Text),
-                QGenExpr QValueContext Postgres QBaseScope (Maybe (PgJSONB Value)),
-                QGenExpr
-                QValueContext Postgres QBaseScope (Maybe (PgJSONB Value)))))
-searchTxsQueryStmt limit offset search =
-    select $ do
-        limit_ lim $ offset_ off $ orderBy_ (desc_ . getHeight) $ do
-                tx <- all_ (_cddb_transactions database)
-                guard_ (fromMaybe_ (val_ "") (_tx_code tx) `like_` (val_ searchString))
-                return
-                        ( (_tx_chainId tx)
-                        , (_tx_height tx)
-                        , (unBlockId $ _tx_block tx)
-                        , (_tx_creationTime tx)
-                        , (_tx_requestKey tx)
-                        , (_tx_sender tx)
-                        , ((_tx_code tx)
-                        , (_tx_continuation tx)
-                        , (_tx_goodResult tx)
-                        ))
-  where
-    lim = maybe 10 (min 100 . unLimit) limit
-    off = maybe 0 unOffset offset
-    getHeight (_,a,_,_,_,_,_) = a
-    searchString = "%" <> search <> "%"
+data DbTxSummaryT f = DbTxSummary
+  { dtsChainId :: C f Int64
+  , dtsHeight :: C f Int64
+  , dtsBlock :: C f (DbHash BlockHash)
+  , dtsCreationTime :: C f UTCTime
+  , dtsReqKey :: C f (DbHash TxHash)
+  , dtsSender :: C f Text
+  , dtsCode :: C f (Maybe Text)
+  , dtsContinuation :: C f (Maybe (PgJSONB Value))
+  , dtsGoodResult :: C f (Maybe (PgJSONB Value))
+  } deriving (Generic, Beamable)
+
+type DbTxSummary = DbTxSummaryT Identity
+
+txToSummary :: TransactionT f -> DbTxSummaryT f
+txToSummary tx = DbTxSummary
+  { dtsChainId = _tx_chainId tx
+  , dtsHeight = _tx_height tx
+  , dtsBlock = unBlockId $ _tx_block tx
+  , dtsCreationTime = _tx_creationTime tx
+  , dtsReqKey = _tx_requestKey tx
+  , dtsSender = _tx_sender tx
+  , dtsCode = _tx_code tx
+  , dtsContinuation = _tx_continuation tx
+  , dtsGoodResult = _tx_goodResult tx
+  }
+
+searchTxsQueryStmt ::
+  Limit ->
+  Offset ->
+  Text ->
+  SqlSelect Postgres DbTxSummary
+searchTxsQueryStmt (Limit lim) (Offset off) search = select $ do
+  let searchString = "%" <> search <> "%"
+  limit_ lim $ offset_ off $ orderBy_ (desc_ . dtsHeight) $ do
+    tx <- all_ (_cddb_transactions database)
+    guard_ (fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ searchString)
+    return $ txToSummary tx
 
 data EventSearchParams = EventSearchParams
   { espSearch :: Maybe Text

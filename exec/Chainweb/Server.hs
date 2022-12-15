@@ -299,13 +299,28 @@ searchTxs
   -> Maybe NextToken
   -> Handler (NextHeaders [TxSummary])
 searchTxs _ _ _ _ _ Nothing _ = throw404 "You must specify a search string"
-searchTxs logger pool req limit offset (Just search) mbNext = do
-    liftIO $ logger Info $ fromString $ printf "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
+searchTxs logger pool req givenMbLim givenMbOff (Just search) mbNext = do
+    let
+      boundedLim = Limit $ maybe 10 (min 100 . unLimit) givenMbLim
+      boundedOff = Offset $ maybe 0 unOffset givenMbOff
+    liftIO $ logger Info $ fromString $
+      printf "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
     liftIO $ P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug (logger Debug . fromString) c $ runSelectReturningList $ searchTxsQueryStmt limit offset search
-      return $ noHeader $ mkSummary <$> res
+      res <- runBeamPostgresDebug (logger Debug . fromString) c $ runSelectReturningList $
+        searchTxsQueryStmt boundedLim boundedOff search
+      return $ noHeader $ toApiSummary <$> res
   where
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+    toApiSummary s = TxSummary
+      { _txSummary_chain = fromIntegral $ dtsChainId s
+      , _txSummary_height = fromIntegral $ dtsHeight s
+      , _txSummary_blockHash = unDbHash $ dtsBlock s
+      , _txSummary_creationTime = dtsCreationTime s
+      , _txSummary_requestKey = unDbHash $ dtsReqKey s
+      , _txSummary_sender = dtsSender s
+      , _txSummary_code = dtsCode s
+      , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
+      , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
+      }
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
