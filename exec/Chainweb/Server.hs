@@ -537,7 +537,6 @@ evHandler
   -> Handler (NextHeaders [EventDetail])
 evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minheight mbNext = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
-  liftIO $ logger Debug $ fromString "Printing raw query"
   (givenQueryStart, mbGivenOffset) <- case (mbNext, minheight, mbOffset) of
     (Just nextToken, Nothing, Nothing) -> case readEventToken nextToken of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
@@ -548,32 +547,27 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
   mbBoundedOffset <- forM mbGivenOffset $ \(Offset o) -> do
     let errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
     if o >= 10000 then throw400 errMsg else return o
-  let
-    searchParams = EventSearchParams
-          { espSearch = qSearch
-          , espParam = qParam
-          , espName = qName
-          , espModuleName = qModuleName
-          }
-    scanLimit = 20000
-    boundedLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
+  let searchParams = EventSearchParams
+        { espSearch = qSearch
+        , espParam = qParam
+        , espName = qName
+        , espModuleName = qModuleName
+        }
 
   liftIO $ P.withResource pool $ \c ->
     PG.withTransactionLevel PG.RepeatableRead c $ do
       let
         debugLog = logger Debug . T.pack
-        runOffset start offset sLimit = do
-          runBeamPostgresDebug debugLog c $ runSelectReturningOne $
-            eventsSearchOffset searchParams start offset sLimit
-        runLimit queryStart lim toScan = do
-          runBeamPostgresDebug debugLog c $ runSelectReturningList $
-            eventsSearchLimit searchParams queryStart lim toScan
       (mbCont, results) <- performBoundedScan BoundedScan
-        { bsScanLimit = scanLimit
-        , bsRunOffset = runOffset
-        , bsRunLimit = runLimit
+        { bsScanLimit = 20000
+        , bsRunOffset = \start offset scanLimit ->
+            runBeamPostgresDebug debugLog c $ runSelectReturningOne $
+              eventsSearchOffset searchParams start offset scanLimit
+        , bsRunLimit = \start lim scanLimit ->
+            runBeamPostgresDebug debugLog c $ runSelectReturningList $
+              eventsSearchLimit searchParams start lim scanLimit
         , bsOffset = mbBoundedOffset
-        , bsLimit = boundedLimit
+        , bsLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
         , bsStart = givenQueryStart
         , bsRowToCursor = eventToCursor . fst
         }
