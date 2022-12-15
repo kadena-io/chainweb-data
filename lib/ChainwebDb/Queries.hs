@@ -143,10 +143,7 @@ eventAfterCursor EventCursor{..} ev = tupleCmp (<.)
 eventToCursor :: EventT f -> EventCursorT f
 eventToCursor ev = EventCursor (_ev_height ev) (_ev_requestkey ev) (_ev_idx ev)
 
-data EventQueryStart
-  = EQLatest
-  | EQMinHeight BlockHeight
-  | EQFromCursor EventCursor
+type EventQueryStart = BSStart (Maybe BlockHeight) EventCursor
 
 eventsAfterStart ::
   EventQueryStart ->
@@ -154,9 +151,9 @@ eventsAfterStart ::
 eventsAfterStart eqs = do
   ev <- all_ $ _cddb_events database
   case eqs of
-    EQLatest -> return ()
-    EQMinHeight hgt -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
-    EQFromCursor cur -> guard_ $ eventAfterCursor cur ev
+    BSNewQuery Nothing -> return ()
+    BSNewQuery (Just hgt) -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
+    BSFromCursor cur -> guard_ $ eventAfterCursor cur ev
   return ev
 
 eventsSearchOffset ::
@@ -173,13 +170,13 @@ eventsSearchLimit ::
   EventQueryStart ->
   Limit ->
   Int64 ->
-  SqlSelect Postgres (Event, Block, Int64, Bool)
+  SqlSelect Postgres ((Event, Block), Int64, Bool)
 eventsSearchLimit esp eqs limit scanLimit = select $ do
   (ev, scan_num, matchingRow) <- boundedScanLimit
     (eventSearchCond esp) (eventsAfterStart eqs) eventsCursorOrder limit scanLimit
   blk <- all_ $ _cddb_blocks database
   guard_ $ _ev_block ev `references_` blk
-  return (ev, blk, scan_num, matchingRow)
+  return ((ev, blk), scan_num, matchingRow)
 
 _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString
 _bytequery = \case

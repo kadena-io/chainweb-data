@@ -12,7 +12,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Chainweb.Server where
 
@@ -84,6 +83,7 @@ import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transfer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
+import           ChainwebDb.BoundedScan
 ------------------------------------------------------------------------------
 
 setCors :: Middleware
@@ -502,23 +502,25 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
       , _acDetail_toAccount = _tr_to_acct tr
       }
 
-data EventSearchToken = EventSearchToken
-  { estCursor :: EventCursor
-  , estOffset :: Maybe Offset
-  }
+type EventSearchToken = BSContinuation EventCursor
+
+readBSToken :: Read cursor => NextToken -> Maybe (BSContinuation cursor)
+readBSToken tok = readToken tok <&> \(cursor, offNum) ->
+  BSContinuation cursor $ if offNum <= 0 then Nothing else Just $ Offset offNum
+
+mkBSToken :: Show cursor => BSContinuation cursor -> NextToken
+mkBSToken (BSContinuation cur mbOff) = mkToken (cur, maybe 0 unOffset mbOff)
 
 readEventToken :: NextToken -> Maybe EventSearchToken
-readEventToken tok = readToken tok <&> \(hgt,reqkey,idx, offNum) ->
-  EventSearchToken (EventCursor hgt (rkcbFromText reqkey) idx) $
-    if offNum == 0 then Nothing else Just $ Offset offNum
+readEventToken tok = readBSToken tok <&> \mbBSC -> mbBSC <&> \(hgt,reqkey,idx) ->
+  EventCursor hgt (rkcbFromText reqkey) idx
 
 mkEventToken :: EventSearchToken -> NextToken
-mkEventToken est = mkToken
+mkEventToken est = mkBSToken $ est <&> \c ->
   ( ecHeight c
   , show $ ecReqKey c
   , ecIdx c
-  , maybe 0 unOffset $ estOffset est
-  ) where c = estCursor est
+  )
 
 evHandler
   :: LogFunctionIO Text
@@ -539,10 +541,10 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
   (givenQueryStart, mbGivenOffset) <- case (mbNext, minheight, mbOffset) of
     (Just nextToken, Nothing, Nothing) -> case readEventToken nextToken of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
-      Just est -> return ( EQFromCursor $ estCursor est, estOffset est)
+      Just est -> return ( BSFromCursor $ bscCursor est, bscOffset est)
     (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
     (Just _, _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _, _) -> return (maybe EQLatest EQMinHeight minheight, mbOffset)
+    (Nothing, _, _) -> return (BSNewQuery minheight, mbOffset)
   mbBoundedOffset <- forM mbGivenOffset $ \(Offset o) -> do
     let errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
     if o >= 10000 then throw400 errMsg else return o
@@ -555,52 +557,38 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
           }
     scanLimit = 20000
     boundedLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
---    queryFull = eventsQueryFull searchParams bh
---    queryLimited = limit_ boundedLimit $ offset_ boundedOffset queryFull
 
   liftIO $ P.withResource pool $ \c ->
     PG.withTransactionLevel PG.RepeatableRead c $ do
       let
         debugLog = logger Debug . T.pack
-        runOffset offset = do
-          mbCursor <- runBeamPostgresDebug debugLog c $ runSelectReturningOne $
-            eventsSearchOffset searchParams givenQueryStart (Offset offset) scanLimit
-          case mbCursor of
-            Nothing -> return $ noHeader []
-            Just (cursor, fromIntegral -> found_cnt, scan_cnt) -> if found_cnt < offset
-              then do
-                let remainingOffset = Offset $ offset - found_cnt
-                    token = mkEventToken $ EventSearchToken cursor $ Just remainingOffset
-                return $ addHeader token []
-              else runLimit (EQFromCursor cursor) (scanLimit - scan_cnt)
-        runLimit queryStart toScan = do
-          r <- runBeamPostgresDebug debugLog c $ runSelectReturningList $
-            eventsSearchLimit searchParams queryStart (Limit boundedLimit) toScan
-          let
-            foundEvents = [(ev,blk) | (ev,blk,_,found) <- r, found]
-            results = foundEvents <&> \(ev, blk) -> EventDetail
-              { _evDetail_name = _ev_qualName ev
-              , _evDetail_params = unPgJsonb $ _ev_params ev
-              , _evDetail_moduleHash = _ev_moduleHash ev
-              , _evDetail_chain = fromIntegral $ _ev_chainid ev
-              , _evDetail_height = fromIntegral $ _block_height blk
-              , _evDetail_blockTime = _block_creationTime blk
-              , _evDetail_blockHash = unDbHash $ _block_hash blk
-              , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
-              , _evDetail_idx = fromIntegral $ _ev_idx ev
-              }
-            scanned = fromMaybe 0 $ lastMay r <&> \(_,_,scanNum,_) -> scanNum
-            mbCursor = case queryStart of
-              EQFromCursor cur -> Just cur
-              _ -> Nothing
-            mbNextCursor = (lastMay r <&> \(ev,_,_,_) -> eventToCursor ev) <|> mbCursor
-            mbNextToken = mbNextCursor <&> \cur -> mkEventToken $ EventSearchToken cur Nothing
-          return $ if scanned < toScan && fromIntegral (length r) < boundedLimit
-              then noHeader results
-              else maybe noHeader addHeader mbNextToken results
-      case mbBoundedOffset of
-        Just offset -> runOffset offset
-        Nothing -> runLimit givenQueryStart scanLimit
+        runOffset start offset sLimit = do
+          runBeamPostgresDebug debugLog c $ runSelectReturningOne $
+            eventsSearchOffset searchParams start offset sLimit
+        runLimit queryStart lim toScan = do
+          runBeamPostgresDebug debugLog c $ runSelectReturningList $
+            eventsSearchLimit searchParams queryStart lim toScan
+      (mbCont, results) <- performBoundedScan BoundedScan
+        { bsScanLimit = scanLimit
+        , bsRunOffset = runOffset
+        , bsRunLimit = runLimit
+        , bsOffset = mbBoundedOffset
+        , bsLimit = boundedLimit
+        , bsStart = givenQueryStart
+        , bsRowToCursor = eventToCursor . fst
+        }
+      return $ maybe noHeader (addHeader . mkEventToken) mbCont $
+        results <&> \(ev, blk) -> EventDetail
+          { _evDetail_name = _ev_qualName ev
+          , _evDetail_params = unPgJsonb $ _ev_params ev
+          , _evDetail_moduleHash = _ev_moduleHash ev
+          , _evDetail_chain = fromIntegral $ _ev_chainid ev
+          , _evDetail_height = fromIntegral $ _block_height blk
+          , _evDetail_blockTime = _block_creationTime blk
+          , _evDetail_blockHash = unDbHash $ _block_hash blk
+          , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
+          , _evDetail_idx = fromIntegral $ _ev_idx ev
+          }
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
 infixr 3 :.
