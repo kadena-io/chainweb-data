@@ -63,7 +63,8 @@ boundedScanOffset condExp toScan order toCursor (Offset o) scanLimit =
         )
       )
       toScan
-    guard_ $ scan_num ==. val_ scanLimit ||. (matchingRow &&. found_num ==. val_ (fromInteger o))
+    guard_ $ scan_num ==. val_ scanLimit
+         ||. (matchingRow &&. found_num ==. val_ (fromInteger o))
     return (cursor, found_num, scan_num)
 
 boundedScanLimit ::
