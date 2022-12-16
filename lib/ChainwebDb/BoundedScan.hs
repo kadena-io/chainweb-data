@@ -48,15 +48,7 @@ boundedScanOffset :: forall a db rowT cursorT.
   Int64 ->
   SqlSelect Postgres (cursorT Identity, Int64, Int64)
 boundedScanOffset condExp toScan order toCursor (Offset o) scanLimit =
-  select $ limit_ 1 noLimitQuery where
-  -- For some reason, beam fails to unify the types here unless we move noLimitQuery
-  -- to a separate definition and explicitly specify its type
-  noLimitQuery :: Q Postgres db NQBS
-    ( cursorT (PgExpr NQBS)
-    , PgExpr NQBS Int64
-    , PgExpr NQBS Int64
-    )
-  noLimitQuery = do
+  select $ limit_ 1 $ do
     (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
       (\row ->
         ( frame_ (noPartition_ @Int) (Just $ order row) noBounds_
