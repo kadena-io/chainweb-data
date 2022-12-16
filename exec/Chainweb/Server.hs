@@ -316,11 +316,11 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
       Just txt -> return ( BSFromCursor $ bscCursor txt, bscOffset txt)
     (Just _, Just _) -> throw400 $ "next token query parameter not allowed with fromheight"
-    (Nothing, _) -> return (BSNewQuery (), mbOffset)
+    (Nothing, _) -> return (BSNewQuery (), unOffset <$> mbOffset)
   let
     scanParams = BoundedScanParams
       { bspOffset = mbGivenOffset
-      , bspResultLimit = Limit $ maybe 10 (min 100 . unLimit) givenMbLim
+      , bspResultLimit = maybe 10 (min 100 . unLimit) givenMbLim
       , bspScanLimit = 20000
       }
 
@@ -529,10 +529,10 @@ type EventSearchToken = BSContinuation EventCursor
 
 readBSToken :: Read cursor => NextToken -> Maybe (BSContinuation cursor)
 readBSToken tok = readToken tok <&> \(cursor, offNum) ->
-  BSContinuation cursor $ if offNum <= 0 then Nothing else Just $ Offset offNum
+  BSContinuation cursor $ if offNum <= 0 then Nothing else Just offNum
 
 mkBSToken :: Show cursor => BSContinuation cursor -> NextToken
-mkBSToken (BSContinuation cur mbOff) = mkToken (cur, maybe 0 unOffset mbOff)
+mkBSToken (BSContinuation cur mbOff) = mkToken (cur, fromMaybe 0 mbOff)
 
 readEventToken :: NextToken -> Maybe EventSearchToken
 readEventToken tok = readBSToken tok <&> \mbBSC -> mbBSC <&> \(hgt,reqkey,idx) ->
@@ -566,10 +566,11 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
       Just est -> return ( BSFromCursor $ bscCursor est, bscOffset est)
     (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
     (Just _, _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _, _) -> return (BSNewQuery minheight, mbOffset)
-  mbBoundedOffset <- forM mbGivenOffset $ \(Offset o) -> do
-    let errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
-    if o >= 10000 then throw400 errMsg else return o
+    (Nothing, _, _) -> return (BSNewQuery minheight, unOffset <$> mbOffset)
+  mbBoundedOffset <- forM mbGivenOffset $ \offset -> do
+    let errTemplate = "the maximum allowed offset is 10,000. You requested %d"
+        errMsg = toS (printf errTemplate offset :: String)
+    if offset >= 10000 then throw400 errMsg else return offset
   let searchParams = EventSearchParams
         { espSearch = qSearch
         , espParam = qParam
@@ -577,8 +578,8 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
         , espModuleName = qModuleName
         }
       scanParams = BoundedScanParams
-        { bspOffset = Offset <$> mbBoundedOffset
-        , bspResultLimit = Limit $ fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
+        { bspOffset = mbBoundedOffset
+        , bspResultLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
         , bspScanLimit = 20000
         }
 

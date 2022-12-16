@@ -7,7 +7,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module ChainwebDb.BoundedScan (
   boundedScanOffset,
@@ -21,7 +20,6 @@ module ChainwebDb.BoundedScan (
 
 import Control.Applicative
 
-import           Data.Int
 import           Data.Functor
 import           Data.Maybe
 
@@ -30,8 +28,6 @@ import           Database.Beam.Query.Internal (QNested)
 import           Database.Beam.Postgres
 
 import           Safe
-
-import           ChainwebData.Pagination
 
 data BoundedScan rowT cursorT s =
   forall ordering.
@@ -42,13 +38,17 @@ data BoundedScan rowT cursorT s =
     , bsOrdering :: rowT (Exp s) -> ordering
     }
 
+type Offset = Integer
+type ResultLimit = Integer
+type ScanLimit = Integer
+
 bsToOffsetQuery :: forall sOut db rowT cursorT.
   (Beamable rowT, Beamable cursorT) =>
   (forall sIn. BoundedScan rowT cursorT sIn) ->
   QPg db (N3 sOut) (rowT (Exp (N3 sOut))) ->
   Offset ->
-  Int64 ->
-  QPg db sOut (cursorT (Exp sOut), Exp sOut Int64, Exp sOut Int64)
+  ScanLimit ->
+  QPg db sOut (cursorT (Exp sOut), Exp sOut ResultLimit, Exp sOut ScanLimit)
 bsToOffsetQuery bs source = case bs of
   BoundedScan{bsOrdering} -> boundedScanOffset
     (bsCondition bs) source bsOrdering (bsToCursor bs)
@@ -57,9 +57,9 @@ bsToLimitQuery :: forall sOut db rowT cursorT.
   (Beamable rowT) =>
   (forall sIn. BoundedScan rowT cursorT sIn) ->
   QPg db (N4 sOut) (rowT (Exp (N4 sOut))) ->
-  Limit ->
-  Int64 ->
-  QPg db sOut (rowT (Exp sOut), Exp sOut Int64, Exp sOut Bool)
+  ResultLimit ->
+  ScanLimit ->
+  QPg db sOut (rowT (Exp sOut), Exp sOut ScanLimit, Exp sOut Bool)
 bsToLimitQuery bs source = case bs of
   BoundedScan{bsOrdering} -> boundedScanLimit
     (bsCondition bs) source bsOrdering
@@ -71,9 +71,9 @@ boundedScanOffset :: forall s ordering db rowT cursorT.
   (rowT (Exp (N3 s)) -> ordering) ->
   (rowT (Exp (N3 s)) -> cursorT (Exp (N3 s))) ->
   Offset ->
-  Int64 ->
-  QPg db s (cursorT (Exp s), Exp s Int64, Exp s Int64)
-boundedScanOffset condition source order toCursor (Offset o) scanLimit =
+  ScanLimit ->
+  QPg db s (cursorT (Exp s), Exp s ResultLimit, Exp s ScanLimit)
+boundedScanOffset condition source order toCursor offset scanLimit =
   limit_ 1 $ do
     (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
       (\row ->
@@ -90,7 +90,7 @@ boundedScanOffset condition source order toCursor (Offset o) scanLimit =
       )
       source
     guard_ $ scan_num ==. val_ scanLimit
-         ||. (matchingRow &&. found_num ==. val_ (fromInteger o))
+         ||. (matchingRow &&. found_num ==. val_ offset)
     return (cursor, found_num, scan_num)
 
 boundedScanLimit ::
@@ -98,11 +98,11 @@ boundedScanLimit ::
   (rowT (Exp (N1 s)) -> (Exp (N1 s)) Bool) ->
   QPg db (N4 s) (rowT (Exp (N4 s))) ->
   (rowT (Exp (N4 s)) -> ordering) ->
-  Limit ->
-  Int64 ->
-  QPg db s (rowT (Exp s), Exp s Int64, Exp s Bool)
-boundedScanLimit cond source order (Limit l) scanLimit = limit_ l $ do
-  (row, scan_num) <- subselect_ $ limit_ (fromIntegral scanLimit) $ withWindow_
+  ResultLimit ->
+  ScanLimit ->
+  QPg db s (rowT (Exp s), Exp s ScanLimit, Exp s Bool)
+boundedScanLimit cond source order limit scanLimit = limit_ limit $ do
+  (row, scan_num) <- subselect_ $ limit_ scanLimit $ withWindow_
     (\row -> frame_ (noPartition_ @Int) (Just $ order row) noBounds_)
     (\row window ->
       ( row
@@ -117,8 +117,8 @@ boundedScanLimit cond source order (Limit l) scanLimit = limit_ l $ do
 
 data BoundedScanParams = BoundedScanParams
   { bspOffset :: Maybe Offset
-  , bspResultLimit :: Limit
-  , bspScanLimit :: Int64
+  , bspResultLimit :: ResultLimit
+  , bspScanLimit :: ScanLimit
   }
 
 data BSStart newQuery cursor
@@ -145,12 +145,12 @@ performBoundedScan runPg bs source bsStart BoundedScanParams{..} = do
   let
     runOffset offset = do
       mbCursor <- runPg $ runSelectReturningOne $ select $
-        bsToOffsetQuery bs (source bsStart) (Offset offset) bspScanLimit
+        bsToOffsetQuery bs (source bsStart) offset bspScanLimit
       case mbCursor of
         Nothing -> return (Nothing, [])
-        Just (cursor, fromIntegral -> found_cnt, scan_cnt) -> if found_cnt < offset
+        Just (cursor, found_cnt, scan_cnt) -> if found_cnt < offset
           then do
-            let remainingOffset = Offset $ offset - found_cnt
+            let remainingOffset = offset - found_cnt
                 cont = BSContinuation cursor $ Just remainingOffset
             return (Just cont, [])
           else runLimit (BSFromCursor cursor) (bspScanLimit - scan_cnt)
@@ -165,11 +165,11 @@ performBoundedScan runPg bs source bsStart BoundedScanParams{..} = do
         mbNextCursor = (lastMay rows <&> \(row,_,_) -> bsToCursor bs row) <|> mbCursor
         mbContinuation = mbNextCursor <&> \cur -> BSContinuation cur Nothing
         results = [row | (row,_,found) <- rows, found ]
-      return $ if scanned < scanLim && fromIntegral (length rows) < unLimit bspResultLimit
+      return $ if scanned < scanLim && fromIntegral (length rows) < bspResultLimit
           then (Nothing, results)
           else (mbContinuation, results)
   case bspOffset of
-    Just (Offset offset) -> runOffset offset
+    Just offset -> runOffset offset
     Nothing -> runLimit bsStart bspScanLimit
 
 type QPg = Q Postgres
