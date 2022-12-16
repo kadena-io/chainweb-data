@@ -58,16 +58,16 @@ boundedScanOffset condExp toScan order toCursor (Offset o) scanLimit =
     )
   noLimitQuery = do
     (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
-      (\ev ->
-        ( frame_ (noPartition_ @Int) (Just $ order ev) noBounds_
-        , frame_ (noPartition_ @Int) (Just $ order ev) (fromBound_ unbounded_)
+      (\row ->
+        ( frame_ (noPartition_ @Int) (Just $ order row) noBounds_
+        , frame_ (noPartition_ @Int) (Just $ order row) (fromBound_ unbounded_)
         )
       )
-      (\ev (wNoBounds, wTrailing) ->
-        ( toCursor ev
-        , condExp ev
+      (\row (wNoBounds, wTrailing) ->
+        ( toCursor row
+        , condExp row
         , rowNumber_ `over_` wNoBounds
-        , countAll_ `filterWhere_` condExp ev `over_` wTrailing
+        , countAll_ `filterWhere_` condExp row `over_` wTrailing
         )
       )
       toScan
@@ -83,18 +83,18 @@ boundedScanLimit ::
   Int64 ->
   Q Postgres db QBS (rowT (PgExpr QBS), PgExpr QBS Int64, PgExpr QBS Bool)
 boundedScanLimit cond toScan order (Limit l) scanLimit = limit_ l $ do
-  (ev, scan_num) <- subselect_ $ limit_ (fromIntegral scanLimit) $ withWindow_
-    (\ev -> frame_ (noPartition_ @Int) (Just $ order ev) noBounds_)
-    (\ev window ->
-      ( ev
+  (row, scan_num) <- subselect_ $ limit_ (fromIntegral scanLimit) $ withWindow_
+    (\row -> frame_ (noPartition_ @Int) (Just $ order row) noBounds_)
+    (\row window ->
+      ( row
       , rowNumber_ `over_` window
       )
     )
     toScan
   let scan_end = scan_num ==. val_ scanLimit
-      matchingRow = cond ev
+      matchingRow = cond row
   guard_ $ scan_end ||. matchingRow
-  return (ev, scan_num, matchingRow)
+  return (row, scan_num, matchingRow)
 
 data BSStart newQuery cursor
   = BSNewQuery newQuery
