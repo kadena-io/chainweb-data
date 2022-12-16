@@ -113,8 +113,8 @@ txSearchOffset ::
   Offset ->
   Int64 ->
   SqlSelect Postgres (TxCursor, Int64, Int64)
-txSearchOffset search tqs = boundedScanOffset
-  (txSearchCond search) (txSearchAfter tqs) txSearchOrder txToCursor
+txSearchOffset search tqs o l = select $ boundedScanOffset
+  (txSearchCond search) (txSearchAfter tqs) txSearchOrder txToCursor o l
 
 txSearchLimit ::
   Text ->
@@ -200,8 +200,8 @@ eventsSearchOffset ::
   Offset ->
   Int64 ->
   SqlSelect Postgres (EventCursor, Int64, Int64)
-eventsSearchOffset esp eqs = boundedScanOffset
-  (eventSearchCond esp) (eventsAfterStart eqs) eventsCursorOrder eventToCursor
+eventsSearchOffset esp eqs o l = select $ boundedScanOffset
+  (eventSearchCond esp) (eventsAfterStart eqs) eventsCursorOrder eventToCursor o l
 
 eventsSearchLimit ::
   EventSearchParams ->

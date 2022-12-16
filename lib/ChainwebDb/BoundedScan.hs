@@ -3,6 +3,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module ChainwebDb.BoundedScan (
@@ -28,25 +29,24 @@ import           Safe
 
 import           ChainwebData.Pagination
 
-type PgExpr s = QGenExpr QValueContext Postgres s
+type P = QGenExpr QValueContext Postgres
 
-type QBS = QBaseScope
-type NQBS = QNested QBS
-type N2QBS = QNested NQBS
-type N3QBS = QNested N2QBS
-type N4QBS = QNested N3QBS
+type N1 s = QNested s
+type N2 s = QNested (N1 s)
+type N3 s = QNested (N2 s)
+type N4 s = QNested (N3 s)
 
-boundedScanOffset :: forall a db rowT cursorT.
+boundedScanOffset :: forall s a db rowT cursorT.
   (SqlOrderable Postgres a, Beamable rowT, Beamable cursorT) =>
-  (rowT (PgExpr N3QBS) -> PgExpr N3QBS Bool) ->
-  Q Postgres db N3QBS (rowT (PgExpr N3QBS)) ->
-  (rowT (PgExpr N3QBS) -> a) ->
-  (rowT (PgExpr N3QBS) -> cursorT (PgExpr N3QBS)) ->
+  (rowT (P (N3 s)) -> P (N3 s) Bool) ->
+  Q Postgres db (N3 s) (rowT (P (N3 s))) ->
+  (rowT (P (N3 s)) -> a) ->
+  (rowT (P (N3 s)) -> cursorT (P (N3 s))) ->
   Offset ->
   Int64 ->
-  SqlSelect Postgres (cursorT Identity, Int64, Int64)
+  Q Postgres db s (cursorT (P s), P s Int64, P s Int64)
 boundedScanOffset condExp toScan order toCursor (Offset o) scanLimit =
-  select $ limit_ 1 $ do
+  limit_ 1 $ do
     (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
       (\row ->
         ( frame_ (noPartition_ @Int) (Just $ order row) noBounds_
@@ -67,12 +67,12 @@ boundedScanOffset condExp toScan order toCursor (Offset o) scanLimit =
 
 boundedScanLimit ::
   (SqlOrderable Postgres a, Beamable rowT) =>
-  (rowT (PgExpr NQBS) -> (PgExpr NQBS) Bool) ->
-  Q Postgres db N4QBS (rowT (PgExpr N4QBS)) ->
-  (rowT (PgExpr N4QBS) -> a) ->
+  (rowT (P (N1 s)) -> (P (N1 s)) Bool) ->
+  Q Postgres db (N4 s) (rowT (P (N4 s))) ->
+  (rowT (P (N4 s)) -> a) ->
   Limit ->
   Int64 ->
-  Q Postgres db QBS (rowT (PgExpr QBS), PgExpr QBS Int64, PgExpr QBS Bool)
+  Q Postgres db s (rowT (P s), P s Int64, P s Bool)
 boundedScanLimit cond toScan order (Limit l) scanLimit = limit_ l $ do
   (row, scan_num) <- subselect_ $ limit_ (fromIntegral scanLimit) $ withWindow_
     (\row -> frame_ (noPartition_ @Int) (Just $ order row) noBounds_)
