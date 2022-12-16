@@ -315,7 +315,7 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
     (Just nextToken, Nothing) -> case readTxToken nextToken of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
       Just txt -> return ( BSFromCursor $ bscCursor txt, bscOffset txt)
-    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with fromheight"
+    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
     (Nothing, _) -> return (BSNewQuery (), unOffset <$> mbOffset)
   let
     scanParams = BoundedScanParams
