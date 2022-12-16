@@ -129,7 +129,10 @@ data BSContinuation cursor = BSContinuation
   deriving (Functor, Foldable, Traversable)
 
 performBoundedScan :: forall db rowT cursorT newQuery m.
-  (FromBackendRow Postgres (rowT Identity), Beamable rowT) =>
+  -- We want the entire FromBackendRow instance for the limit query to be
+  -- assembled at the call site for more optimization opportunities, that
+  -- instance is used for parsing every single row after all
+  (FromBackendRow Postgres (rowT Identity, ScanLimit, Bool), Beamable rowT) =>
   (FromBackendRow Postgres (cursorT Identity), Beamable cursorT) =>
   Monad m =>
   (forall a. Pg a -> m a) ->
