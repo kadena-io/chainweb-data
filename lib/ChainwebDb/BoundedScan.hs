@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -39,9 +38,8 @@ type N4QBS = QNested N3QBS
 
 boundedScanOffset :: forall a db rowT cursorT.
   (SqlOrderable Postgres a, Beamable rowT, Beamable cursorT) =>
-  (forall s. rowT (PgExpr s) -> PgExpr s Bool) ->
+  (rowT (PgExpr N3QBS) -> PgExpr N3QBS Bool) ->
   Q Postgres db N3QBS (rowT (PgExpr N3QBS)) ->
---  (forall s. Q Postgres ChainwebDataDb s (EventT (PgExpr s))) ->
   (rowT (PgExpr N3QBS) -> a) ->
   (rowT (PgExpr N3QBS) -> cursorT (PgExpr N3QBS)) ->
   Offset ->
