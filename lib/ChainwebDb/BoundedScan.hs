@@ -49,7 +49,7 @@ boundedScanOffset :: forall s ordering db rowT cursorT.
   Offset ->
   Int64 ->
   Q Postgres db s (cursorT (P s), P s Int64, P s Int64)
-boundedScanOffset condExp toScan order toCursor (Offset o) scanLimit =
+boundedScanOffset condition source order toCursor (Offset o) scanLimit =
   limit_ 1 $ do
     (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
       (\row ->
@@ -59,12 +59,12 @@ boundedScanOffset condExp toScan order toCursor (Offset o) scanLimit =
       )
       (\row (wNoBounds, wTrailing) ->
         ( toCursor row
-        , condExp row
+        , condition row
         , rowNumber_ `over_` wNoBounds
-        , countAll_ `filterWhere_` condExp row `over_` wTrailing
+        , countAll_ `filterWhere_` condition row `over_` wTrailing
         )
       )
-      toScan
+      source
     guard_ $ scan_num ==. val_ scanLimit
          ||. (matchingRow &&. found_num ==. val_ (fromInteger o))
     return (cursor, found_num, scan_num)
@@ -88,7 +88,7 @@ boundedScanLimit ::
   Limit ->
   Int64 ->
   Q Postgres db s (rowT (P s), P s Int64, P s Bool)
-boundedScanLimit cond toScan order (Limit l) scanLimit = limit_ l $ do
+boundedScanLimit cond source order (Limit l) scanLimit = limit_ l $ do
   (row, scan_num) <- subselect_ $ limit_ (fromIntegral scanLimit) $ withWindow_
     (\row -> frame_ (noPartition_ @Int) (Just $ order row) noBounds_)
     (\row window ->
@@ -96,7 +96,7 @@ boundedScanLimit cond toScan order (Limit l) scanLimit = limit_ l $ do
       , rowNumber_ `over_` window
       )
     )
-    toScan
+    source
   let scan_end = scan_num ==. val_ scanLimit
       matchingRow = cond row
   guard_ $ scan_end ||. matchingRow
@@ -140,10 +140,9 @@ performBoundedScan :: forall db rowT cursorT newQuery m.
   m (Maybe (BSContinuation (cursorT Identity)), [rowT Identity])
 performBoundedScan runPg bs source bsStart BoundedScanParams{..} = do
   let
-    bsRunOffset start o l = runPg $ runSelectReturningOne $
-      select $ bsToOffsetQuery bs (source start) o l
     runOffset offset = do
-      mbCursor <- bsRunOffset bsStart (Offset offset) bspScanLimit
+      mbCursor <- runPg $ runSelectReturningOne $ select $
+        bsToOffsetQuery bs (source bsStart) (Offset offset) bspScanLimit
       case mbCursor of
         Nothing -> return (Nothing, [])
         Just (cursor, fromIntegral -> found_cnt, scan_cnt) -> if found_cnt < offset
@@ -152,21 +151,20 @@ performBoundedScan runPg bs source bsStart BoundedScanParams{..} = do
                 cont = BSContinuation cursor $ Just remainingOffset
             return (Just cont, [])
           else runLimit (BSFromCursor cursor) (bspScanLimit - scan_cnt)
-    bsRunLimit start lim l = runPg $ runSelectReturningList $
-      select $ bsToLimitQuery bs (source start) lim l
-    runLimit start toScan = do
-      r <- bsRunLimit start bspResultLimit toScan
+    runLimit start scanLim = do
+      rows <- runPg $ runSelectReturningList $ select $
+        bsToLimitQuery bs (source start) bspResultLimit scanLim
       let
-        scanned = fromMaybe 0 $ lastMay r <&> \(_,scanNum,_) -> scanNum
+        scanned = fromMaybe 0 $ lastMay rows <&> \(_,scanNum,_) -> scanNum
         mbCursor = case start of
           BSFromCursor cur -> Just cur
           _ -> Nothing
-        mbNextCursor = (lastMay r <&> \(ev,_,_) -> bsToCursor bs ev) <|> mbCursor
-        mbNextToken = mbNextCursor <&> \cur -> BSContinuation cur Nothing
-        results = [ev | (ev,_,found) <- r, found ]
-      return $ if scanned < toScan && fromIntegral (length r) < unLimit bspResultLimit
+        mbNextCursor = (lastMay rows <&> \(row,_,_) -> bsToCursor bs row) <|> mbCursor
+        mbContinuation = mbNextCursor <&> \cur -> BSContinuation cur Nothing
+        results = [row | (row,_,found) <- rows, found ]
+      return $ if scanned < scanLim && fromIntegral (length rows) < unLimit bspResultLimit
           then (Nothing, results)
-          else (mbNextToken, results)
+          else (mbContinuation, results)
   case bspOffset of
     Just (Offset offset) -> runOffset offset
     Nothing -> runLimit bsStart bspScanLimit
