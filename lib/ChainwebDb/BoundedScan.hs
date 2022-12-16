@@ -37,18 +37,18 @@ data BoundedScan rowT cursorT s =
   forall ordering.
   SqlOrderable Postgres ordering =>
   BoundedScan
-    { bsCondition :: rowT (P s) -> P s Bool
+    { bsCondition :: rowT (Exp s) -> Exp s Bool
     , bsToCursor :: forall f. rowT f -> cursorT f
-    , bsOrdering :: rowT (P s) -> ordering
+    , bsOrdering :: rowT (Exp s) -> ordering
     }
 
 bsToOffsetQuery :: forall sOut db rowT cursorT.
   (Beamable rowT, Beamable cursorT) =>
   (forall sIn. BoundedScan rowT cursorT sIn) ->
-  Q Postgres db (N3 sOut) (rowT (P (N3 sOut))) ->
+  QPg db (N3 sOut) (rowT (Exp (N3 sOut))) ->
   Offset ->
   Int64 ->
-  Q Postgres db sOut (cursorT (P sOut), P sOut Int64, P sOut Int64)
+  QPg db sOut (cursorT (Exp sOut), Exp sOut Int64, Exp sOut Int64)
 bsToOffsetQuery bs source = case bs of
   BoundedScan{bsOrdering} -> boundedScanOffset
     (bsCondition bs) source bsOrdering (bsToCursor bs)
@@ -56,23 +56,23 @@ bsToOffsetQuery bs source = case bs of
 bsToLimitQuery :: forall sOut db rowT cursorT.
   (Beamable rowT) =>
   (forall sIn. BoundedScan rowT cursorT sIn) ->
-  Q Postgres db (N4 sOut) (rowT (P (N4 sOut))) ->
+  QPg db (N4 sOut) (rowT (Exp (N4 sOut))) ->
   Limit ->
   Int64 ->
-  Q Postgres db sOut (rowT (P sOut), P sOut Int64, P sOut Bool)
+  QPg db sOut (rowT (Exp sOut), Exp sOut Int64, Exp sOut Bool)
 bsToLimitQuery bs source = case bs of
   BoundedScan{bsOrdering} -> boundedScanLimit
     (bsCondition bs) source bsOrdering
 
 boundedScanOffset :: forall s ordering db rowT cursorT.
   (SqlOrderable Postgres ordering, Beamable rowT, Beamable cursorT) =>
-  (rowT (P (N3 s)) -> P (N3 s) Bool) ->
-  Q Postgres db (N3 s) (rowT (P (N3 s))) ->
-  (rowT (P (N3 s)) -> ordering) ->
-  (rowT (P (N3 s)) -> cursorT (P (N3 s))) ->
+  (rowT (Exp (N3 s)) -> Exp (N3 s) Bool) ->
+  QPg db (N3 s) (rowT (Exp (N3 s))) ->
+  (rowT (Exp (N3 s)) -> ordering) ->
+  (rowT (Exp (N3 s)) -> cursorT (Exp (N3 s))) ->
   Offset ->
   Int64 ->
-  Q Postgres db s (cursorT (P s), P s Int64, P s Int64)
+  QPg db s (cursorT (Exp s), Exp s Int64, Exp s Int64)
 boundedScanOffset condition source order toCursor (Offset o) scanLimit =
   limit_ 1 $ do
     (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
@@ -95,12 +95,12 @@ boundedScanOffset condition source order toCursor (Offset o) scanLimit =
 
 boundedScanLimit ::
   (SqlOrderable Postgres ordering, Beamable rowT) =>
-  (rowT (P (N1 s)) -> (P (N1 s)) Bool) ->
-  Q Postgres db (N4 s) (rowT (P (N4 s))) ->
-  (rowT (P (N4 s)) -> ordering) ->
+  (rowT (Exp (N1 s)) -> (Exp (N1 s)) Bool) ->
+  QPg db (N4 s) (rowT (Exp (N4 s))) ->
+  (rowT (Exp (N4 s)) -> ordering) ->
   Limit ->
   Int64 ->
-  Q Postgres db s (rowT (P s), P s Int64, P s Bool)
+  QPg db s (rowT (Exp s), Exp s Int64, Exp s Bool)
 boundedScanLimit cond source order (Limit l) scanLimit = limit_ l $ do
   (row, scan_num) <- subselect_ $ limit_ (fromIntegral scanLimit) $ withWindow_
     (\row -> frame_ (noPartition_ @Int) (Just $ order row) noBounds_)
@@ -137,7 +137,7 @@ performBoundedScan :: forall db rowT cursorT newQuery m.
   Monad m =>
   (forall a. Pg a -> m a) ->
   (forall s. BoundedScan rowT cursorT s) ->
-  (forall s. BSStart newQuery (cursorT Identity) -> Q Postgres db s (rowT (P s))) ->
+  (forall s. BSStart newQuery (cursorT Identity) -> QPg db s (rowT (Exp s))) ->
   BSStart newQuery (cursorT Identity) ->
   BoundedScanParams ->
   m (Maybe (BSContinuation (cursorT Identity)), [rowT Identity])
@@ -172,7 +172,9 @@ performBoundedScan runPg bs source bsStart BoundedScanParams{..} = do
     Just (Offset offset) -> runOffset offset
     Nothing -> runLimit bsStart bspScanLimit
 
-type P = QGenExpr QValueContext Postgres
+type QPg = Q Postgres
+
+type Exp = QGenExpr QValueContext Postgres
 
 type N1 s = QNested s
 type N2 s = QNested (N1 s)
