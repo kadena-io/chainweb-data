@@ -317,23 +317,21 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
       Just txt -> return ( BSFromCursor $ bscCursor txt, bscOffset txt)
     (Just _, Just _) -> throw400 $ "next token query parameter not allowed with fromheight"
     (Nothing, _) -> return (BSNewQuery (), mbOffset)
+  let
+    scanParams = BoundedScanParams
+      { bspOffset = mbGivenOffset
+      , bspResultLimit = Limit $ maybe 10 (min 100 . unLimit) givenMbLim
+      , bspScanLimit = 20000
+      }
 
   liftIO $ P.withResource pool $ \c ->
     PG.withTransactionLevel PG.RepeatableRead c $ do
-      let debugLog = logger Debug . fromString
-      (mbCont, results) <- performBoundedScan BoundedScan
-        { bsScanLimit = 20000
-        , bsRunOffset = \start offset scanLimit ->
-            runBeamPostgresDebug debugLog c $ runSelectReturningOne $
-              txSearchOffset search start offset scanLimit
-        , bsRunLimit = \start lim scanLimit ->
-            runBeamPostgresDebug debugLog c $ runSelectReturningList $
-              txSearchLimit search start lim scanLimit
-        , bsOffset = unOffset <$> mbGivenOffset
-        , bsLimit = maybe 10 (min 100 . unLimit) givenMbLim
-        , bsStart = givenQueryStart
-        , bsRowToCursor = \s -> TxCursor (dtsHeight s) (dtsReqKey s)
-        }
+      (mbCont, results) <- performBoundedScan
+        (runBeamPostgresDebug (logger Debug . T.pack) c)
+        txSearchScan
+        (txSearchSource search)
+        givenQueryStart
+        scanParams
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
         results <&> \s -> TxSummary
           { _txSummary_chain = fromIntegral $ dtsChainId s
@@ -578,35 +576,31 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
         , espName = qName
         , espModuleName = qModuleName
         }
+      scanParams = BoundedScanParams
+        { bspOffset = Offset <$> mbBoundedOffset
+        , bspResultLimit = Limit $ fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
+        , bspScanLimit = 20000
+        }
 
   liftIO $ P.withResource pool $ \c ->
     PG.withTransactionLevel PG.RepeatableRead c $ do
-      let
-        debugLog = logger Debug . T.pack
-      (mbCont, results) <- performBoundedScan BoundedScan
-        { bsScanLimit = 20000
-        , bsRunOffset = \start offset scanLimit ->
-            runBeamPostgresDebug debugLog c $ runSelectReturningOne $
-              eventsSearchOffset searchParams start offset scanLimit
-        , bsRunLimit = \start lim scanLimit ->
-            runBeamPostgresDebug debugLog c $ runSelectReturningList $
-              eventsSearchLimit searchParams start lim scanLimit
-        , bsOffset = mbBoundedOffset
-        , bsLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
-        , bsStart = givenQueryStart
-        , bsRowToCursor = eventToCursor . fst
-        }
+      (mbCont, results) <- performBoundedScan
+        (runBeamPostgresDebug (logger Debug . T.pack) c)
+        eventsSearchScan
+        (eventsSearchSource searchParams)
+        givenQueryStart
+        scanParams
       return $ maybe noHeader (addHeader . mkEventToken) mbCont $
-        results <&> \(ev, blk) -> EventDetail
-          { _evDetail_name = _ev_qualName ev
-          , _evDetail_params = unPgJsonb $ _ev_params ev
-          , _evDetail_moduleHash = _ev_moduleHash ev
-          , _evDetail_chain = fromIntegral $ _ev_chainid ev
-          , _evDetail_height = fromIntegral $ _block_height blk
-          , _evDetail_blockTime = _block_creationTime blk
-          , _evDetail_blockHash = unDbHash $ _block_hash blk
-          , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
-          , _evDetail_idx = fromIntegral $ _ev_idx ev
+        results <&> \ed -> EventDetail
+          { _evDetail_name = edQualName ed
+          , _evDetail_params = unPgJsonb $ edParams ed
+          , _evDetail_moduleHash = edModuleHash ed
+          , _evDetail_chain = fromIntegral $ edChain ed
+          , _evDetail_height = fromIntegral $ edHeight ed
+          , _evDetail_blockTime = edBlockTime ed
+          , _evDetail_blockHash = unDbHash $ edBlockHash ed
+          , _evDetail_requestKey = getTxHash $ edRequestKey ed
+          , _evDetail_idx = fromIntegral $ edIdx ed
           }
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
