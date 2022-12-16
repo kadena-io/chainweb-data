@@ -30,8 +30,7 @@ import           Database.Beam.Postgres
 import           Safe
 
 data BoundedScan rowT cursorT s =
-  forall ordering.
-  SqlOrderable Postgres ordering =>
+  forall ordering. SqlOrderable Postgres ordering =>
   BoundedScan
     { bsCondition :: rowT (Exp s) -> Exp s Bool
     , bsToCursor :: forall f. rowT f -> cursorT f
@@ -49,9 +48,8 @@ bsToOffsetQuery :: forall sOut db rowT cursorT.
   Offset ->
   ScanLimit ->
   QPg db sOut (cursorT (Exp sOut), Exp sOut ResultLimit, Exp sOut ScanLimit)
-bsToOffsetQuery bs source = case bs of
-  BoundedScan{bsOrdering} -> boundedScanOffset
-    (bsCondition bs) source bsOrdering (bsToCursor bs)
+bsToOffsetQuery bs@BoundedScan{bsOrdering} source =
+  boundedScanOffset (bsCondition bs) source bsOrdering (bsToCursor bs)
 
 bsToLimitQuery :: forall sOut db rowT cursorT.
   (Beamable rowT) =>
@@ -60,9 +58,8 @@ bsToLimitQuery :: forall sOut db rowT cursorT.
   ResultLimit ->
   ScanLimit ->
   QPg db sOut (rowT (Exp sOut), Exp sOut ScanLimit, Exp sOut Bool)
-bsToLimitQuery bs source = case bs of
-  BoundedScan{bsOrdering} -> boundedScanLimit
-    (bsCondition bs) source bsOrdering
+bsToLimitQuery bs@BoundedScan{bsOrdering} source =
+  boundedScanLimit (bsCondition bs) source bsOrdering
 
 boundedScanOffset :: forall s ordering db rowT cursorT.
   (SqlOrderable Postgres ordering, Beamable rowT, Beamable cursorT) =>
