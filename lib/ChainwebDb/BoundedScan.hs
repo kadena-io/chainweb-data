@@ -15,6 +15,9 @@ module ChainwebDb.BoundedScan (
   BSContinuation(..),
   BoundedScanParams(..),
   BoundedScan(..),
+  bsToOffsetQuery,
+  bsToLimitQuery,
+  bsToUnbounded,
   performBoundedScan,
 ) where
 
@@ -60,6 +63,19 @@ bsToLimitQuery :: forall sOut db rowT cursorT.
   QPg db sOut (rowT (Exp sOut), Exp sOut ScanLimit, Exp sOut Bool)
 bsToLimitQuery bs@BoundedScan{bsOrdering} source =
   boundedScanLimit (bsCondition bs) source bsOrdering
+
+bsToUnbounded ::
+  (Beamable rowT) =>
+  (forall sIn. BoundedScan rowT cursorT sIn) ->
+  QPg db (N3 s) (rowT (Exp (N3 s))) ->
+  ResultLimit ->
+  Offset ->
+  QPg db s (rowT (Exp s))
+bsToUnbounded BoundedScan{..} source limit offset =
+  limit_ limit $ offset_ offset $ orderBy_ bsOrdering $ do
+    row <- source
+    guard_ $ bsCondition row
+    return row
 
 boundedScanOffset :: forall s ordering db rowT cursorT.
   (SqlOrderable Postgres ordering, Beamable rowT, Beamable cursorT) =>
