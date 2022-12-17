@@ -127,7 +127,7 @@ accountQueryStmt
     -> SqlSelect
     Postgres
     (QExprToIdentity
-    (TransferT (QGenExpr QValueContext Postgres QBaseScope)))
+    (TransferT (QGenExpr QValueContext Postgres QBaseScope)), UTCTime)
 accountQueryStmt (Limit limit) account token chain aqs =
   select $
   limit_ limit $
@@ -135,7 +135,7 @@ accountQueryStmt (Limit limit) account token chain aqs =
   orderBy_ getOrder $ do
     unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
   where
-    getOrder tr =
+    getOrder (tr,_) =
       ( desc_ $ _tr_height tr
       , desc_ $ _tr_requestkey tr
       , asc_ $ _tr_idx tr)
@@ -143,11 +143,13 @@ accountQueryStmt (Limit limit) account token chain aqs =
     whenArg p a = maybe (return ()) a p
     accountQuery accountField = limit_ subQueryLimit $ orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
+      blk <- all_ (_cddb_blocks database)
+      guard_ (_tr_block tr `references_` blk)
       guard_ $ accountField tr ==. val_ account
       guard_ $ _tr_modulename tr ==. val_ token
       whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. fromIntegral c
       rowFilter tr
-      return tr
+      return (tr,_block_creationTime blk)
     (Offset offset, rowFilter) = case aqs of
       AQSNewQuery mbHeight ofst -> (,) ofst $ \tr ->
         whenArg mbHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
