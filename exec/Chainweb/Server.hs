@@ -321,12 +321,11 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
     scanParams = BoundedScanParams
       { bspOffset = mbGivenOffset
       , bspResultLimit = maybe 10 (min 100 . unLimit) givenMbLim
-      , bspScanLimit = 20000
       }
 
   liftIO $ P.withResource pool $ \c ->
     PG.withTransactionLevel PG.RepeatableRead c $ do
-      (mbCont, results) <- performBoundedScan
+      (mbCont, results) <- performBoundedScan (Bounded 20000)
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         txSearchScan
         (txSearchSource search)
@@ -580,12 +579,11 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
       scanParams = BoundedScanParams
         { bspOffset = mbBoundedOffset
         , bspResultLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
-        , bspScanLimit = 20000
         }
 
   liftIO $ P.withResource pool $ \c ->
     PG.withTransactionLevel PG.RepeatableRead c $ do
-      (mbCont, results) <- performBoundedScan
+      (mbCont, results) <- performBoundedScan (Bounded 20000)
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         eventsSearchScan
         (eventsSearchSource searchParams)

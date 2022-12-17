@@ -13,6 +13,7 @@ module ChainwebDb.BoundedScan (
   BSStart(..),
   BSContinuation(..),
   BoundedScanParams(..),
+  ExecutionStrategy(..),
   performBoundedScan,
   bsToOffsetQuery,
   bsToLimitQuery,
@@ -131,7 +132,6 @@ boundedScanLimit cond source order limit scanLimit = limit_ limit $ do
 data BoundedScanParams = BoundedScanParams
   { bspOffset :: Maybe Offset
   , bspResultLimit :: ResultLimit
-  , bspScanLimit :: ScanLimit
   }
 
 data BSStart newQuery cursor
@@ -144,24 +144,29 @@ data BSContinuation cursor = BSContinuation
   }
   deriving (Functor, Foldable, Traversable)
 
+data ExecutionStrategy = Bounded ScanLimit | Unbounded
+
 performBoundedScan :: forall db rowT cursorT newQuery m.
   -- We want the entire FromBackendRow instance for the limit query to be
   -- assembled at the call site for more optimization opportunities, that
   -- instance is used for parsing every single row after all
-  (FromBackendRow Postgres (rowT Identity, ScanLimit, Bool), Beamable rowT) =>
+  FromBackendRow Postgres (rowT Identity, ScanLimit, Bool) =>
+  (FromBackendRow Postgres (rowT Identity)) =>
+  Beamable rowT =>
   (FromBackendRow Postgres (cursorT Identity), Beamable cursorT) =>
   Monad m =>
+  ExecutionStrategy ->
   (forall a. Pg a -> m a) ->
   (forall s. BoundedScan rowT cursorT s) ->
   (forall s. BSStart newQuery (cursorT Identity) -> QPg db s (rowT (Exp s))) ->
   BSStart newQuery (cursorT Identity) ->
   BoundedScanParams ->
   m (Maybe (BSContinuation (cursorT Identity)), [rowT Identity])
-performBoundedScan runPg bs source bsStart BoundedScanParams{..} = do
+performBoundedScan stg runPg bs source bsStart BoundedScanParams{..} = do
   let
-    runOffset offset = do
+    runOffset offset scanLimit = do
       mbCursor <- runPg $ runSelectReturningOne $ select $
-        bsToOffsetQuery bs (source bsStart) offset bspScanLimit
+        bsToOffsetQuery bs (source bsStart) offset scanLimit
       case mbCursor of
         Nothing -> return (Nothing, [])
         Just (cursor, found_cnt, scan_cnt) -> if found_cnt < offset
@@ -169,7 +174,7 @@ performBoundedScan runPg bs source bsStart BoundedScanParams{..} = do
             let remainingOffset = offset - found_cnt
                 cont = BSContinuation cursor $ Just remainingOffset
             return (Just cont, [])
-          else runLimit (BSFromCursor cursor) (bspScanLimit - scan_cnt)
+          else runLimit (BSFromCursor cursor) (scanLimit - scan_cnt)
     runLimit start scanLim = do
       rows <- runPg $ runSelectReturningList $ select $
         bsToLimitQuery bs (source start) bspResultLimit scanLim
@@ -184,9 +189,19 @@ performBoundedScan runPg bs source bsStart BoundedScanParams{..} = do
       return $ if scanned < scanLim && fromIntegral (length rows) < bspResultLimit
           then (Nothing, results)
           else (mbContinuation, results)
-  case bspOffset of
-    Just offset -> runOffset offset
-    Nothing -> runLimit bsStart bspScanLimit
+    runUnbounded = do
+      rows <- runPg $ runSelectReturningList $ select $
+        bsToUnbounded bs (source bsStart) bspResultLimit $ fromMaybe 0 bspOffset
+      return $ if fromIntegral (length rows) >= bspResultLimit
+        then (Nothing,rows)
+        else case lastMay rows of
+               Nothing -> (Nothing,rows)
+               Just row -> (Just $ BSContinuation (bsToCursor bs row) Nothing, rows)
+  case stg of
+    Bounded scanLimit -> case bspOffset of
+      Just offset -> runOffset offset scanLimit
+      Nothing -> runLimit bsStart scanLimit
+    Unbounded -> runUnbounded
 
 type QPg = Q Postgres
 
