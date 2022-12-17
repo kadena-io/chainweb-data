@@ -9,16 +9,16 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module ChainwebDb.BoundedScan (
-  boundedScanOffset,
-  boundedScanLimit,
+  BoundedScan(..),
   BSStart(..),
   BSContinuation(..),
   BoundedScanParams(..),
-  BoundedScan(..),
+  performBoundedScan,
   bsToOffsetQuery,
   bsToLimitQuery,
   bsToUnbounded,
-  performBoundedScan,
+  boundedScanOffset,
+  boundedScanLimit,
 ) where
 
 import Control.Applicative
