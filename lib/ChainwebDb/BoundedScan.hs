@@ -33,6 +33,22 @@ import           Database.Beam.Postgres
 
 import           Safe
 
+-- | The BoundedScan type represents a search through a rowT relation for rows
+-- that satisfy bsCondition returning them in the order defined by bsOrdering
+--
+-- Semantically, a BoundedScan can be interpreted to represent the following
+-- SQL query template:
+--
+-- > SELECT *
+-- > FROM <some-source-relation-to-be-specified-separately> AS r
+-- > WHERE $(bsCondition r.*)
+-- > ORDER BY $(bsOrdering r.*)
+--
+-- However, the purpose of the BoundedScan is to be able to execute this query
+-- in a way that allows us to specify how many rows we'd like the database to
+-- scan before yielding found results and a cursor of type cursorT that we can
+-- use to resume the search efficiently later on. A 'BoundedScan' can be
+-- passed into 'performBoundedScan' for executing it in this way.
 data BoundedScan rowT cursorT s =
   forall ordering. SqlOrderable Postgres ordering =>
   BoundedScan
@@ -78,6 +94,27 @@ bsToUnbounded BoundedScan{..} source limit offset =
     guard_ $ bsCondition row
     return row
 
+-- | Build the offset segment of a 'BoundedScan' query.
+--
+-- This function will produce a SQL query with the following shape:
+--
+-- > SELECT <cursor-columns>, found_num, scan_num
+-- > FROM (
+-- >   SELECT $(toCursor row.*)
+-- >        , $(condition row.*) AS matching_row
+-- >        , COUNT(*) OVER (ORDER BY $(order row.*)) AS scan_num
+-- >        , COUNT(*) FILTER (WHERE $(condition row.*))
+-- >            OVER (ORDER BY $(order row.*)) AS found_num
+-- >   FROM $source AS row
+-- > ) AS t
+-- > WHERE scan_num = $scanLimit
+-- >    OR (matching_row AND found_num = $offset)
+-- > LIMIT 1
+--
+-- This query will either find the `offset`th occurrence of `condition` and
+-- yield a `cursor` that points at it (so that the `LIMIT` segment of the query
+-- can start), or it will stop after scanning `scanLimit` number of rows from
+-- `source` and yielding the cursor to the row that it stopped.
 boundedScanOffset :: forall s ordering db rowT cursorT.
   (SqlOrderable Postgres ordering, Beamable rowT, Beamable cursorT) =>
   (rowT (Exp (N3 s)) -> Exp (N3 s) Bool) ->
@@ -107,6 +144,23 @@ boundedScanOffset condition source order toCursor offset scanLimit =
          ||. (matchingRow &&. found_num ==. val_ offset)
     return (cursor, found_num, scan_num)
 
+-- | Build the limit segment of a 'BoundedScan' query
+--
+-- This function will produce a SQL query with the following shape:
+--
+-- > SELECT <row-columns>, scan_num, matching_row
+-- > FROM (
+-- >   SELECT row.*, COUNT(*) OVER (ORDER BY $(order row.*))
+-- >   FROM $source AS row
+-- > ) AS t
+-- > WHERE scan_num = $scanLimit OR $(condition t.<row-columns>)
+-- > LIMIT $limit
+--
+-- This query will return up to `limit` number of rows matching `condition`
+-- from the `source` table ordered by `order`, but it won't scan any more than
+-- `scanLimit` number of rows. If it hits the `scanLimit`th row, the last row
+-- returned will have `matchingRow = FALSE` so that it can be discarded from
+-- the result set but still used as a cursor to resume the search later.
 boundedScanLimit ::
   (SqlOrderable Postgres ordering, Beamable rowT) =>
   (rowT (Exp (N1 s)) -> (Exp (N1 s)) Bool) ->
@@ -115,7 +169,7 @@ boundedScanLimit ::
   ResultLimit ->
   ScanLimit ->
   QPg db s (rowT (Exp s), Exp s ScanLimit, Exp s Bool)
-boundedScanLimit cond source order limit scanLimit = limit_ limit $ do
+boundedScanLimit condition source order limit scanLimit = limit_ limit $ do
   (row, scan_num) <- subselect_ $ limit_ scanLimit $ withWindow_
     (\row -> frame_ (noPartition_ @Int) (Just $ order row) noBounds_)
     (\row window ->
@@ -125,7 +179,7 @@ boundedScanLimit cond source order limit scanLimit = limit_ limit $ do
     )
     source
   let scan_end = scan_num ==. val_ scanLimit
-      matchingRow = cond row
+      matchingRow = condition row
   guard_ $ scan_end ||. matchingRow
   return (row, scan_num, matchingRow)
 
@@ -146,12 +200,22 @@ data BSContinuation cursor = BSContinuation
 
 data ExecutionStrategy = Bounded ScanLimit | Unbounded
 
+-- | Execute a 'BoundedScan' over a relation of `rowT` rows using a bounded
+-- of unbounded scanning strategy.
+--
+-- Depending on the provided 'ExecutionStrategy', 'performBoundedScan' will
+-- either use 'boundedScanOffset' and 'boundedScanLimit' to search through
+-- `source`, or it will do a naive `OFFSET ... LIMIT ...` search.
+--
+-- In both cases, if there are potentially more results to find in subsequent
+-- searches, 'performBoundedScan' will return (along with any results found so
+-- far) a contiuation that can be used to resume the search efficiently.
 performBoundedScan :: forall db rowT cursorT newQuery m.
   -- We want the entire FromBackendRow instance for the limit query to be
   -- assembled at the call site for more optimization opportunities, that
   -- instance is used for parsing every single row after all
   FromBackendRow Postgres (rowT Identity, ScanLimit, Bool) =>
-  (FromBackendRow Postgres (rowT Identity)) =>
+  FromBackendRow Postgres (rowT Identity) =>
   Beamable rowT =>
   (FromBackendRow Postgres (cursorT Identity), Beamable cursorT) =>
   Monad m =>
@@ -202,6 +266,9 @@ performBoundedScan stg runPg bs source bsStart BoundedScanParams{..} = do
       Just offset -> runOffset offset scanLimit
       Nothing -> runLimit bsStart scanLimit
     Unbounded -> runUnbounded
+
+-------------------------------------------------------------------------------
+-- Some internal utility definitions used to shorten the types in this module
 
 type QPg = Q Postgres
 
