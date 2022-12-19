@@ -298,6 +298,28 @@ readTxToken tok = readBSToken tok <&> \mbBSC -> mbBSC <&> \(hgt, reqkey) ->
 mkTxToken :: TxSearchToken -> NextToken
 mkTxToken txt = mkBSToken $ txt <&> \c -> (txcHeight c, unDbHash $ txcReqKey c)
 
+-- We're looking up the execution strategy directly inside the 'Request'
+-- instead of properly adding it as a RequestHeader to the servant endpoint
+-- definition, because we don't actually expect the clients to set this
+-- header. This header is meant for the application gateway to set for
+-- tuning purposes.
+isBoundedStrategy :: Request -> Either ByteString Bool
+isBoundedStrategy req =
+  case lookup (fromString headerName) $ requestHeaders req of
+    Nothing -> Right False
+    Just header -> case header of
+      "Bounded" -> Right True
+      "Unbounded" -> Right False
+      other -> Left $ toS $ "Unknown " <> fromString headerName <> ": " <> other
+  where headerName = "Chainweb-Execution-Strategy"
+
+getExecutionStrategy :: Request -> Integer -> Handler ExecutionStrategy
+getExecutionStrategy req scanLimit = do
+  isBounded <- either throw400 return $ isBoundedStrategy req
+  return $ if isBounded
+    then Bounded scanLimit
+    else Unbounded
+
 searchTxs
   :: LogFunctionIO Text
   -> P.Pool Connection
@@ -322,10 +344,13 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
       { bspOffset = mbGivenOffset
       , bspResultLimit = maybe 10 (min 100 . unLimit) givenMbLim
       }
+    scanLimit = 20000
+
+  strategy <- getExecutionStrategy req scanLimit
 
   liftIO $ P.withResource pool $ \c ->
     PG.withTransactionLevel PG.RepeatableRead c $ do
-      (mbCont, results) <- performBoundedScan (Bounded 20000)
+      (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         txSearchScan
         (txSearchSource search)
@@ -580,10 +605,13 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
         { bspOffset = mbBoundedOffset
         , bspResultLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
         }
+      scanLimit = 20000
+
+  strategy <- getExecutionStrategy req scanLimit
 
   liftIO $ P.withResource pool $ \c ->
     PG.withTransactionLevel PG.RepeatableRead c $ do
-      (mbCont, results) <- performBoundedScan (Bounded 20000)
+      (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         eventsSearchScan
         (eventsSearchSource searchParams)
