@@ -67,8 +67,6 @@ data TxCursorT f = TxCursor
 
 type TxCursor = TxCursorT Identity
 
-type TxQueryStart = BSStart () TxCursor
-
 txSearchScan :: BoundedScan DbTxSummaryT TxCursorT
 txSearchScan = BoundedScan
   { bsToCursor = \DbTxSummary{..} -> TxCursor (desc dtsHeight) (desc dtsReqKey)
@@ -77,27 +75,21 @@ txSearchScan = BoundedScan
 
 txSearchSource ::
   Text ->
-  TxQueryStart ->
   Q Postgres ChainwebDataDb s (DbTxSummaryT (PgExpr s))
-txSearchSource search bss = do
+txSearchSource search = do
   tx <- all_ $ _cddb_transactions database
-  let txSum = DbTxSummary
-        { dtsChainId = _tx_chainId tx
-        , dtsHeight = _tx_height tx
-        , dtsBlock = unBlockId $ _tx_block tx
-        , dtsCreationTime = _tx_creationTime tx
-        , dtsReqKey = _tx_requestKey tx
-        , dtsSender = _tx_sender tx
-        , dtsCode = _tx_code tx
-        , dtsContinuation = _tx_continuation tx
-        , dtsGoodResult = _tx_goodResult tx
-        , dtsIsMatch = fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ ("%" <> search <> "%")
-        }
-  case bss of
-    BSNewQuery () -> return ()
-    BSFromCursor cursor -> guard_ $
-      cursorCmp (>.) (bsToCursor txSearchScan txSum) cursor
-  return txSum
+  return DbTxSummary
+    { dtsChainId = _tx_chainId tx
+    , dtsHeight = _tx_height tx
+    , dtsBlock = unBlockId $ _tx_block tx
+    , dtsCreationTime = _tx_creationTime tx
+    , dtsReqKey = _tx_requestKey tx
+    , dtsSender = _tx_sender tx
+    , dtsCode = _tx_code tx
+    , dtsContinuation = _tx_continuation tx
+    , dtsGoodResult = _tx_goodResult tx
+    , dtsIsMatch = fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ ("%" <> search <> "%")
+    }
 
 data EventSearchParams = EventSearchParams
   { espSearch :: Maybe Text
@@ -134,10 +126,7 @@ data EventCursorT f = EventCursor
 type EventCursor = EventCursorT Identity
 deriving instance Show EventCursor
 
-eventToCursor :: EventT f -> EventCursorT f
-eventToCursor ev = EventCursor (_ev_height ev) (_ev_requestkey ev) (_ev_idx ev)
-
-type EventQueryStart = BSStart (Maybe BlockHeight) EventCursor
+type EventQueryStart = Maybe BlockHeight
 
 data EventDetailT f = EventDetailT
   { edQualName :: C f Text
@@ -169,24 +158,19 @@ eventsSearchSource esp eqs = do
   ev <- all_ $ _cddb_events database
   blk <- all_ $ _cddb_blocks database
   guard_ $ _ev_block ev `references_` blk
-  let evDetail = EventDetailT
-        { edQualName = _ev_qualName ev
-        , edParams = _ev_params ev
-        , edModuleHash = _ev_moduleHash ev
-        , edChain = _ev_chainid ev
-        , edHeight = _ev_height ev
-        , edBlockTime = _block_creationTime blk
-        , edBlockHash = _block_hash blk
-        , edRequestKey = _ev_requestkey ev
-        , edIdx = _ev_idx ev
-        , edIsMatch = eventSearchCond esp ev
-        }
-  case eqs of
-    BSNewQuery Nothing -> return ()
-    BSNewQuery (Just hgt) -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
-    BSFromCursor c -> guard_ $
-      cursorCmp (>.) (bsToCursor eventsSearchScan evDetail) c
-  return evDetail
+  whenArg eqs $ \hgt -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
+  return EventDetailT
+    { edQualName = _ev_qualName ev
+    , edParams = _ev_params ev
+    , edModuleHash = _ev_moduleHash ev
+    , edChain = _ev_chainid ev
+    , edHeight = _ev_height ev
+    , edBlockTime = _block_creationTime blk
+    , edBlockHash = _block_hash blk
+    , edRequestKey = _ev_requestkey ev
+    , edIdx = _ev_idx ev
+    , edIsMatch = eventSearchCond esp ev
+    }
 
 _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString
 _bytequery = \case

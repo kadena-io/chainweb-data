@@ -11,7 +11,6 @@ module ChainwebDb.BoundedScan (
   BoundedScan(..),
   BSStart(..),
   BSContinuation(..),
-  BoundedScanParams(..),
   ExecutionStrategy(..),
   performBoundedScan,
   bsToOffsetQuery,
@@ -72,7 +71,6 @@ desc = Directional Desc . Columnar'
 type Offset = Integer
 type ResultLimit = Integer
 type ScanLimit = Integer
-
 bsToOffsetQuery :: forall sOut db rowT cursorT.
   (Beamable rowT, Beamable cursorT) =>
   BoundedScan rowT cursorT ->
@@ -195,11 +193,6 @@ boundedScanLimit condition source order limit scanLimit = limit_ limit $ do
   guard_ $ scan_end ||. matchingRow
   return (row, scan_num, matchingRow)
 
-data BoundedScanParams = BoundedScanParams
-  { bspOffset :: Maybe Offset
-  , bspResultLimit :: ResultLimit
-  }
-
 data BSStart newQuery cursor
   = BSNewQuery newQuery
   | BSFromCursor cursor
@@ -222,27 +215,28 @@ data ExecutionStrategy = Bounded ScanLimit | Unbounded
 -- In both cases, if there are potentially more results to find in subsequent
 -- searches, 'performBoundedScan' will return (along with any results found so
 -- far) a contiuation that can be used to resume the search efficiently.
-performBoundedScan :: forall db rowT cursorT newQuery m.
+performBoundedScan :: forall db rowT cursorT m.
   -- We want the entire FromBackendRow instance for the limit query to be
   -- assembled at the call site for more optimization opportunities, that
   -- instance is used for parsing every single row after all
   FromBackendRow Postgres (rowT Identity, ScanLimit, Bool) =>
   FromBackendRow Postgres (rowT Identity) =>
   Beamable rowT =>
-  (FromBackendRow Postgres (cursorT Identity), Beamable cursorT) =>
+  (FromBackendRow Postgres (cursorT Identity), SqlValableTable Postgres cursorT) =>
   Monad m =>
   ExecutionStrategy ->
   (forall a. Pg a -> m a) ->
   BoundedScan rowT cursorT ->
-  (forall s. BSStart newQuery (cursorT Identity) -> QPg db s (rowT (Exp s))) ->
-  BSStart newQuery (cursorT Identity) ->
-  BoundedScanParams ->
+  (forall s. QPg db s (rowT (Exp s))) ->
+  Either (Maybe Offset) (BSContinuation (cursorT Identity)) ->
+  ResultLimit ->
   m (Maybe (BSContinuation (cursorT Identity)), [rowT Identity])
-performBoundedScan stg runPg bs source bsStart BoundedScanParams{..} = do
+performBoundedScan stg runPg bs source contination resultLimit = do
   let
-    runOffset offset scanLimit = do
+    runOffset mbStart offset scanLimit = do
+      let sourceCont = resumeSource (bsToCursor bs) source mbStart
       mbCursor <- runPg $ runSelectReturningOne $ select $
-        bsToOffsetQuery bs (source bsStart) offset scanLimit
+        bsToOffsetQuery bs sourceCont offset scanLimit
       case mbCursor of
         Nothing -> return (Nothing, [])
         Just (cursor, found_cnt, scan_cnt) -> if found_cnt < offset
@@ -250,34 +244,48 @@ performBoundedScan stg runPg bs source bsStart BoundedScanParams{..} = do
             let remainingOffset = offset - found_cnt
                 cont = BSContinuation cursor $ Just remainingOffset
             return (Just cont, [])
-          else runLimit (BSFromCursor cursor) (scanLimit - scan_cnt)
-    runLimit start scanLim = do
+          else runLimit (Just cursor) (scanLimit - scan_cnt)
+    runLimit mbStart scanLim = do
+      let sourceCont = resumeSource (bsToCursor bs) source mbStart
       rows <- runPg $ runSelectReturningList $ select $
-        bsToLimitQuery bs (source start) bspResultLimit scanLim
+        bsToLimitQuery bs sourceCont resultLimit scanLim
       let
         scanned = fromMaybe 0 $ lastMay rows <&> \(_,scanNum,_) -> scanNum
-        mbCursor = case start of
-          BSFromCursor cur -> Just cur
-          _ -> Nothing
-        mbNextCursor = (lastMay rows <&> \(row,_,_) -> bsToCursorField bs row) <|> mbCursor
+        mbNextCursor = (lastMay rows <&> \(row,_,_) -> bsToCursorField bs row) <|> mbStart
         mbContinuation = mbNextCursor <&> \cur -> BSContinuation cur Nothing
         results = [row | (row,_,found) <- rows, found ]
-      return $ if scanned < scanLim && fromIntegral (length rows) < bspResultLimit
+      return $ if scanned < scanLim && fromIntegral (length rows) < resultLimit
           then (Nothing, results)
           else (mbContinuation, results)
-    runUnbounded = do
+    runUnbounded mbStart mbOffset = do
+      let sourceCont = resumeSource (bsToCursor bs) source mbStart
       rows <- runPg $ runSelectReturningList $ select $
-        bsToUnbounded bs (source bsStart) bspResultLimit $ fromMaybe 0 bspOffset
-      return $ if fromIntegral (length rows) >= bspResultLimit
+        bsToUnbounded bs sourceCont resultLimit $ fromMaybe 0 mbOffset
+      return $ if fromIntegral (length rows) >= resultLimit
         then (Nothing,rows)
         else case lastMay rows of
                Nothing -> (Nothing,rows)
                Just row -> (Just $ BSContinuation (bsToCursorField bs row) Nothing, rows)
+    (mbStartTop, mbOffsetTop) = case contination of
+      Left mbO -> (Nothing, mbO)
+      Right (BSContinuation cursor mbO) -> (Just cursor, mbO)
   case stg of
-    Bounded scanLimit -> case bspOffset of
-      Just offset -> runOffset offset scanLimit
-      Nothing -> runLimit bsStart scanLimit
-    Unbounded -> runUnbounded
+    Bounded scanLimit -> case mbOffsetTop of
+      Just offset -> runOffset mbStartTop offset scanLimit
+      Nothing -> runLimit mbStartTop scanLimit
+    Unbounded -> runUnbounded mbStartTop mbOffsetTop
+
+resumeSource :: (SqlValableTable Postgres cursorT) =>
+  (rowT (Exp s) -> cursorT (Directional (Exp s))) ->
+  QPg db s (rowT (Exp s)) ->
+  Maybe (cursorT Identity) ->
+  QPg db s (rowT (Exp s))
+resumeSource toCursor source mbResume = case mbResume of
+  Nothing -> source
+  Just cursor -> do
+    row <- source
+    guard_ $ cursorCmp (>.) (toCursor row) cursor
+    return row
 
 -------------------------------------------------------------------------------
 -- Utilities for constructing SQL expressions comparing two tuples

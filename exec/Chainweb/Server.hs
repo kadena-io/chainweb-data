@@ -333,17 +333,14 @@ searchTxs _ _ _ _ _ Nothing _ = throw404 "You must specify a search string"
 searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
   liftIO $ logger Info $ fromString $ printf
     "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
-  (givenQueryStart, mbGivenOffset) <- case (mbNext, mbOffset) of
+  continuation <- case (mbNext, mbOffset) of
     (Just nextToken, Nothing) -> case readTxToken nextToken of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
-      Just txt -> return ( BSFromCursor $ bscCursor txt, bscOffset txt)
+      Just cont -> return $ Right cont
     (Just _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _) -> return (BSNewQuery (), unOffset <$> mbOffset)
+    (Nothing, _) -> return $ Left $ unOffset <$> mbOffset
   let
-    scanParams = BoundedScanParams
-      { bspOffset = mbGivenOffset
-      , bspResultLimit = maybe 10 (min 100 . unLimit) givenMbLim
-      }
+    resultLimit = maybe 10 (min 100 . unLimit) givenMbLim
     scanLimit = 20000
 
   strategy <- getExecutionStrategy req scanLimit
@@ -354,8 +351,8 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         txSearchScan
         (txSearchSource search)
-        givenQueryStart
-        scanParams
+        continuation
+        resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
         results <&> \s -> TxSummary
           { _txSummary_chain = fromIntegral $ dtsChainId s
@@ -584,27 +581,19 @@ evHandler
   -> Handler (NextHeaders [EventDetail])
 evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minheight mbNext = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
-  (givenQueryStart, mbGivenOffset) <- case (mbNext, minheight, mbOffset) of
-    (Just nextToken, Nothing, Nothing) -> case readEventToken nextToken of
+  continuation <- case (mbNext, mbOffset) of
+    (Just nextToken, Nothing) -> case readEventToken nextToken of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
-      Just est -> return ( BSFromCursor $ bscCursor est, bscOffset est)
-    (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
-    (Just _, _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _, _) -> return (BSNewQuery minheight, unOffset <$> mbOffset)
-  mbBoundedOffset <- forM mbGivenOffset $ \offset -> do
-    let errTemplate = "the maximum allowed offset is 10,000. You requested %d"
-        errMsg = toS (printf errTemplate offset :: String)
-    if offset >= 10000 then throw400 errMsg else return offset
+      Just est -> return $ Right est
+    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
+    (Nothing, _) -> return $ Left $ unOffset <$> mbOffset
   let searchParams = EventSearchParams
         { espSearch = qSearch
         , espParam = qParam
         , espName = qName
         , espModuleName = qModuleName
         }
-      scanParams = BoundedScanParams
-        { bspOffset = mbBoundedOffset
-        , bspResultLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
-        }
+      resultLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
       scanLimit = 20000
 
   strategy <- getExecutionStrategy req scanLimit
@@ -614,9 +603,9 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         eventsSearchScan
-        (eventsSearchSource searchParams)
-        givenQueryStart
-        scanParams
+        (eventsSearchSource searchParams minheight)
+        continuation
+        resultLimit
       return $ maybe noHeader (addHeader . mkEventToken) mbCont $
         results <&> \ed -> EventDetail
           { _evDetail_name = edQualName ed
