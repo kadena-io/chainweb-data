@@ -127,44 +127,28 @@ deriving instance Show EventCursor
 
 type EventQueryStart = Maybe BlockHeight
 
-data EventDetailT f = EventDetailT
-  { edQualName :: C f Text
-  , edParams ::  C f (PgJSONB [Value])
-  , edModuleHash :: C f Text
-  , edChain :: C f Int64
-  , edHeight :: C f Int64
-  , edBlockTime :: C f UTCTime
-  , edBlockHash :: C f (DbHash BlockHash)
-  , edRequestKey :: C f ReqKeyOrCoinbase
-  , edIdx :: C f Int64
-  } deriving (Generic, Beamable)
-
-toEventsSearchCursor :: EventDetailT f -> EventCursorT (Directional f)
-toEventsSearchCursor EventDetailT{..} = EventCursor
-  (desc edHeight)
-  (desc edRequestKey)
-  (asc edIdx)
+toEventsSearchCursor :: EventT f -> EventCursorT (Directional f)
+toEventsSearchCursor Event{..} = EventCursor
+  (desc _ev_height)
+  (desc _ev_requestkey)
+  (asc _ev_idx)
 
 eventsSearchSource ::
   EventSearchParams ->
   EventQueryStart ->
-  Q Postgres ChainwebDataDb s (FilterMarked EventDetailT (PgExpr s))
+  Q Postgres ChainwebDataDb s (FilterMarked EventT (PgExpr s))
 eventsSearchSource esp eqs = do
   ev <- all_ $ _cddb_events database
+  whenArg eqs $ \hgt -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
+  return $ FilterMarked (eventSearchCond esp ev) ev
+
+eventBlockTimeQ ::
+  EventT (PgExpr s) ->
+  Q Postgres ChainwebDataDb s (PgExpr s UTCTime)
+eventBlockTimeQ ev = do
   blk <- all_ $ _cddb_blocks database
   guard_ $ _ev_block ev `references_` blk
-  whenArg eqs $ \hgt -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
-  return $ FilterMarked (eventSearchCond esp ev) EventDetailT
-    { edQualName = _ev_qualName ev
-    , edParams = _ev_params ev
-    , edModuleHash = _ev_moduleHash ev
-    , edChain = _ev_chainid ev
-    , edHeight = _ev_height ev
-    , edBlockTime = _block_creationTime blk
-    , edBlockHash = _block_hash blk
-    , edRequestKey = _ev_requestkey ev
-    , edIdx = _ev_idx ev
-    }
+  return $ _block_creationTime blk
 
 _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString
 _bytequery = \case

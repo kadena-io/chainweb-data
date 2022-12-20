@@ -358,10 +358,11 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         toTxSearchCursor
         (txSearchSource search)
+        noDecoration
         continuation
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
-        results <&> \s -> TxSummary
+        results <&> \(s,_) -> TxSummary
           { _txSummary_chain = fromIntegral $ dtsChainId s
           , _txSummary_height = fromIntegral $ dtsHeight s
           , _txSummary_blockHash = unDbHash $ dtsBlock s
@@ -606,19 +607,20 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         toEventsSearchCursor
         (eventsSearchSource searchParams minheight)
+        eventBlockTimeQ
         continuation
         resultLimit
       return $ maybe noHeader (addHeader . mkEventToken) mbCont $
-        results <&> \ed -> EventDetail
-          { _evDetail_name = edQualName ed
-          , _evDetail_params = unPgJsonb $ edParams ed
-          , _evDetail_moduleHash = edModuleHash ed
-          , _evDetail_chain = fromIntegral $ edChain ed
-          , _evDetail_height = fromIntegral $ edHeight ed
-          , _evDetail_blockTime = edBlockTime ed
-          , _evDetail_blockHash = unDbHash $ edBlockHash ed
-          , _evDetail_requestKey = getTxHash $ edRequestKey ed
-          , _evDetail_idx = fromIntegral $ edIdx ed
+        results <&> \(ev,blockTime) -> EventDetail
+          { _evDetail_name = _ev_qualName ev
+          , _evDetail_params = unPgJsonb $ _ev_params ev
+          , _evDetail_moduleHash = _ev_moduleHash ev
+          , _evDetail_chain = fromIntegral $ _ev_chainid ev
+          , _evDetail_height = fromIntegral $ _ev_height ev
+          , _evDetail_blockTime = blockTime
+          , _evDetail_blockHash = unDbHash $ unBlockId $ _ev_block ev
+          , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
+          , _evDetail_idx = fromIntegral $ _ev_idx ev
           }
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
