@@ -290,7 +290,7 @@ directionalOrd t = fst $ zipBeamFieldsM mkOrd t tblSkeleton where
   mkOrd (Columnar' (Directional dir (Columnar' q))) _ = ([ord],Columnar' Proxy)
     where ord = anyOrd $ case dir of
             Asc -> asc_ q
-            Desc -> asc_ q
+            Desc -> desc_ q
 
 -- | This function stripts the type of the field in a QOrd so that they can be
 -- gathered in a list
