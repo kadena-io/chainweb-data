@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -20,15 +19,23 @@ module ChainwebDb.BoundedScan (
   bsToUnbounded,
   boundedScanOffset,
   boundedScanLimit,
+  Directional, asc, desc,
+  cursorCmp,
+  CompPair(..), tupleCmp,
 ) where
 
 import Control.Applicative
 
+import           Data.Coerce (coerce)
 import           Data.Functor
+import           Data.Functor.Identity(Identity(..))
 import           Data.Maybe
+import           Data.Proxy (Proxy(..))
 
 import           Database.Beam
-import           Database.Beam.Query.Internal (QNested)
+import           Database.Beam.Backend
+import           Database.Beam.Query.Internal (QNested, QOrd)
+import           Database.Beam.Schema.Tables (Beamable(..), Columnar' (..), Ignored)
 import           Database.Beam.Postgres
 
 import           Safe
@@ -49,13 +56,18 @@ import           Safe
 -- scan before yielding found results and a cursor of type cursorT that we can
 -- use to resume the search efficiently later on. A 'BoundedScan' can be
 -- passed into 'performBoundedScan' for executing it in this way.
-data BoundedScan rowT cursorT s =
-  forall ordering. SqlOrderable Postgres ordering =>
-  BoundedScan
-    { bsCondition :: rowT (Exp s) -> Exp s Bool
-    , bsToCursor :: forall f. rowT f -> cursorT f
-    , bsOrdering :: rowT (Exp s) -> ordering
-    }
+data BoundedScan rowT cursorT = BoundedScan
+  { bsCondition :: forall s. rowT (Exp s) -> Exp s Bool
+  , bsToCursor :: forall f. rowT f -> cursorT (Directional f)
+  }
+
+bsToCursorField :: Beamable cursorT =>
+  BoundedScan rowT cursorT -> rowT f -> cursorT f
+bsToCursorField bs = unDirectional . bsToCursor bs
+
+asc, desc :: Columnar f a -> Columnar (Directional f) a
+asc = Directional Asc . Columnar'
+desc = Directional Desc . Columnar'
 
 type Offset = Integer
 type ResultLimit = Integer
@@ -63,35 +75,35 @@ type ScanLimit = Integer
 
 bsToOffsetQuery :: forall sOut db rowT cursorT.
   (Beamable rowT, Beamable cursorT) =>
-  (forall sIn. BoundedScan rowT cursorT sIn) ->
+  BoundedScan rowT cursorT ->
   QPg db (N3 sOut) (rowT (Exp (N3 sOut))) ->
   Offset ->
   ScanLimit ->
   QPg db sOut (cursorT (Exp sOut), Exp sOut ResultLimit, Exp sOut ScanLimit)
-bsToOffsetQuery bs@BoundedScan{bsOrdering} source =
-  boundedScanOffset (bsCondition bs) source bsOrdering (bsToCursor bs)
+bsToOffsetQuery bs source = boundedScanOffset
+  (bsCondition bs) source (bsCursorOrd bs) (bsToCursorField bs)
 
 bsToLimitQuery :: forall sOut db rowT cursorT.
-  (Beamable rowT) =>
-  (forall sIn. BoundedScan rowT cursorT sIn) ->
+  (Beamable rowT, Beamable cursorT) =>
+  BoundedScan rowT cursorT ->
   QPg db (N4 sOut) (rowT (Exp (N4 sOut))) ->
   ResultLimit ->
   ScanLimit ->
   QPg db sOut (rowT (Exp sOut), Exp sOut ScanLimit, Exp sOut Bool)
-bsToLimitQuery bs@BoundedScan{bsOrdering} source =
-  boundedScanLimit (bsCondition bs) source bsOrdering
+bsToLimitQuery bs source =
+  boundedScanLimit (bsCondition bs) source (bsCursorOrd bs)
 
 bsToUnbounded ::
-  (Beamable rowT) =>
-  (forall sIn. BoundedScan rowT cursorT sIn) ->
+  (Beamable rowT, Beamable cursorT) =>
+  BoundedScan rowT cursorT ->
   QPg db (N3 s) (rowT (Exp (N3 s))) ->
   ResultLimit ->
   Offset ->
   QPg db s (rowT (Exp s))
-bsToUnbounded BoundedScan{..} source limit offset =
-  limit_ limit $ offset_ offset $ orderBy_ bsOrdering $ do
+bsToUnbounded bs source limit offset =
+  limit_ limit $ offset_ offset $ orderBy_ (bsCursorOrd bs) $ do
     row <- source
-    guard_ $ bsCondition row
+    guard_ $ bsCondition bs row
     return row
 
 -- | Build the offset segment of a 'BoundedScan' query.
@@ -221,7 +233,7 @@ performBoundedScan :: forall db rowT cursorT newQuery m.
   Monad m =>
   ExecutionStrategy ->
   (forall a. Pg a -> m a) ->
-  (forall s. BoundedScan rowT cursorT s) ->
+  BoundedScan rowT cursorT ->
   (forall s. BSStart newQuery (cursorT Identity) -> QPg db s (rowT (Exp s))) ->
   BSStart newQuery (cursorT Identity) ->
   BoundedScanParams ->
@@ -247,7 +259,7 @@ performBoundedScan stg runPg bs source bsStart BoundedScanParams{..} = do
         mbCursor = case start of
           BSFromCursor cur -> Just cur
           _ -> Nothing
-        mbNextCursor = (lastMay rows <&> \(row,_,_) -> bsToCursor bs row) <|> mbCursor
+        mbNextCursor = (lastMay rows <&> \(row,_,_) -> bsToCursorField bs row) <|> mbCursor
         mbContinuation = mbNextCursor <&> \cur -> BSContinuation cur Nothing
         results = [row | (row,_,found) <- rows, found ]
       return $ if scanned < scanLim && fromIntegral (length rows) < bspResultLimit
@@ -260,12 +272,85 @@ performBoundedScan stg runPg bs source bsStart BoundedScanParams{..} = do
         then (Nothing,rows)
         else case lastMay rows of
                Nothing -> (Nothing,rows)
-               Just row -> (Just $ BSContinuation (bsToCursor bs row) Nothing, rows)
+               Just row -> (Just $ BSContinuation (bsToCursorField bs row) Nothing, rows)
   case stg of
     Bounded scanLimit -> case bspOffset of
       Just offset -> runOffset offset scanLimit
       Nothing -> runLimit bsStart scanLimit
     Unbounded -> runUnbounded
+
+-------------------------------------------------------------------------------
+-- Utilities for constructing SQL expressions comparing two tuples
+
+data CompPair be s = forall t. (:<>) (QExpr be s t ) (QExpr be s t)
+
+tupleCmp
+  :: IsSql92ExpressionSyntax (BeamSqlBackendExpressionSyntax be)
+  => (forall t. QExpr be s t -> QExpr be s t -> QExpr be s Bool)
+  -> [CompPair be s]
+  -> QExpr be s Bool
+tupleCmp cmp cps = QExpr lExp `cmp` QExpr rExp where
+  lExp = rowE <$> sequence [e | QExpr e :<> _ <- cps]
+  rExp = rowE <$> sequence [e | _ :<> QExpr e <- cps]
+
+-------------------------------------------------------------------------------
+-- Utilities for working on cursors with fields that have direction annotations
+
+-- | A Dir indicates a SQL ORDER BY direction
+data Dir = Asc | Desc
+
+-- | (Directional f) is meant to be used as an argument to a 'Beamable' table,
+-- annotating each field with a Dir
+data Directional f a = Directional Dir (Columnar' f a)
+
+-- | Given a 'Beamable' row containing Dir-annotated SQL expressions, return
+-- a value that can be passed to an 'orderBy_' that orders the results in
+-- "cursor order", i.e. in ascending cursor values.
+directionalOrd :: forall t backend s. (BeamSqlBackend backend, Beamable t) =>
+  t (Directional (QExpr backend s)) -> [AnyOrd backend s]
+directionalOrd t = fst $ zipBeamFieldsM mkOrd t tblSkeleton where
+  mkOrd ::
+    Columnar' (Directional (QExpr backend s)) a ->
+    Columnar' Ignored a ->
+    ([AnyOrd backend s], Columnar' Proxy a)
+  mkOrd (Columnar' (Directional dir (Columnar' q))) _ = ([ord],Columnar' Proxy)
+    where ord = anyOrd $ case dir of
+            Asc -> asc_ q
+            Desc -> asc_ q
+
+-- | This function stripts the type of the field in a QOrd so that they can be
+-- gathered in a list
+anyOrd :: QOrd be s a -> AnyOrd be s
+anyOrd = coerce
+
+type AnyOrd be s = QOrd be s ()
+
+unDirectional :: Beamable t =>
+  t (Directional f) -> t f
+unDirectional t = runIdentity $ zipBeamFieldsM mkOrd t tblSkeleton where
+  mkOrd (Columnar' (Directional _ (Columnar' q))) _ = Identity $ Columnar' q
+
+bsCursorOrd :: (BeamSqlBackend backend, Beamable cursorT) =>
+  BoundedScan rowT cursorT -> rowT (QExpr backend s) -> [AnyOrd backend s]
+bsCursorOrd bs = directionalOrd . bsToCursor bs
+
+-- | Compare a cursor expression with direction annotations against a cursor
+-- value in "cursor order". Cursor order means that whichever cursor is ahead
+-- as viewed as a moving cursor is considered greater.
+cursorCmp :: (SqlValableTable Postgres cursorT) =>
+  (forall t. Exp s t -> Exp s t -> Exp s Bool) ->
+  cursorT (Directional (Exp s)) ->
+  cursorT Identity -> Exp s Bool
+cursorCmp cmpOp cursorExp cursorVal = tupleCmp cmpOp cmpPairs where
+  cmpPairs = fst $ zipBeamFieldsM mkPair cursorExp (val_ cursorVal)
+  mkPair ::
+    Columnar' (Directional (Exp s)) a ->
+    Columnar' (Exp s) a ->
+    ([CompPair Postgres s], Columnar' Proxy a)
+  mkPair (Columnar' (Directional dir (Columnar' lExp))) (Columnar' rExp) =
+    ([withDirOrder dir lExp rExp],Columnar' Proxy)
+  withDirOrder Asc lExp rExp = lExp :<> rExp
+  withDirOrder Desc lExp rExp =  rExp :<> lExp
 
 -------------------------------------------------------------------------------
 -- Some internal utility definitions used to shorten the types in this module
