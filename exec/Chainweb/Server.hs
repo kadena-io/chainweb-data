@@ -320,6 +320,18 @@ getExecutionStrategy req scanLimit = do
     then Bounded scanLimit
     else Unbounded
 
+mkContinuation :: MonadError ServerError m =>
+  (NextToken -> Maybe b) ->
+  Maybe Offset ->
+  Maybe NextToken ->
+  m (Either (Maybe Integer) b)
+mkContinuation readTkn mbOffset mbNext = case (mbNext, mbOffset) of
+    (Just nextToken, Nothing) -> case readTkn nextToken of
+      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
+      Just cont -> return $ Right cont
+    (Just _, Just _) -> throw400 "next token query parameter not allowed with offset"
+    (Nothing, _) -> return $ Left $ unOffset <$> mbOffset
+
 searchTxs
   :: LogFunctionIO Text
   -> P.Pool Connection
@@ -333,12 +345,7 @@ searchTxs _ _ _ _ _ Nothing _ = throw404 "You must specify a search string"
 searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
   liftIO $ logger Info $ fromString $ printf
     "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
-  continuation <- case (mbNext, mbOffset) of
-    (Just nextToken, Nothing) -> case readTxToken nextToken of
-      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
-      Just cont -> return $ Right cont
-    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _) -> return $ Left $ unOffset <$> mbOffset
+  continuation <- mkContinuation readTxToken mbOffset mbNext
   let
     resultLimit = maybe 10 (min 100 . unLimit) givenMbLim
     scanLimit = 20000
@@ -581,12 +588,7 @@ evHandler
   -> Handler (NextHeaders [EventDetail])
 evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minheight mbNext = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
-  continuation <- case (mbNext, mbOffset) of
-    (Just nextToken, Nothing) -> case readEventToken nextToken of
-      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
-      Just est -> return $ Right est
-    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _) -> return $ Left $ unOffset <$> mbOffset
+  continuation <- mkContinuation readEventToken mbOffset mbNext
   let searchParams = EventSearchParams
         { espSearch = qSearch
         , espParam = qParam
