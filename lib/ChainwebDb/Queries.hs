@@ -55,7 +55,6 @@ data DbTxSummaryT f = DbTxSummary
   , dtsCode :: C f (Maybe Text)
   , dtsContinuation :: C f (Maybe (PgJSONB Value))
   , dtsGoodResult :: C f (Maybe (PgJSONB Value))
-  , dtsIsMatch :: C f Bool
   } deriving (Generic, Beamable)
 
 type DbTxSummary = DbTxSummaryT Identity
@@ -67,29 +66,29 @@ data TxCursorT f = TxCursor
 
 type TxCursor = TxCursorT Identity
 
-txSearchScan :: BoundedScan DbTxSummaryT TxCursorT
-txSearchScan = BoundedScan
-  { bsToCursor = \DbTxSummary{..} -> TxCursor (desc dtsHeight) (desc dtsReqKey)
-  , bsCondition = \DbTxSummary{..} -> dtsIsMatch
-  }
+toTxSearchCursor :: DbTxSummaryT f -> TxCursorT (Directional f)
+toTxSearchCursor DbTxSummary{..} = TxCursor (desc dtsHeight) (desc dtsReqKey)
+
+toDbTxSummary :: TransactionT f -> DbTxSummaryT f
+toDbTxSummary Transaction{..} = DbTxSummary
+  { dtsChainId = _tx_chainId
+  , dtsHeight = _tx_height
+  , dtsBlock = unBlockId _tx_block
+  , dtsCreationTime = _tx_creationTime
+  , dtsReqKey = _tx_requestKey
+  , dtsSender = _tx_sender
+  , dtsCode = _tx_code
+  , dtsContinuation = _tx_continuation
+  , dtsGoodResult = _tx_goodResult
+   }
 
 txSearchSource ::
   Text ->
-  Q Postgres ChainwebDataDb s (DbTxSummaryT (PgExpr s))
+  Q Postgres ChainwebDataDb s (FilterMarked DbTxSummaryT (PgExpr s))
 txSearchSource search = do
   tx <- all_ $ _cddb_transactions database
-  return DbTxSummary
-    { dtsChainId = _tx_chainId tx
-    , dtsHeight = _tx_height tx
-    , dtsBlock = unBlockId $ _tx_block tx
-    , dtsCreationTime = _tx_creationTime tx
-    , dtsReqKey = _tx_requestKey tx
-    , dtsSender = _tx_sender tx
-    , dtsCode = _tx_code tx
-    , dtsContinuation = _tx_continuation tx
-    , dtsGoodResult = _tx_goodResult tx
-    , dtsIsMatch = fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ ("%" <> search <> "%")
-    }
+  let isMatch = fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ ("%" <> search <> "%")
+  return $ FilterMarked isMatch $ toDbTxSummary tx
 
 data EventSearchParams = EventSearchParams
   { espSearch :: Maybe Text
@@ -138,28 +137,24 @@ data EventDetailT f = EventDetailT
   , edBlockHash :: C f (DbHash BlockHash)
   , edRequestKey :: C f ReqKeyOrCoinbase
   , edIdx :: C f Int64
-  , edIsMatch :: C f Bool
   } deriving (Generic, Beamable)
 
-eventsSearchScan :: BoundedScan EventDetailT EventCursorT
-eventsSearchScan = BoundedScan
-  { bsToCursor = \EventDetailT{..} -> EventCursor
-      (desc edHeight)
-      (desc edRequestKey)
-      (asc edIdx)
-  , bsCondition = \EventDetailT{..} -> edIsMatch
-  }
+toEventsSearchCursor :: EventDetailT f -> EventCursorT (Directional f)
+toEventsSearchCursor EventDetailT{..} = EventCursor
+  (desc edHeight)
+  (desc edRequestKey)
+  (asc edIdx)
 
 eventsSearchSource ::
   EventSearchParams ->
   EventQueryStart ->
-  Q Postgres ChainwebDataDb s (EventDetailT (PgExpr s))
+  Q Postgres ChainwebDataDb s (FilterMarked EventDetailT (PgExpr s))
 eventsSearchSource esp eqs = do
   ev <- all_ $ _cddb_events database
   blk <- all_ $ _cddb_blocks database
   guard_ $ _ev_block ev `references_` blk
   whenArg eqs $ \hgt -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
-  return EventDetailT
+  return $ FilterMarked (eventSearchCond esp ev) EventDetailT
     { edQualName = _ev_qualName ev
     , edParams = _ev_params ev
     , edModuleHash = _ev_moduleHash ev
@@ -169,7 +164,6 @@ eventsSearchSource esp eqs = do
     , edBlockHash = _block_hash blk
     , edRequestKey = _ev_requestkey ev
     , edIdx = _ev_idx ev
-    , edIsMatch = eventSearchCond esp ev
     }
 
 _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString

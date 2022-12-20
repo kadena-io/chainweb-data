@@ -356,7 +356,7 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
     PG.withTransactionLevel PG.RepeatableRead c $ do
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
-        txSearchScan
+        toTxSearchCursor
         (txSearchSource search)
         continuation
         resultLimit
@@ -604,7 +604,7 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
     PG.withTransactionLevel PG.RepeatableRead c $ do
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
-        eventsSearchScan
+        toEventsSearchCursor
         (eventsSearchSource searchParams minheight)
         continuation
         resultLimit

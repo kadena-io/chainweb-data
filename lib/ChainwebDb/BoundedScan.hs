@@ -1,23 +1,22 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 
 module ChainwebDb.BoundedScan (
-  BoundedScan(..),
-  BSStart(..),
+  FilterMarked(..),
   BSContinuation(..),
   ExecutionStrategy(..),
   performBoundedScan,
-  bsToOffsetQuery,
-  bsToLimitQuery,
-  bsToUnbounded,
   boundedScanOffset,
   boundedScanLimit,
+  unboundedScan,
   Directional, asc, desc,
   cursorCmp,
   CompPair(..), tupleCmp,
@@ -39,149 +38,95 @@ import           Database.Beam.Postgres
 
 import           Safe
 
--- | The BoundedScan type represents a search through a rowT relation for rows
--- that satisfy bsCondition returning them in the order defined by bsOrdering
---
--- Semantically, a BoundedScan can be interpreted to represent the following
--- SQL query template:
---
--- > SELECT *
--- > FROM <some-source-relation-to-be-specified-separately> AS r
--- > WHERE $(bsCondition r.*)
--- > ORDER BY $(bsOrdering r.*)
---
--- However, the purpose of the BoundedScan is to be able to execute this query
--- in a way that allows us to specify how many rows we'd like the database to
--- scan before yielding found results and a cursor of type cursorT that we can
--- use to resume the search efficiently later on. A 'BoundedScan' can be
--- passed into 'performBoundedScan' for executing it in this way.
-data BoundedScan rowT cursorT = BoundedScan
-  { bsCondition :: forall s. rowT (Exp s) -> Exp s Bool
-  , bsToCursor :: forall f. rowT f -> cursorT (Directional f)
-  }
-
-bsToCursorField :: Beamable cursorT =>
-  BoundedScan rowT cursorT -> rowT f -> cursorT f
-bsToCursorField bs = unDirectional . bsToCursor bs
-
 asc, desc :: Columnar f a -> Columnar (Directional f) a
 asc = Directional Asc . Columnar'
 desc = Directional Desc . Columnar'
 
+data FilterMarked rowT f = FilterMarked
+  { fmMatch :: C f Bool
+  , fmRow :: rowT f
+  } deriving (Generic, Beamable)
+
 type Offset = Integer
 type ResultLimit = Integer
 type ScanLimit = Integer
-bsToOffsetQuery :: forall sOut db rowT cursorT.
-  (Beamable rowT, Beamable cursorT) =>
-  BoundedScan rowT cursorT ->
-  QPg db (N3 sOut) (rowT (Exp (N3 sOut))) ->
-  Offset ->
-  ScanLimit ->
-  QPg db sOut (cursorT (Exp sOut), Exp sOut ResultLimit, Exp sOut ScanLimit)
-bsToOffsetQuery bs source = boundedScanOffset
-  (bsCondition bs) source (bsCursorOrd bs) (bsToCursorField bs)
 
-bsToLimitQuery :: forall sOut db rowT cursorT.
-  (Beamable rowT, Beamable cursorT) =>
-  BoundedScan rowT cursorT ->
-  QPg db (N4 sOut) (rowT (Exp (N4 sOut))) ->
-  ResultLimit ->
-  ScanLimit ->
-  QPg db sOut (rowT (Exp sOut), Exp sOut ScanLimit, Exp sOut Bool)
-bsToLimitQuery bs source =
-  boundedScanLimit (bsCondition bs) source (bsCursorOrd bs)
-
-bsToUnbounded ::
-  (Beamable rowT, Beamable cursorT) =>
-  BoundedScan rowT cursorT ->
-  QPg db (N3 s) (rowT (Exp (N3 s))) ->
-  ResultLimit ->
-  Offset ->
-  QPg db s (rowT (Exp s))
-bsToUnbounded bs source limit offset =
-  limit_ limit $ offset_ offset $ orderBy_ (bsCursorOrd bs) $ do
-    row <- source
-    guard_ $ bsCondition bs row
-    return row
-
--- | Build the offset segment of a 'BoundedScan' query.
+-- | Build the offset segment of a bounded scan query.
 --
 -- This function will produce a SQL query with the following shape:
 --
 -- > SELECT <cursor-columns>, found_num, scan_num
 -- > FROM (
--- >   SELECT $(toCursor row.*)
--- >        , $(condition row.*) AS matching_row
--- >        , COUNT(*) OVER (ORDER BY $(order row.*)) AS scan_num
--- >        , COUNT(*) FILTER (WHERE $(condition row.*))
--- >            OVER (ORDER BY $(order row.*)) AS found_num
--- >   FROM $source AS row
+-- >   SELECT $(toCursor rest)
+-- >        , match AS matching_row
+-- >        , COUNT(*) OVER (ORDER BY $(orderOverCursor rest)) AS scan_num
+-- >        , COUNT(*) FILTER (WHERE match)
+-- >            OVER (ORDER BY $(orderOverCursor row.*)) AS found_num
+-- >   FROM $source AS t(match,rest...)
 -- > ) AS t
 -- > WHERE scan_num = $scanLimit
 -- >    OR (matching_row AND found_num = $offset)
 -- > LIMIT 1
 --
--- This query will either find the `offset`th occurrence of `condition` and
+-- This query will either find the `offset`th row of `source` with `match = TRUE` and
 -- yield a `cursor` that points at it (so that the `LIMIT` segment of the query
 -- can start), or it will stop after scanning `scanLimit` number of rows from
 -- `source` and yielding the cursor to the row that it stopped.
-boundedScanOffset :: forall s ordering db rowT cursorT.
-  (SqlOrderable Postgres ordering, Beamable rowT, Beamable cursorT) =>
-  (rowT (Exp (N3 s)) -> Exp (N3 s) Bool) ->
-  QPg db (N3 s) (rowT (Exp (N3 s))) ->
-  (rowT (Exp (N3 s)) -> ordering) ->
-  (rowT (Exp (N3 s)) -> cursorT (Exp (N3 s))) ->
+boundedScanOffset :: forall s db rowT cursorT.
+  (Beamable rowT, Beamable cursorT) =>
+  QPg db (N3 s) (FilterMarked rowT (Exp (N3 s))) ->
+  (rowT (Exp (N3 s)) -> cursorT (Directional (Exp (N3 s)))) ->
   Offset ->
   ScanLimit ->
   QPg db s (cursorT (Exp s), Exp s ResultLimit, Exp s ScanLimit)
-boundedScanOffset condition source order toCursor offset scanLimit =
+boundedScanOffset source toCursor offset scanLimit =
   limit_ 1 $ do
     (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
       (\row ->
-        ( frame_ (noPartition_ @Int) (Just $ order row) noBounds_
-        , frame_ (noPartition_ @Int) (Just $ order row) (fromBound_ unbounded_)
+        ( frame_ (noPartition_ @Int) (Just $ order $ fmRow row) noBounds_
+        , frame_ (noPartition_ @Int) (Just $ order $ fmRow row) (fromBound_ unbounded_)
         )
       )
       (\row (wNoBounds, wTrailing) ->
-        ( toCursor row
-        , condition row
+        ( unDirectional $ toCursor $ fmRow row
+        , fmMatch row
         , rowNumber_ `over_` wNoBounds
-        , countAll_ `filterWhere_` condition row `over_` wTrailing
+        , countAll_ `filterWhere_` fmMatch row `over_` wTrailing
         )
       )
       source
     guard_ $ scan_num ==. val_ scanLimit
          ||. (matchingRow &&. found_num ==. val_ offset)
     return (cursor, found_num, scan_num)
+  where order = directionalOrd . toCursor
 
--- | Build the limit segment of a 'BoundedScan' query
+-- | Build the limit segment of a bounded scan query
 --
 -- This function will produce a SQL query with the following shape:
 --
--- > SELECT <row-columns>, scan_num, matching_row
+-- > SELECT rest, scan_num, matching_row
 -- > FROM (
--- >   SELECT row.*, COUNT(*) OVER (ORDER BY $(order row.*))
--- >   FROM $source AS row
+-- >   SELECT t.*, COUNT(*) OVER (ORDER BY $(orderOverCursor rest))
+-- >   FROM $source AS t(match,rest...)
 -- > ) AS t
--- > WHERE scan_num = $scanLimit OR $(condition t.<row-columns>)
+-- > WHERE scan_num = $scanLimit OR match
 -- > LIMIT $limit
 --
--- This query will return up to `limit` number of rows matching `condition`
--- from the `source` table ordered by `order`, but it won't scan any more than
+-- This query will return up to `limit` number of rows of the `source` table
+-- with `match = True` ordered by `order`, but it won't scan any more than
 -- `scanLimit` number of rows. If it hits the `scanLimit`th row, the last row
 -- returned will have `matchingRow = FALSE` so that it can be discarded from
 -- the result set but still used as a cursor to resume the search later.
 boundedScanLimit ::
   (SqlOrderable Postgres ordering, Beamable rowT) =>
-  (rowT (Exp (N1 s)) -> (Exp (N1 s)) Bool) ->
-  QPg db (N4 s) (rowT (Exp (N4 s))) ->
+  QPg db (N4 s) (FilterMarked rowT (Exp (N4 s))) ->
   (rowT (Exp (N4 s)) -> ordering) ->
   ResultLimit ->
   ScanLimit ->
   QPg db s (rowT (Exp s), Exp s ScanLimit, Exp s Bool)
-boundedScanLimit condition source order limit scanLimit = limit_ limit $ do
+boundedScanLimit source order limit scanLimit = limit_ limit $ do
   (row, scan_num) <- subselect_ $ limit_ scanLimit $ withWindow_
-    (\row -> frame_ (noPartition_ @Int) (Just $ order row) noBounds_)
+    (\row -> frame_ (noPartition_ @Int) (Just $ order $ fmRow row) noBounds_)
     (\row window ->
       ( row
       , rowNumber_ `over_` window
@@ -189,13 +134,22 @@ boundedScanLimit condition source order limit scanLimit = limit_ limit $ do
     )
     source
   let scan_end = scan_num ==. val_ scanLimit
-      matchingRow = condition row
+      matchingRow = fmMatch row
   guard_ $ scan_end ||. matchingRow
-  return (row, scan_num, matchingRow)
+  return (fmRow row, scan_num, matchingRow)
 
-data BSStart newQuery cursor
-  = BSNewQuery newQuery
-  | BSFromCursor cursor
+unboundedScan ::
+  (SqlOrderable Postgres ordering, Beamable rowT) =>
+  QPg db (N3 s) (FilterMarked rowT (Exp (N3 s))) ->
+  (rowT (Exp (N3 s)) -> ordering) ->
+  ResultLimit ->
+  Offset ->
+  QPg db s (rowT (Exp s))
+unboundedScan source order limit offset =
+  limit_ limit $ offset_ offset $ orderBy_ order $ do
+    row <- source
+    guard_ $ fmMatch row
+    return $ fmRow row
 
 data BSContinuation cursor = BSContinuation
   { bscCursor :: cursor
@@ -205,8 +159,8 @@ data BSContinuation cursor = BSContinuation
 
 data ExecutionStrategy = Bounded ScanLimit | Unbounded
 
--- | Execute a 'BoundedScan' over a relation of `rowT` rows using a bounded
--- of unbounded scanning strategy.
+-- | Execute a bounded scan over a relation of `rowT` rows using a bounded
+-- or unbounded scanning strategy.
 --
 -- Depending on the provided 'ExecutionStrategy', 'performBoundedScan' will
 -- either use 'boundedScanOffset' and 'boundedScanLimit' to search through
@@ -226,17 +180,25 @@ performBoundedScan :: forall db rowT cursorT m.
   Monad m =>
   ExecutionStrategy ->
   (forall a. Pg a -> m a) ->
-  BoundedScan rowT cursorT ->
-  (forall s. QPg db s (rowT (Exp s))) ->
+  -- | Convert a row to a cursor with order direction annotations
+  (forall f. rowT f -> cursorT (Directional f)) ->
+  -- | A relation of rows with annotations indicating whether each row should be kept
+  (forall s. QPg db s (FilterMarked rowT (Exp s))) ->
+  -- | The start of this execution, indicates whether this is a new query or the
+  -- contionation of a previous execution.
   Either (Maybe Offset) (BSContinuation (cursorT Identity)) ->
+  -- | The maximum number of rows to return
   ResultLimit ->
   m (Maybe (BSContinuation (cursorT Identity)), [rowT Identity])
-performBoundedScan stg runPg bs source contination resultLimit = do
+performBoundedScan stg runPg toCursor source contination resultLimit = do
   let
     runOffset mbStart offset scanLimit = do
-      let sourceCont = resumeSource (bsToCursor bs) source mbStart
-      mbCursor <- runPg $ runSelectReturningOne $ select $
-        bsToOffsetQuery bs sourceCont offset scanLimit
+      let sourceCont = resumeSource toCursor source mbStart
+      mbCursor <- runPg $ runSelectReturningOne $ select $ boundedScanOffset
+        sourceCont
+        toCursor
+        offset
+        scanLimit
       case mbCursor of
         Nothing -> return (Nothing, [])
         Just (cursor, found_cnt, scan_cnt) -> if found_cnt < offset
@@ -245,27 +207,31 @@ performBoundedScan stg runPg bs source contination resultLimit = do
                 cont = BSContinuation cursor $ Just remainingOffset
             return (Just cont, [])
           else runLimit (Just cursor) (scanLimit - scan_cnt)
+
     runLimit mbStart scanLim = do
-      let sourceCont = resumeSource (bsToCursor bs) source mbStart
+      let sourceCont = resumeSource toCursor source mbStart
       rows <- runPg $ runSelectReturningList $ select $
-        bsToLimitQuery bs sourceCont resultLimit scanLim
+        boundedScanLimit sourceCont (directionalOrd . toCursor) resultLimit scanLim
       let
         scanned = fromMaybe 0 $ lastMay rows <&> \(_,scanNum,_) -> scanNum
-        mbNextCursor = (lastMay rows <&> \(row,_,_) -> bsToCursorField bs row) <|> mbStart
+        mbNextCursor = (lastMay rows <&> \(row,_,_) -> unDirectional $ toCursor row)
+                   <|> mbStart
         mbContinuation = mbNextCursor <&> \cur -> BSContinuation cur Nothing
         results = [row | (row,_,found) <- rows, found ]
       return $ if scanned < scanLim && fromIntegral (length rows) < resultLimit
           then (Nothing, results)
           else (mbContinuation, results)
+
     runUnbounded mbStart mbOffset = do
-      let sourceCont = resumeSource (bsToCursor bs) source mbStart
+      let sourceCont = resumeSource toCursor source mbStart
+          offset = fromMaybe 0 mbOffset
       rows <- runPg $ runSelectReturningList $ select $
-        bsToUnbounded bs sourceCont resultLimit $ fromMaybe 0 mbOffset
-      return $ if fromIntegral (length rows) >= resultLimit
-        then (Nothing,rows)
-        else case lastMay rows of
-               Nothing -> (Nothing,rows)
-               Just row -> (Just $ BSContinuation (bsToCursorField bs row) Nothing, rows)
+        unboundedScan sourceCont (directionalOrd . toCursor) resultLimit offset
+      return $ (,rows) $ if fromIntegral (length rows) >= resultLimit
+        then Nothing
+        else lastMay rows <&> \row ->
+               BSContinuation (unDirectional $ toCursor row) Nothing
+
     (mbStartTop, mbOffsetTop) = case contination of
       Left mbO -> (Nothing, mbO)
       Right (BSContinuation cursor mbO) -> (Just cursor, mbO)
@@ -277,14 +243,14 @@ performBoundedScan stg runPg bs source contination resultLimit = do
 
 resumeSource :: (SqlValableTable Postgres cursorT) =>
   (rowT (Exp s) -> cursorT (Directional (Exp s))) ->
-  QPg db s (rowT (Exp s)) ->
+  QPg db s (FilterMarked rowT (Exp s)) ->
   Maybe (cursorT Identity) ->
-  QPg db s (rowT (Exp s))
+  QPg db s (FilterMarked rowT (Exp s))
 resumeSource toCursor source mbResume = case mbResume of
   Nothing -> source
   Just cursor -> do
     row <- source
-    guard_ $ cursorCmp (>.) (toCursor row) cursor
+    guard_ $ cursorCmp (>.) (toCursor $ fmRow row) cursor
     return row
 
 -------------------------------------------------------------------------------
@@ -337,10 +303,6 @@ unDirectional :: Beamable t =>
   t (Directional f) -> t f
 unDirectional t = runIdentity $ zipBeamFieldsM mkOrd t tblSkeleton where
   mkOrd (Columnar' (Directional _ (Columnar' q))) _ = Identity $ Columnar' q
-
-bsCursorOrd :: (BeamSqlBackend backend, Beamable cursorT) =>
-  BoundedScan rowT cursorT -> rowT (QExpr backend s) -> [AnyOrd backend s]
-bsCursorOrd bs = directionalOrd . bsToCursor bs
 
 -- | Compare a cursor expression with direction annotations against a cursor
 -- value in "cursor order". Cursor order means that whichever cursor is ahead
