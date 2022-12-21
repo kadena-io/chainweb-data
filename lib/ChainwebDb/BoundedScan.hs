@@ -189,7 +189,9 @@ performBoundedScan :: forall db rowT extras cursorT m.
   Either (Maybe Offset) (BSContinuation (cursorT Identity)) ->
   -- | The maximum number of rows to return
   ResultLimit ->
-  m (Maybe (BSContinuation (cursorT Identity)), [(rowT Identity, QExprToIdentity extras)])
+  m ( Maybe (BSContinuation (cursorT Identity))
+    , [(rowT Identity, QExprToIdentity extras)]
+    )
 performBoundedScan stg runPg toCursor source decorate contination resultLimit = do
   let
     runOffset mbStart offset scanLimit = do

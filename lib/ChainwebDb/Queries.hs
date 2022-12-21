@@ -45,6 +45,8 @@ type PgSelect a = SqlSelect Postgres (QExprToIdentity a)
 type PgExpr s = QGenExpr QValueContext Postgres s
 type PgBaseExpr = PgExpr QBaseScope
 
+-- | A subset of the TransactionT record, used with beam for querying the
+-- /txs/search endpoint response payload
 data DbTxSummaryT f = DbTxSummary
   { dtsChainId :: C f Int64
   , dtsHeight :: C f Int64
@@ -67,7 +69,9 @@ data TxCursorT f = TxCursor
 type TxCursor = TxCursorT Identity
 
 toTxSearchCursor :: DbTxSummaryT f -> TxCursorT (Directional f)
-toTxSearchCursor DbTxSummary{..} = TxCursor (desc dtsHeight) (desc dtsReqKey)
+toTxSearchCursor DbTxSummary{..} = TxCursor
+  (desc dtsHeight)
+  (desc dtsReqKey)
 
 toDbTxSummary :: TransactionT f -> DbTxSummaryT f
 toDbTxSummary Transaction{..} = DbTxSummary
@@ -87,7 +91,8 @@ txSearchSource ::
   Q Postgres ChainwebDataDb s (FilterMarked DbTxSummaryT (PgExpr s))
 txSearchSource search = do
   tx <- all_ $ _cddb_transactions database
-  let isMatch = fromMaybe_ (val_ "") (_tx_code tx) `like_` val_ ("%" <> search <> "%")
+  let searchExp = val_ ("%" <> search <> "%")
+      isMatch = fromMaybe_ (val_ "") (_tx_code tx) `like_` searchExp
   return $ FilterMarked isMatch $ toDbTxSummary tx
 
 data EventSearchParams = EventSearchParams
@@ -137,9 +142,10 @@ eventsSearchSource ::
   EventSearchParams ->
   EventQueryStart ->
   Q Postgres ChainwebDataDb s (FilterMarked EventT (PgExpr s))
-eventsSearchSource esp eqs = do
+eventsSearchSource esp mbHeight = do
   ev <- all_ $ _cddb_events database
-  whenArg eqs $ \hgt -> guard_ $ _ev_height ev >=. val_ (fromIntegral hgt)
+  whenArg mbHeight $ \hgt -> guard_ $
+    _ev_height ev >=. val_ (fromIntegral hgt)
   return $ FilterMarked (eventSearchCond esp ev) ev
 
 eventBlockTimeQ ::
