@@ -470,9 +470,9 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
           then noHeader
           else case lastMay r of
                  Nothing -> noHeader
-                 Just tr -> addHeader $ mkToken @AccountNextToken
+                 Just (tr,_) -> addHeader $ mkToken @AccountNextToken
                      (_tr_height tr, toS $ show $ _tr_requestkey tr, _tr_idx tr )
-    return $ withHeader $ (`map` r) $ \tr -> AccountDetail
+    return $ withHeader $ (`map` r) $ \(tr, creationTime) -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
       , _acDetail_height = fromIntegral $ _tr_height tr
@@ -482,6 +482,7 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
       , _acDetail_amount = getKDAScientific $ _tr_amount tr
       , _acDetail_fromAccount = _tr_from_acct tr
       , _acDetail_toAccount = _tr_to_acct tr
+      , _acDetail_blockTime = creationTime
       }
 
 evHandler
