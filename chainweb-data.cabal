@@ -45,6 +45,7 @@ common commons
     , lens-aeson
     , postgresql-simple
     , resource-pool      >= 0.3
+    , safe
     , scientific         ^>=0.3
     , servant
     , streaming-events   ^>=1.0.1
@@ -65,6 +66,7 @@ library
     ChainwebData.Genesis
     ChainwebData.Types
     ChainwebData.Env
+    ChainwebDb.BoundedScan
     ChainwebDb.Database
     ChainwebDb.Queries
     ChainwebDb.Types.Block
