@@ -11,12 +11,12 @@
 
 module ChainwebDb.BoundedScan (
   FilterMarked(..),
+  applyFilterMark,
   BSContinuation(..),
   ExecutionStrategy(..),
   performBoundedScan,
   boundedScanOffset,
   boundedScanLimit,
-  unboundedScan,
   Directional, asc, desc,
   cursorCmp,
   CompPair(..), tupleCmp,
@@ -48,6 +48,14 @@ data FilterMarked rowT f = FilterMarked
   { fmMatch :: C f Bool
   , fmRow :: rowT f
   } deriving (Generic, Beamable)
+
+applyFilterMark ::
+  QPg db s (FilterMarked rowT (Exp s)) ->
+  QPg db s (rowT (Exp s))
+applyFilterMark source = do
+  row <- source
+  guard_ $ fmMatch row
+  return $ fmRow row
 
 type Offset = Integer
 type ResultLimit = Integer
@@ -121,12 +129,11 @@ boundedScanOffset source toCursor offset scanLimit =
 -- the result set but still used as a cursor to resume the search later.
 boundedScanLimit ::
   (SqlOrderable Postgres ordering, Beamable rowT) =>
-  QPg db (N4 s) (FilterMarked rowT (Exp (N4 s))) ->
-  (rowT (Exp (N4 s)) -> ordering) ->
-  ResultLimit ->
+  QPg db (N3 s) (FilterMarked rowT (Exp (N3 s))) ->
+  (rowT (Exp (N3 s)) -> ordering) ->
   ScanLimit ->
   QPg db s (rowT (Exp s), (Exp s ScanLimit, Exp s Bool))
-boundedScanLimit source order limit scanLimit = limit_ limit $ do
+boundedScanLimit source order scanLimit = do
   (row, scan_num) <- subselect_ $ limit_ scanLimit $ withWindow_
     (\row -> frame_ (noPartition_ @Int) (Just $ order $ fmRow row) noBounds_)
     (\row window ->
@@ -139,19 +146,6 @@ boundedScanLimit source order limit scanLimit = limit_ limit $ do
       matchingRow = fmMatch row
   guard_ $ scan_end ||. matchingRow
   return (fmRow row, (scan_num, matchingRow))
-
-unboundedScan ::
-  (SqlOrderable Postgres ordering, Beamable rowT) =>
-  QPg db (N3 s) (FilterMarked rowT (Exp (N3 s))) ->
-  (rowT (Exp (N3 s)) -> ordering) ->
-  ResultLimit ->
-  Offset ->
-  QPg db s (rowT (Exp s))
-unboundedScan source order limit offset =
-  limit_ limit $ offset_ offset $ orderBy_ order $ do
-    row <- source
-    guard_ $ fmMatch row
-    return $ fmRow row
 
 data BSContinuation cursor = BSContinuation
   { bscCursor :: cursor
@@ -171,10 +165,9 @@ data ExecutionStrategy = Bounded ScanLimit | Unbounded
 -- In both cases, if there are potentially more results to find in subsequent
 -- searches, 'performBoundedScan' will return (along with any results found so
 -- far) a contiuation that can be used to resume the search efficiently.
-performBoundedScan :: forall db rowT extras cursorT m.
-  FromBackendRow Postgres (rowT Identity, QExprToIdentity extras) =>
-  Projectible Postgres extras =>
-  Beamable rowT =>
+performBoundedScan :: forall db rowT extrasT cursorT m.
+  FromBackendRow Postgres (rowT Identity, extrasT Identity) =>
+  (Beamable rowT, Beamable extrasT) =>
   (FromBackendRow Postgres (cursorT Identity), SqlValableTable Postgres cursorT) =>
   Monad m =>
   ExecutionStrategy ->
@@ -183,14 +176,14 @@ performBoundedScan :: forall db rowT extras cursorT m.
   (forall f. rowT f -> cursorT (Directional f)) ->
   -- | A relation of rows with annotations indicating whether each row should be kept
   (forall s. QPg db s (FilterMarked rowT (Exp s))) ->
-  (rowT (Exp QBaseScope) -> QPg db QBaseScope extras) ->
+  (forall s. rowT (Exp s) -> QPg db s (extrasT (Exp s))) ->
   -- | The start of this execution, indicates whether this is a new query or the
   -- contionation of a previous execution.
   Either (Maybe Offset) (BSContinuation (cursorT Identity)) ->
   -- | The maximum number of rows to return
   ResultLimit ->
   m ( Maybe (BSContinuation (cursorT Identity))
-    , [(rowT Identity, QExprToIdentity extras)]
+    , [(rowT Identity, extrasT Identity)]
     )
 performBoundedScan stg runPg toCursor source decorate contination resultLimit = do
   let
@@ -212,9 +205,9 @@ performBoundedScan stg runPg toCursor source decorate contination resultLimit = 
 
     runLimit mbStart scanLim = do
       let sourceCont = resumeSource toCursor source mbStart
-      rows <- runPg $ runSelectReturningList $ select $ do
+      rows <- runPg $ runSelectReturningList $ select $ limit_ resultLimit $ do
         (row, a) <- boundedScanLimit
-          sourceCont (directionalOrd . toCursor) resultLimit scanLim
+          sourceCont (directionalOrd . toCursor) scanLim
         extras <- decorate row
         return ((row, extras), a)
       let
@@ -230,8 +223,11 @@ performBoundedScan stg runPg toCursor source decorate contination resultLimit = 
     runUnbounded mbStart mbOffset = do
       let sourceCont = resumeSource toCursor source mbStart
           offset = fromMaybe 0 mbOffset
-      rows <- runPg $ runSelectReturningList $ select $ do
-        row <- unboundedScan sourceCont (directionalOrd . toCursor) resultLimit offset
+      rows <- runPg $ runSelectReturningList $ select $
+        limit_ resultLimit  $
+        offset_ offset $
+        orderBy_ (directionalOrd . toCursor . fst) $ do
+        row <- applyFilterMark sourceCont
         extras <- decorate row
         return (row, extras)
       return $ (,rows) $ if fromIntegral (length rows) >= resultLimit
@@ -349,4 +345,3 @@ type Exp = QGenExpr QValueContext Postgres
 type N1 s = QNested s
 type N2 s = QNested (N1 s)
 type N3 s = QNested (N2 s)
-type N4 s = QNested (N3 s)

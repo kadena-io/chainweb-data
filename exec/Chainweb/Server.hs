@@ -607,17 +607,17 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         toEventsSearchCursor
         (eventsSearchSource searchParams minheight)
-        eventBlockTimeQ
+        eventSearchExtras
         continuation
         resultLimit
       return $ maybe noHeader (addHeader . mkEventToken) mbCont $
-        results <&> \(ev,blockTime) -> EventDetail
+        results <&> \(ev,extras) -> EventDetail
           { _evDetail_name = _ev_qualName ev
           , _evDetail_params = unPgJsonb $ _ev_params ev
           , _evDetail_moduleHash = _ev_moduleHash ev
           , _evDetail_chain = fromIntegral $ _ev_chainid ev
           , _evDetail_height = fromIntegral $ _ev_height ev
-          , _evDetail_blockTime = blockTime
+          , _evDetail_blockTime = eseBlockTime extras
           , _evDetail_blockHash = unDbHash $ unBlockId $ _ev_block ev
           , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
           , _evDetail_idx = fromIntegral $ _ev_idx ev

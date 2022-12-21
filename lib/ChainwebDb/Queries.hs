@@ -148,13 +148,19 @@ eventsSearchSource esp mbHeight = do
     _ev_height ev >=. val_ (fromIntegral hgt)
   return $ FilterMarked (eventSearchCond esp ev) ev
 
-eventBlockTimeQ ::
+newtype EventSearchExtrasT f = EventSearchExtras
+  { eseBlockTime :: C f UTCTime
+  } deriving (Generic, Beamable)
+
+eventSearchExtras ::
   EventT (PgExpr s) ->
-  Q Postgres ChainwebDataDb s (PgExpr s UTCTime)
-eventBlockTimeQ ev = do
+  Q Postgres ChainwebDataDb s (EventSearchExtrasT (PgExpr s))
+eventSearchExtras ev = do
   blk <- all_ $ _cddb_blocks database
   guard_ $ _ev_block ev `references_` blk
-  return $ _block_creationTime blk
+  return $ EventSearchExtras
+    { eseBlockTime = _block_creationTime blk
+    }
 
 _bytequery :: Sql92SelectSyntax (BeamSqlBackendSyntax be) ~ PgSelectSyntax => SqlSelect be a -> ByteString
 _bytequery = \case
