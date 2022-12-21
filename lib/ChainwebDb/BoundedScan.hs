@@ -230,7 +230,7 @@ performBoundedScan stg runPg toCursor source decorate contination resultLimit = 
         row <- applyFilterMark sourceCont
         extras <- decorate row
         return (row, extras)
-      return $ (,rows) $ if fromIntegral (length rows) >= resultLimit
+      return $ (,rows) $ if fromIntegral (length rows) < resultLimit
         then Nothing
         else lastMay rows <&> \row ->
                BSContinuation (unDirectional $ toCursor $ fst row) Nothing
