@@ -330,7 +330,8 @@ mkContinuation readTkn mbOffset mbNext = case (mbNext, mbOffset) of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
       Just cont -> return $ Right cont
     (Just _, Just _) -> throw400 "next token query parameter not allowed with offset"
-    (Nothing, _) -> return $ Left $ unOffset <$> mbOffset
+    (Nothing, Just (Offset offset)) -> return $ Left $ offset <$ guard (offset > 0)
+    (Nothing, Nothing) -> return $ Left Nothing
 
 searchTxs
   :: LogFunctionIO Text

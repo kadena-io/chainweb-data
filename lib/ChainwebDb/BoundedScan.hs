@@ -82,6 +82,9 @@ type ScanLimit = Integer
 -- yield a `cursor` that points at it (so that the `LIMIT` segment of the query
 -- can start), or it will stop after scanning `scanLimit` number of rows from
 -- `source` and yielding the cursor to the row that it stopped.
+--
+-- Note that this function expects the passed in `offset` to be greater than zero
+-- since there's no meaningful cursor it could return in the offset=0 case.
 boundedScanOffset :: forall s db rowT cursorT.
   (Beamable rowT, Beamable cursorT) =>
   QPg db (N3 s) (FilterMarked rowT (Exp (N3 s))) ->
@@ -240,8 +243,8 @@ performBoundedScan stg runPg toCursor source decorate contination resultLimit = 
       Right (BSContinuation cursor mbO) -> (Just cursor, mbO)
   case stg of
     Bounded scanLimit -> case mbOffsetTop of
-      Just offset -> runOffset mbStartTop offset scanLimit
-      Nothing -> runLimit mbStartTop scanLimit
+      Just offset | offset > 0 -> runOffset mbStartTop offset scanLimit
+      _ -> runLimit mbStartTop scanLimit
     Unbounded -> runUnbounded mbStartTop mbOffsetTop
 
 resumeSource :: (SqlValableTable Postgres cursorT) =>
