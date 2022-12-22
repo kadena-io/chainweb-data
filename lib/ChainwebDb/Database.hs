@@ -27,6 +27,7 @@ import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import           Control.Monad (unless)
 import           Data.Functor ((<&>))
 import qualified Data.Pool as P
 import           Data.Text (Text)
@@ -175,10 +176,12 @@ initializeTables logg migrateStatus conn = do
           RunMigration -> do
             BA.tryRunMigrationsWithEditUpdate annotatedDb conn
             logg Info "Done with database migration."
-          DontMigrate -> do
-            logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
+          DontMigrate ignoreDiffs -> do
+            logg Info "Database needs to be migrated."
             showMigration conn
-            exitFailure
+            unless ignoreDiffs $ do
+              logg Error "Re-run with the -m option or you can run the queries above manually"
+              exitFailure
 
 
 

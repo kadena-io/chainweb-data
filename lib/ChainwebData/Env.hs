@@ -58,7 +58,7 @@ import           Text.Printf
 
 ---
 
-data MigrateStatus = RunMigration | DontMigrate
+data MigrateStatus = RunMigration | DontMigrate Bool
   deriving (Eq,Ord,Show,Read)
 
 data Args
@@ -215,8 +215,13 @@ envP = Args
   <*> migrationP
 
 migrationP :: Parser MigrateStatus
-migrationP =
-  flag DontMigrate RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
+migrationP
+    = flag' RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
+  <|> flag' (DontMigrate False)
+        ( long "--ignore-schema-diff"
+       <> help "Ignore any unexpected differences in the database schema"
+        )
+  <|> pure (DontMigrate True)
 
 logLevelParser :: Parser LogLevel
 logLevelParser =
