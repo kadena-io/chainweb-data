@@ -217,11 +217,11 @@ envP = Args
 migrationP :: Parser MigrateStatus
 migrationP
     = flag' RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
-  <|> flag' (DontMigrate False)
-        ( long "--ignore-schema-diff"
+  <|> flag' (DontMigrate True)
+        ( long "ignore-schema-diff"
        <> help "Ignore any unexpected differences in the database schema"
         )
-  <|> pure (DontMigrate True)
+  <|> pure (DontMigrate False)
 
 logLevelParser :: Parser LogLevel
 logLevelParser =
