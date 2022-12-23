@@ -142,8 +142,12 @@ type TheApi =
   :<|> RichlistEndpoint
 
 type ApiWithSwaggerUI
-      = TheApi
+     = TheApi
   :<|> SwaggerSchemaUI "cwd-spec" "cwd-spec.json"
+
+type ApiWithNoSwaggerUI
+     = TheApi
+  :<|> "cwd-spec" :> Get '[PlainText] Text -- Respond with 404
 
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
@@ -183,10 +187,11 @@ apiServerCut env senv cutBS = do
           )
           :<|> richlistHandler
   let swaggerServer = swaggerSchemaUIServer Spec.spec
+      noSwaggerServer = throw404 "Swagger UI server is not enabled on this instance"
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
     if _serverEnv_serveSwaggerUi senv
       then serve (Proxy @ApiWithSwaggerUI) (serverApp req :<|> swaggerServer) req f
-      else serve (Proxy @TheApi) (serverApp req) req f
+      else serve (Proxy @ApiWithNoSwaggerUI) (serverApp req :<|> noSwaggerServer) req f
 
 retryingListener :: Env -> IORef ServerState -> IO ()
 retryingListener env ssRef = do
