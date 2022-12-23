@@ -47,6 +47,7 @@ import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
+import qualified Database.PostgreSQL.Simple.Transaction as PG
 import           Control.Lens
 import           Network.Wai
 import           Network.Wai.Handler.Warp
@@ -84,6 +85,7 @@ import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Transfer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
+import           ChainwebDb.BoundedScan
 ------------------------------------------------------------------------------
 
 setCors :: Middleware
@@ -294,6 +296,50 @@ serverHeaderHandler env ssRef ph@(PowHeader h _) = do
 instance BeamSqlBackendIsString Postgres (Maybe Text)
 instance BeamSqlBackendIsString Postgres (Maybe String)
 
+type TxSearchToken = BSContinuation TxCursor
+
+readTxToken :: NextToken -> Maybe TxSearchToken
+readTxToken tok = readBSToken tok <&> \mbBSC -> mbBSC <&> \(hgt, reqkey) ->
+  TxCursor hgt (DbHash reqkey)
+
+mkTxToken :: TxSearchToken -> NextToken
+mkTxToken txt = mkBSToken $ txt <&> \c -> (txcHeight c, unDbHash $ txcReqKey c)
+
+-- We're looking up the execution strategy directly inside the 'Request'
+-- instead of properly adding it as a RequestHeader to the servant endpoint
+-- definition, because we don't actually expect the clients to set this
+-- header. This header is meant for the application gateway to set for
+-- tuning purposes.
+isBoundedStrategy :: Request -> Either ByteString Bool
+isBoundedStrategy req =
+  case lookup (fromString headerName) $ requestHeaders req of
+    Nothing -> Right False
+    Just header -> case header of
+      "Bounded" -> Right True
+      "Unbounded" -> Right False
+      other -> Left $ toS $ "Unknown " <> fromString headerName <> ": " <> other
+  where headerName = "Chainweb-Execution-Strategy"
+
+getExecutionStrategy :: Request -> Integer -> Handler ExecutionStrategy
+getExecutionStrategy req scanLimit = do
+  isBounded <- either throw400 return $ isBoundedStrategy req
+  return $ if isBounded
+    then Bounded scanLimit
+    else Unbounded
+
+mkContinuation :: MonadError ServerError m =>
+  (NextToken -> Maybe b) ->
+  Maybe Offset ->
+  Maybe NextToken ->
+  m (Either (Maybe Integer) b)
+mkContinuation readTkn mbOffset mbNext = case (mbNext, mbOffset) of
+    (Just nextToken, Nothing) -> case readTkn nextToken of
+      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
+      Just cont -> return $ Right cont
+    (Just _, Just _) -> throw400 "next token query parameter not allowed with offset"
+    (Nothing, Just (Offset offset)) -> return $ Left $ offset <$ guard (offset > 0)
+    (Nothing, Nothing) -> return $ Left Nothing
+
 searchTxs
   :: LogFunctionIO Text
   -> P.Pool Connection
@@ -301,15 +347,40 @@ searchTxs
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text
-  -> Handler [TxSummary]
-searchTxs _ _ _ _ _ Nothing = throw404 "You must specify a search string"
-searchTxs logger pool req limit offset (Just search) = do
-    liftIO $ logger Info $ fromString $ printf "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
-    liftIO $ P.withResource pool $ \c -> do
-      res <- runBeamPostgresDebug (logger Debug . fromString) c $ runSelectReturningList $ searchTxsQueryStmt limit offset search
-      return $ mkSummary <$> res
-  where
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+  -> Maybe NextToken
+  -> Handler (NextHeaders [TxSummary])
+searchTxs _ _ _ _ _ Nothing _ = throw404 "You must specify a search string"
+searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
+  liftIO $ logger Info $ fromString $ printf
+    "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
+  continuation <- mkContinuation readTxToken mbOffset mbNext
+  let
+    resultLimit = maybe 10 (min 100 . unLimit) givenMbLim
+    scanLimit = 20000
+
+  strategy <- getExecutionStrategy req scanLimit
+
+  liftIO $ P.withResource pool $ \c ->
+    PG.withTransactionLevel PG.RepeatableRead c $ do
+      (mbCont, results) <- performBoundedScan strategy
+        (runBeamPostgresDebug (logger Debug . T.pack) c)
+        toTxSearchCursor
+        (txSearchSource search)
+        noDecoration
+        continuation
+        resultLimit
+      return $ maybe noHeader (addHeader . mkTxToken) mbCont $
+        results <&> \(s,_) -> TxSummary
+          { _txSummary_chain = fromIntegral $ dtsChainId s
+          , _txSummary_height = fromIntegral $ dtsHeight s
+          , _txSummary_blockHash = unDbHash $ dtsBlock s
+          , _txSummary_creationTime = dtsCreationTime s
+          , _txSummary_requestKey = unDbHash $ dtsReqKey s
+          , _txSummary_sender = dtsSender s
+          , _txSummary_code = dtsCode s
+          , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
+          , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
+          }
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
@@ -477,9 +548,9 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
           then noHeader
           else case lastMay r of
                  Nothing -> noHeader
-                 Just tr -> addHeader $ mkToken @AccountNextToken
+                 Just (tr,_) -> addHeader $ mkToken @AccountNextToken
                      (_tr_height tr, toS $ show $ _tr_requestkey tr, _tr_idx tr )
-    return $ withHeader $ (`map` r) $ \tr -> AccountDetail
+    return $ withHeader $ (`map` r) $ \(tr, creationTime) -> AccountDetail
       { _acDetail_name = _tr_modulename tr
       , _acDetail_chainid = fromIntegral $ _tr_chainid tr
       , _acDetail_height = fromIntegral $ _tr_height tr
@@ -489,7 +560,28 @@ accountHandler logger pool req account token chain fromHeight limit offset mbNex
       , _acDetail_amount = getKDAScientific $ _tr_amount tr
       , _acDetail_fromAccount = _tr_from_acct tr
       , _acDetail_toAccount = _tr_to_acct tr
+      , _acDetail_blockTime = creationTime
       }
+
+type EventSearchToken = BSContinuation EventCursor
+
+readBSToken :: Read cursor => NextToken -> Maybe (BSContinuation cursor)
+readBSToken tok = readToken tok <&> \(cursor, offNum) ->
+  BSContinuation cursor $ if offNum <= 0 then Nothing else Just offNum
+
+mkBSToken :: Show cursor => BSContinuation cursor -> NextToken
+mkBSToken (BSContinuation cur mbOff) = mkToken (cur, fromMaybe 0 mbOff)
+
+readEventToken :: NextToken -> Maybe EventSearchToken
+readEventToken tok = readBSToken tok <&> \mbBSC -> mbBSC <&> \(hgt,reqkey,idx) ->
+  EventCursor hgt (rkcbFromText reqkey) idx
+
+mkEventToken :: EventSearchToken -> NextToken
+mkEventToken est = mkBSToken $ est <&> \c ->
+  ( ecHeight c
+  , show $ ecReqKey c
+  , ecIdx c
+  )
 
 evHandler
   :: LogFunctionIO Text
@@ -502,28 +594,43 @@ evHandler
   -> Maybe EventName
   -> Maybe EventModuleName
   -> Maybe BlockHeight
-  -> Handler [EventDetail]
-evHandler logger pool req limit offset qSearch qParam qName qModuleName bh = do
+  -> Maybe NextToken
+  -> Handler (NextHeaders [EventDetail])
+evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minheight mbNext = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
-  liftIO $ logger Debug $ fromString "Printing raw query"
-  boundedOffset <- Offset <$> case offset of
-    Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
-      where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
-    Nothing -> return 0
-  liftIO $ logger Debug $ toS $ _bytequery $ eventsQueryStmt limit (Just boundedOffset) qSearch qParam qName qModuleName bh
-  liftIO $ P.withResource pool $ \c -> do
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningList $ eventsQueryStmt limit (Just boundedOffset) qSearch qParam qName qModuleName bh
-    return $ (`map` r) $ \(blk,ev) -> EventDetail
-      { _evDetail_name = _ev_qualName ev
-      , _evDetail_params = unPgJsonb $ _ev_params ev
-      , _evDetail_moduleHash = _ev_moduleHash ev
-      , _evDetail_chain = fromIntegral $ _ev_chainid ev
-      , _evDetail_height = fromIntegral $ _block_height blk
-      , _evDetail_blockTime = _block_creationTime blk
-      , _evDetail_blockHash = unDbHash $ _block_hash blk
-      , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
-      , _evDetail_idx = fromIntegral $ _ev_idx ev
-      }
+  continuation <- mkContinuation readEventToken mbOffset mbNext
+  let searchParams = EventSearchParams
+        { espSearch = qSearch
+        , espParam = qParam
+        , espName = qName
+        , espModuleName = qModuleName
+        }
+      resultLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
+      scanLimit = 20000
+
+  strategy <- getExecutionStrategy req scanLimit
+
+  liftIO $ P.withResource pool $ \c ->
+    PG.withTransactionLevel PG.RepeatableRead c $ do
+      (mbCont, results) <- performBoundedScan strategy
+        (runBeamPostgresDebug (logger Debug . T.pack) c)
+        toEventsSearchCursor
+        (eventsSearchSource searchParams minheight)
+        eventSearchExtras
+        continuation
+        resultLimit
+      return $ maybe noHeader (addHeader . mkEventToken) mbCont $
+        results <&> \(ev,extras) -> EventDetail
+          { _evDetail_name = _ev_qualName ev
+          , _evDetail_params = unPgJsonb $ _ev_params ev
+          , _evDetail_moduleHash = _ev_moduleHash ev
+          , _evDetail_chain = fromIntegral $ _ev_chainid ev
+          , _evDetail_height = fromIntegral $ _ev_height ev
+          , _evDetail_blockTime = eseBlockTime extras
+          , _evDetail_blockHash = unDbHash $ unBlockId $ _ev_block ev
+          , _evDetail_requestKey = getTxHash $ _ev_requestkey ev
+          , _evDetail_idx = fromIntegral $ _ev_idx ev
+          }
 
 data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
 infixr 3 :.
