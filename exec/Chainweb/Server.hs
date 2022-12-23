@@ -145,9 +145,6 @@ type ApiWithSwaggerUI
       = TheApi
   :<|> SwaggerSchemaUI "cwd-spec" "cwd-spec.json"
 
-api :: Proxy ApiWithSwaggerUI
-api = Proxy
-
 apiServer :: Env -> ServerEnv -> IO ()
 apiServer env senv = do
   ecut <- queryCut env
