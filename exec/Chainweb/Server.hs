@@ -349,7 +349,7 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
   continuation <- mkContinuation readTxToken mbOffset mbNext
   let
     resultLimit = maybe 10 (min 100 . unLimit) givenMbLim
-    scanLimit = 20000
+    scanLimit = 50000
 
   strategy <- getExecutionStrategy req scanLimit
 
@@ -599,7 +599,7 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
         , espModuleName = qModuleName
         }
       resultLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
-      scanLimit = 20000
+      scanLimit = 50000
 
   strategy <- getExecutionStrategy req scanLimit
 
