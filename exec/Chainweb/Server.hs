@@ -185,8 +185,11 @@ apiServerCut env senv cutBS = do
             :<|> coinsHandler ssRef
           )
           :<|> richlistHandler
+  let swaggerServer = swaggerSchemaUIServer Spec.spec
   Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
-    serve api (serverApp req :<|> swaggerSchemaUIServer Spec.spec) req f
+    if _serverEnv_serveSwaggerUi senv
+      then serve (Proxy @ApiWithSwaggerUI) (serverApp req :<|> swaggerServer) req f
+      else serve (Proxy @TheApi) (serverApp req) req f
 
 retryingListener :: Env -> IORef ServerState -> IO ()
 retryingListener env ssRef = do

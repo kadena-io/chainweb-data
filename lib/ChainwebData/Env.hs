@@ -203,6 +203,7 @@ data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
   , _serverEnv_runFill :: Bool
   , _serverEnv_fillDelay :: Maybe Int
+  , _serverEnv_serveSwaggerUi :: Bool
   } deriving (Eq,Ord,Show)
 
 envP :: Parser Args
@@ -284,6 +285,8 @@ serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
   <*> delayP
+  -- The OpenAPI spec is currently rudimentary and not official so we're hiding this option
+  <*> flag False True (long "serve-swagger-ui" <> internal)
 
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
