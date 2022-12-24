@@ -511,27 +511,25 @@ accountHandler
   -> Text -- ^ account identifier
   -> Maybe Text -- ^ token type
   -> Maybe ChainId -- ^ chain identifier
-  -> Maybe BlockHeight
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe NextToken
   -> Handler (NextHeaders [AccountDetail])
-accountHandler logger pool req account token chain fromHeight limit offset mbNext = do
+accountHandler logger pool req account token chain limit offset mbNext = do
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
-  queryStart <- case (mbNext, fromHeight, offset) of
-    (Just nextToken, Nothing, Nothing) -> case readToken nextToken of
+  queryStart <- case (mbNext, offset) of
+    (Just nextToken, Nothing) -> case readToken nextToken of
       Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
       Just ((hgt, reqkey, idx) :: AccountNextToken) -> return $
         AQSContinue (fromIntegral hgt) (rkcbFromText reqkey) (fromIntegral idx)
-    (Just _, Just _, _) -> throw400 $ "next token query parameter not allowed with fromheight"
-    (Just _, _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _, _) -> do
+    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
+    (Nothing, _) -> do
       boundedOffset <- Offset <$> case offset of
         Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
           where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
         Nothing -> return 0
-      return $ AQSNewQuery fromHeight boundedOffset
+      return $ AQSNewQuery boundedOffset
   liftIO $ P.withResource pool $ \c -> do
     let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
     r <- runBeamPostgresDebug (logger Debug . T.pack) c $
