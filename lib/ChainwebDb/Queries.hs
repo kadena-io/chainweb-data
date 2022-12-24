@@ -167,7 +167,7 @@ _bytequery = \case
   SqlSelect s -> pgRenderSyntaxScript $ fromPgSelect s
 
 data AccountQueryStart
-  = AQSNewQuery (Maybe BlockHeight) Offset
+  = AQSNewQuery Offset
   | AQSContinue BlockHeight ReqKeyOrCoinbase Int
 
 accountQueryStmt
@@ -202,8 +202,7 @@ accountQueryStmt (Limit limit) account token chain aqs =
       rowFilter tr
       return (tr,_block_creationTime blk)
     (Offset offset, rowFilter) = case aqs of
-      AQSNewQuery mbHeight ofst -> (,) ofst $ \tr ->
-        whenArg mbHeight $ \bh -> guard_ $ _tr_height tr <=. val_ (fromIntegral bh)
+      AQSNewQuery ofst -> (ofst, const $ return ())
       AQSContinue height reqKey idx -> (,) (Offset 0) $ \tr ->
         guard_ $ tupleCmp (<.)
           [ _tr_height tr :<> fromIntegral height
