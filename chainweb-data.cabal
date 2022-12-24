@@ -66,6 +66,7 @@ library
     ChainwebData.Genesis
     ChainwebData.Types
     ChainwebData.Env
+    ChainwebData.Spec
     ChainwebDb.BoundedScan
     ChainwebDb.Database
     ChainwebDb.Queries
@@ -85,8 +86,10 @@ library
     , http-client              ^>=0.6
     , http-client-tls          ^>=0.3
     , http-types
+    , openapi3
     , optparse-applicative     >=0.14 && <0.17
     , servant-client
+    , servant-openapi3
     , yet-another-logger
 
   if flag(ghc-flags)
@@ -131,6 +134,7 @@ executable chainweb-data
     , servant-client
     , servant-client-core
     , servant-server
+    , servant-swagger-ui
     , stm
     , stm-chans
     , streaming                ^>=0.2
