@@ -654,7 +654,7 @@ queryRecentTxs logger pool = do
           guard_ (_tx_block tx `references_` blk)
           return
              ( (_tx_chainId tx)
-             , (_block_height blk)
+             , (_tx_height tx)
              , (unBlockId $ _tx_block tx)
              , (_tx_creationTime tx)
              , (_tx_requestKey tx)
