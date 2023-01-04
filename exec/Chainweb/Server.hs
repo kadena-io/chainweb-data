@@ -650,8 +650,6 @@ queryRecentTxs logger pool = do
         runSelectReturningList $ select $ do
         limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
-          blk <- all_ (_cddb_blocks database)
-          guard_ (_tx_block tx `references_` blk)
           return
              ( (_tx_chainId tx)
              , (_tx_height tx)
