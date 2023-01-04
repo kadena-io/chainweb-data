@@ -11,12 +11,12 @@ source-repository-package
 source-repository-package
     type: git
     location: https://github.com/kadena-io/pact.git
-    tag: d00953b7d76944e188c54fa7cd6235fe7f492a6e
+    tag: 957b8bd7644cebc60d043b33f0d7ffc53c65d783
 
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-api.git
-    tag: 4e8e820d4888a5a29087b97798f0d6551593ff33
+    tag: 953019e5eedc1d23833cb7b5b6c5f53627ff2b20
 
 source-repository-package
     type: git
@@ -44,8 +44,5 @@ package vault
     documentation: false
 
 write-ghc-environment-files: never
-
-constraints:
-    sbv == 8.8
 
 allow-newer: gargoyle:base

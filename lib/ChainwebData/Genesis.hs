@@ -8,7 +8,7 @@ module ChainwebData.Genesis
 ) where
 
 
-import Data.List
+import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 
@@ -32,7 +32,7 @@ genesisHeight (ChainId c) (GenesisInfo gi) = gi M.! c
 --
 mkGenesisInfo :: NodeInfo -> GenesisInfo
 mkGenesisInfo = GenesisInfo
-    . foldl' go mempty
+    . L.foldl' go mempty
     . fromMaybe []
     . _nodeInfo_graphs
   where
@@ -41,4 +41,4 @@ mkGenesisInfo = GenesisInfo
           f (Just bh')
             | bh > bh' = Just bh'
             | otherwise = Just bh
-      in foldl' (\m' (c', _) -> M.alter f c' m') m adjs
+      in L.foldl' (\m' (c', _) -> M.alter f c' m') m adjs

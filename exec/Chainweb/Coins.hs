@@ -18,6 +18,9 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as CSV
 import           Data.Decimal
 import           Data.FileEmbed
+import           Data.Function
+import           Data.List (groupBy, sortBy)
+import           Data.Ord
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Text (Text)
@@ -39,6 +42,20 @@ rawMinerRewards = $(embedFile "data/miner_rewards.csv")
 
 rawAllocations :: ByteString
 rawAllocations = $(embedFile "data/token_payments.csv")
+
+allocations :: [AllocationEntry]
+allocations = V.toList $ decodeAllocations rawAllocations
+
+sortedAllocations :: [AllocationEntry]
+sortedAllocations = sortBy (comparing $ _csvTime . _allocationTime) allocations
+
+allocationGroups :: [[AllocationEntry]]
+allocationGroups = groupBy ((==) `on` utcMonth . _csvTime . _allocationTime) sortedAllocations
+
+utcMonth :: UTCTime -> (Integer, Int)
+utcMonth t = (y,m)
+  where
+    (y,m,_) = toGregorian $ utctDay t
 
 newtype CsvDecimal = CsvDecimal { _csvDecimal :: Decimal }
     deriving newtype (Eq, Ord, Show, Read)

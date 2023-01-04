@@ -23,11 +23,11 @@ import Data.Time.Clock (UTCTime)
 import Database.Beam
 import Database.Beam.AutoMigrate hiding (Table)
 import Database.Beam.Backend.SQL hiding (tableName)
-import Database.Beam.Backend.SQL.Row (FromBackendRow)
+import Database.Beam.Backend.SQL.Row ()
 import Database.Beam.Migrate
 import Database.Beam.Postgres (Postgres)
 import Database.Beam.Postgres.Syntax (PgValueSyntax)
-import Database.Beam.Query (HasSqlEqualityCheck)
+import Database.Beam.Query ()
 ------------------------------------------------------------------------------
 import ChainwebDb.Types.DbHash
 ------------------------------------------------------------------------------

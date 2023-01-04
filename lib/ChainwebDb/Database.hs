@@ -26,8 +26,10 @@ import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Transfer
+import           Control.Monad (unless)
+import           Data.Functor ((<&>))
 import qualified Data.Pool as P
-import           Data.Proxy
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.String
@@ -45,6 +47,7 @@ data ChainwebDataDb f = ChainwebDataDb
   , _cddb_minerkeys :: f (TableEntity MinerKeyT)
   , _cddb_events :: f (TableEntity EventT)
   , _cddb_signers :: f (TableEntity SignerT)
+  , _cddb_transfers :: f (TableEntity TransferT)
   }
   deriving stock (Generic)
   deriving anyclass (Database be)
@@ -128,24 +131,41 @@ database = defaultDbSettings `withDbModification` dbModification
     , _signer_caps = "caps"
     , _signer_sig = "sig"
     }
+  , _cddb_transfers = modifyEntityName modTableName <>
+    modifyTableFields tableModification
+    {_tr_requestkey = "requestkey"
+    , _tr_chainid = "chainid"
+    , _tr_height = "height"
+    , _tr_idx = "idx"
+    , _tr_modulename = "modulename"
+    , _tr_moduleHash = "modulehash"
+    , _tr_from_acct = "from_acct"
+    , _tr_to_acct = "to_acct"
+    , _tr_amount = "amount"
+    , _tr_block = BlockId "block"
+    }
   }
 
 annotatedDb :: BA.AnnotatedDatabaseSettings be ChainwebDataDb
 annotatedDb = BA.defaultAnnotatedDbSettings database
 
-hsSchema :: BA.Schema
-hsSchema = BA.fromAnnotatedDbSettings annotatedDb (Proxy @'[])
+calcCWMigrationSteps :: Connection -> IO BA.Diff
+calcCWMigrationSteps conn = BA.calcMigrationSteps annotatedDb conn <&> \eiSteps ->
+  flip fmap eiSteps $ filter $ \step -> case BA._editAction $ fst $ BA.unPriority step of
+    BA.TableRemoved _ -> False
+    _ -> True
 
 showMigration :: Connection -> IO ()
-showMigration conn =
+showMigration conn = do
+  diff <- calcCWMigrationSteps conn
   runBeamPostgres conn $
-    BA.printMigration $ BA.migrate conn hsSchema
+    BA.printMigration $ BA.createMigration diff
 
 -- | Create the DB tables if necessary.
 initializeTables :: LogFunctionIO Text -> MigrateStatus -> Connection -> IO ()
 initializeTables logg migrateStatus conn = do
-    diff <- BA.calcMigrationSteps annotatedDb conn
-    case diff of
+    diffA <- calcCWMigrationSteps conn
+    case diffA of
       Left err -> do
           logg Error "Error detecting database migration requirements: "
           logg Error $ fromString $ show err
@@ -156,15 +176,19 @@ initializeTables logg migrateStatus conn = do
           RunMigration -> do
             BA.tryRunMigrationsWithEditUpdate annotatedDb conn
             logg Info "Done with database migration."
-          DontMigrate -> do
-            logg Info "Database needs to be migrated.  Re-run with the -m option or you can migrate by hand with the following query:"
+          DontMigrate ignoreDiffs -> do
+            logg Info "Database needs to be migrated."
             showMigration conn
-            exitFailure
+            unless ignoreDiffs $ do
+              logg Error "Re-run with the -m option or you can run the queries above manually"
+              exitFailure
+
+
 
 bench_initializeTables :: Bool -> (Text -> IO ()) -> (Text -> IO ()) -> Connection -> IO Bool
 bench_initializeTables migrate loggInfo loggError conn = do
-    diff <- BA.calcMigrationSteps annotatedDb conn
-    case diff of
+    diffA <- calcCWMigrationSteps conn
+    case diffA of
       Left err -> do
           loggError "Error detecting database migration requirements: "
           loggError $ fromString $ show err

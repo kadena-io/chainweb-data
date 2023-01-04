@@ -24,9 +24,9 @@ common commons
     -fmax-relevant-binds=0
 
   build-depends:
-    , aeson              >=0.11.3.0 && <1.5
+    , aeson              >= 1.4.3
     , base               >=4.7      && <5
-    , base-prelude       ^>=1.3
+    , base-prelude
     , base16-bytestring  ^>=0.1
     , beam-automigrate
     , beam-core          >=0.8 && <0.10
@@ -44,7 +44,8 @@ common commons
     , lens
     , lens-aeson
     , postgresql-simple
-    , resource-pool            ^>=0.2
+    , resource-pool      >= 0.3
+    , safe
     , scientific         ^>=0.3
     , servant
     , streaming-events   ^>=1.0.1
@@ -65,23 +66,30 @@ library
     ChainwebData.Genesis
     ChainwebData.Types
     ChainwebData.Env
+    ChainwebData.Spec
+    ChainwebDb.BoundedScan
     ChainwebDb.Database
     ChainwebDb.Queries
     ChainwebDb.Types.Block
+    ChainwebDb.Types.Common
     ChainwebDb.Types.DbHash
     ChainwebDb.Types.Event
     ChainwebDb.Types.MinerKey
     ChainwebDb.Types.Signer
     ChainwebDb.Types.Transaction
+    ChainwebDb.Types.Transfer
   build-depends:
     base64-bytestring        ^>=1.0
+    , Decimal
     , gargoyle
     , gargoyle-postgresql
     , http-client              ^>=0.6
     , http-client-tls          ^>=0.3
     , http-types
+    , openapi3
     , optparse-applicative     >=0.14 && <0.17
     , servant-client
+    , servant-openapi3
     , yet-another-logger
 
   if flag(ghc-flags)
@@ -105,6 +113,7 @@ executable chainweb-data
     , connection
     , containers               ^>=0.6
     , Decimal
+    , direct-sqlite
     , errors                   ^>=2.3
     , file-embed
     , gargoyle
@@ -112,17 +121,20 @@ executable chainweb-data
     , http-client              ^>=0.6
     , http-client-tls          ^>=0.3
     , http-types
+    , lens-aeson
     , mtl
     , optparse-applicative     >=0.14 && <0.17
-    , pact
+    , pact                     >=4.3.1
     , postgresql-simple
+    , postgresql-simple-migration
     , process                  ^>=1.6
-    , resource-pool            ^>=0.2
+    , resource-pool      >= 0.3
     , retry                    ^>=0.8
-    , scheduler                ^>=1.4
+    , scheduler                 >=1.4
     , servant-client
     , servant-client-core
     , servant-server
+    , servant-swagger-ui
     , stm
     , stm-chans
     , streaming                ^>=0.2
@@ -137,12 +149,13 @@ executable chainweb-data
     , wai-middleware-throttle
     , warp
     , warp-tls
-    , witherable-class         ^>=0
+    , witherable
     , yet-another-logger
 
   -- , gargoyle-postgresql-nix
   other-modules:
     Chainweb.Backfill
+    Chainweb.BackfillTransfers
     Chainweb.Coins
     Chainweb.FillEvents
     Chainweb.Gaps
@@ -170,8 +183,8 @@ test-suite testsuite
     , chainweb-data
     , containers          ^>=0.6
     , neat-interpolation  >=0.5 && < 0.6
-    , tasty               ^>=1.2
-    , tasty-hunit         ^>=0.10
+    , tasty               >=1.2
+    , tasty-hunit         >=0.10
     , text
 
 benchmark bench
@@ -198,7 +211,7 @@ benchmark bench
     , http-client              ^>=0.6
     , optparse-applicative     >=0.14 && <0.17
     , postgresql-simple
-    , resource-pool            ^>=0.2
+    , resource-pool      >= 0.3
     , string-conv
     , text
     , time               >=1.8      && <1.11

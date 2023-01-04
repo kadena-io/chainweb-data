@@ -32,6 +32,7 @@ import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Exception
 import           Data.ByteString (ByteString)
+import           Data.Char (toLower)
 import           Data.IORef
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -57,13 +58,13 @@ import           Text.Printf
 
 ---
 
-data MigrateStatus = RunMigration | DontMigrate
+data MigrateStatus = RunMigration | DontMigrate Bool
   deriving (Eq,Ord,Show,Read)
 
 data Args
   = Args Command Connect UrlScheme Url LogLevel MigrateStatus
     -- ^ arguments for all but the richlist command
-  | RichListArgs NodeDbPath LogLevel
+  | RichListArgs NodeDbPath LogLevel ChainwebVersion
     -- ^ arguments for the Richlist command
   deriving (Show)
 
@@ -93,14 +94,30 @@ withGargoyleDb dbPath func = do
   let pg = defaultPostgres
   withGargoyle pg dbPath $ \dbUri -> do
     caps <- getNumCapabilities
-    pool <- createPool (connectPostgreSQL dbUri) close 1 5 caps
+    let poolConfig =
+          PoolConfig
+            {
+              createResource = connectPostgreSQL dbUri
+            , freeResource = close
+            , poolCacheTTL = 5
+            , poolMaxResources = caps
+            }
+    pool <- newPool poolConfig
     func pool
 
 -- | Create a `Pool` based on `Connect` settings designated on the command line.
 getPool :: IO Connection -> IO (Pool Connection)
 getPool getConn = do
   caps <- getNumCapabilities
-  createPool getConn close 1 5 caps
+  let poolConfig =
+        PoolConfig
+          {
+            createResource = getConn
+          , freeResource = close
+          , poolCacheTTL = 5
+          , poolMaxResources = caps
+          }
+  newPool poolConfig
 
 -- | A bracket for `Pool` interaction.
 withPool :: Connect -> (Pool Connection -> IO a) -> IO a
@@ -169,11 +186,12 @@ data Command
     | Fill FillArgs
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
+    | BackFillTransfers Bool BackfillArgs
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
   { _backfillArgs_delayMicros :: Maybe Int
-  , _backfillArgs_eventChunkSize :: Maybe Integer
+  , _backfillArgs_chunkSize :: Maybe Int
   } deriving (Eq,Ord,Show)
 
 data FillArgs = FillArgs
@@ -185,6 +203,7 @@ data ServerEnv = ServerEnv
   { _serverEnv_port :: Int
   , _serverEnv_runFill :: Bool
   , _serverEnv_fillDelay :: Maybe Int
+  , _serverEnv_serveSwaggerUi :: Bool
   } deriving (Eq,Ord,Show)
 
 envP :: Parser Args
@@ -197,8 +216,13 @@ envP = Args
   <*> migrationP
 
 migrationP :: Parser MigrateStatus
-migrationP =
-  flag DontMigrate RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
+migrationP
+    = flag' RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
+  <|> flag' (DontMigrate True)
+        ( long "ignore-schema-diff"
+       <> help "Ignore any unexpected differences in the database schema"
+        )
+  <|> pure (DontMigrate False)
 
 logLevelParser :: Parser LogLevel
 logLevelParser =
@@ -223,6 +247,20 @@ richListP = hsubparser
         <> help "Chainweb node db filepath"
         )
       <*> logLevelParser
+      <*> simpleVersionParser
+
+versionReader :: ReadM ChainwebVersion
+versionReader = eitherReader $ \case
+  txt | map toLower txt == "mainnet01" || map toLower txt == "mainnet" -> Right "mainnet01"
+  txt | map toLower txt == "testnet04" || map toLower txt == "testnet" -> Right "testnet04"
+  txt -> Left $ printf "Can'txt read chainwebversion: got %" txt
+
+simpleVersionParser :: Parser ChainwebVersion
+simpleVersionParser =
+  option versionReader $
+    long "chainweb-version"
+    <> value "mainnet01"
+    <> help "Chainweb node version"
 
 connectP :: Parser Connect
 connectP = (PGString <$> pgstringP) <|> (PGInfo <$> connectInfoP) <|> (PGGargoyle <$> dbdirP)
@@ -252,6 +290,8 @@ serverP = ServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
   <*> delayP
+  -- The OpenAPI spec is currently rudimentary and not official so we're hiding this option
+  <*> flag False True (long "serve-swagger-ui" <> internal)
 
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
@@ -289,6 +329,8 @@ commands = hsubparser
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
        (progDesc "Event Worker - Fills missing events"))
+  <> command "backfill-transfers" (info (BackFillTransfers <$> flag False True (long "disable-indexes" <> help "Delete indexes on transfers table") <*> bfArgsP)
+       (progDesc "Backfill transfer table entries"))
   )
 
 progress :: LogFunctionIO Text -> IORef Int -> Int -> IO a

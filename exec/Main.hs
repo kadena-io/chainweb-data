@@ -9,6 +9,7 @@ module Main where
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Backfill (backfill)
+import           Chainweb.BackfillTransfers (backfillTransfersCut)
 import           ChainwebDb.Database (initializeTables)
 import           ChainwebData.Env
 import           Chainweb.FillEvents (fillEvents)
@@ -25,6 +26,7 @@ import qualified Data.Pool as P
 import           Data.String
 import           Data.Text (Text)
 import           Database.PostgreSQL.Simple
+import qualified Database.PostgreSQL.Simple.Migration as Mg
 import           Network.Connection hiding (Connection)
 import           Network.HTTP.Client hiding (withConnection)
 import           Network.HTTP.Client.TLS
@@ -44,7 +46,7 @@ main = do
     withLogger (config (getLevel args)) backend $ \logger -> do
       let logg = loggerFunIO logger
       case args of
-        RichListArgs (NodeDbPath mfp) _ -> do
+        RichListArgs (NodeDbPath mfp) _ version -> do
           fp <- case mfp of
             Nothing -> do
               h <- getHomeDirectory
@@ -54,7 +56,7 @@ main = do
             Just fp -> do
               logg Info $ "Constructing rich list using given db-path: " <> fromString fp
               return fp
-          richList logg fp
+          richList logg fp version
         Args c pgc us u _ ms -> do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
@@ -66,6 +68,11 @@ main = do
                 addTransactionsHeightIndex logg conn
                 addEventsHeightChainIdIdxIndex logg conn
                 addEventsHeightNameParamsIndex logg conn
+                addFromAccountsIndex logg conn
+                addToAccountsIndex logg conn
+                addTransactionsRequestKeyIndex logg conn
+                addEventsRequestKeyIndex logg conn
+                initializePGSimpleMigrations logg conn
             logg Info "DB Tables Initialized"
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
@@ -80,6 +87,7 @@ main = do
                     case c of
                       Listen -> listen env
                       Backfill as -> backfill env as
+                      BackFillTransfers indexP as -> backfillTransfersCut env indexP as
                       Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
@@ -95,7 +103,7 @@ main = do
       _ -> False
     getLevel = \case
       Args _ _ _ _ level _ -> level
-      RichListArgs _ level -> level
+      RichListArgs _ level _ -> level
 
 
 data IndexCreationInfo = IndexCreationInfo
@@ -147,6 +155,52 @@ addEventsModuleNameIndex =
       message = "Adding \"(height desc, chainid, module)\" index"
     , statement = "CREATE INDEX IF NOT EXISTS events_height_chainid_module ON events (height DESC, chainid, module);"
     }
+
+addFromAccountsIndex :: LogFunctionIO Text -> Connection -> IO ()
+addFromAccountsIndex =
+  addIndex
+    IndexCreationInfo
+    {
+      message = "Adding \"(from_acct, height desc, idx)\" index on transfers table"
+    , statement = "CREATE INDEX IF NOT EXISTS transfers_from_acct_height_idx ON transfers (from_acct, height desc, idx);"
+    }
+
+addToAccountsIndex :: LogFunctionIO Text -> Connection -> IO ()
+addToAccountsIndex =
+  addIndex
+    IndexCreationInfo
+    {
+      message = "Adding \"(to_acct, height desc,idx)\" index on transfers table"
+    , statement = "CREATE INDEX IF NOT EXISTS transfers_to_acct_height_idx_idx ON transfers (to_acct, height desc, idx);"
+    }
+
+addTransactionsRequestKeyIndex :: LogFunctionIO Text -> Connection -> IO ()
+addTransactionsRequestKeyIndex =
+  addIndex
+    IndexCreationInfo
+    {
+      message = "Adding \"(requestkey)\" index on transactions table"
+    , statement = "CREATE INDEX IF NOT EXISTS transactions_requestkey_idx ON transactions (requestkey);"
+    }
+
+addEventsRequestKeyIndex :: LogFunctionIO Text -> Connection -> IO ()
+addEventsRequestKeyIndex =
+  addIndex
+    IndexCreationInfo
+    {
+      message = "Adding \"(requestkey)\" index on events table"
+    , statement = "CREATE INDEX IF NOT EXISTS events_requestkey_idx ON events (requestkey);"
+    }
+
+initializePGSimpleMigrations :: LogFunctionIO Text -> Connection -> IO ()
+initializePGSimpleMigrations logg conn = do
+  logg Info "Initializing the incremental migrations table"
+  Mg.runMigration (Mg.MigrationContext Mg.MigrationInitialization False conn) >>= \case
+    Mg.MigrationError err -> do
+      let msg = "Error initializing migrations: " ++ err
+      logg Error $ fromString msg
+      die msg
+    Mg.MigrationSuccess -> logg Info "Initialized migrations"
 
 {-
 λ> :main single --chain 2 --height 1487570 --service-host api.chainweb.com --p2p-host us-e3.chainweb.com --dbname chainweb-data --service-port 443 --service-https
