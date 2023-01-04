@@ -20,6 +20,7 @@ module ChainwebData.Env
   , BackfillArgs(..)
   , FillArgs(..)
   , envP
+  , migrateOnlyP
   , richListP
   , NodeDbPath(..)
   , progress
@@ -66,6 +67,7 @@ data Args
     -- ^ arguments for all but the richlist command
   | RichListArgs NodeDbPath LogLevel ChainwebVersion
     -- ^ arguments for the Richlist command
+  | MigrateOnly Connect LogLevel
   deriving (Show)
 
 data Env = Env
@@ -209,7 +211,7 @@ data ServerEnv = ServerEnv
 envP :: Parser Args
 envP = Args
   <$> commands
-  <*> (fromMaybe (PGGargoyle "cwdb-pgdata") <$> optional connectP)
+  <*> connectP
   <*> urlSchemeParser "service" 1848
   <*> urlParser "p2p" 443
   <*> logLevelParser
@@ -230,6 +232,18 @@ logLevelParser =
       long "level"
       <> value Info
       <> help "Initial log threshold"
+
+migrateOnlyP :: Parser Args
+migrateOnlyP = hsubparser
+  ( command "migrate"
+    ( info opts $ progDesc
+        "Run the database migrations only"
+    )
+  )
+  where
+    opts = MigrateOnly
+      <$> connectP
+      <*> logLevelParser
 
 richListP :: Parser Args
 richListP = hsubparser
@@ -263,7 +277,10 @@ simpleVersionParser =
     <> help "Chainweb node version"
 
 connectP :: Parser Connect
-connectP = (PGString <$> pgstringP) <|> (PGInfo <$> connectInfoP) <|> (PGGargoyle <$> dbdirP)
+connectP = (PGString <$> pgstringP)
+       <|> (PGInfo <$> connectInfoP)
+       <|> (PGGargoyle <$> dbdirP)
+       <|> pure (PGGargoyle "cwdb-pgdata")
 
 dbdirP :: Parser FilePath
 dbdirP = strOption (long "dbdir" <> help "Directory for self-run postgres")
