@@ -184,23 +184,29 @@ accountQueryStmt (Limit limit) account token chain aqs =
   select $
   limit_ limit $
   offset_ offset $
-  orderBy_ getOrder $ do
-    unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
+  orderBy_ (getOrder . fst) $ do
+    tr <- transfersScan
+    searchCond tr
+    attachCreationTime tr
   where
-    getOrder (tr,_) =
+    getOrder tr =
       ( desc_ $ _tr_height tr
       , desc_ $ _tr_requestkey tr
       , asc_ $ _tr_idx tr)
-    subQueryLimit = limit + offset
-    accountQuery accountField = limit_ subQueryLimit $ orderBy_ getOrder $ do
+    accountQuery accountField = orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
-      blk <- all_ (_cddb_blocks database)
-      guard_ (_tr_block tr `references_` blk)
       guard_ $ accountField tr ==. val_ account
+      return tr
+    searchCond tr = do
       guard_ $ _tr_modulename tr ==. val_ token
       whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. fromIntegral c
-      rowFilter tr
-      return (tr,_block_creationTime blk)
+    transfersScan = do
+      tr <- unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
+      tr <$ rowFilter tr
+    attachCreationTime tr = do
+      blk <- all_ (_cddb_blocks database)
+      (tr,_block_creationTime blk) <$ guard_ (_tr_block tr `references_` blk)
+
     (Offset offset, rowFilter) = case aqs of
       AQSNewQuery ofst -> (ofst, const $ return ())
       AQSContinue height reqKey idx -> (,) (Offset 0) $ \tr ->
