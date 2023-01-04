@@ -122,6 +122,7 @@ executable chainweb-data
     , http-client-tls          ^>=0.3
     , http-types
     , lens-aeson
+    , managed
     , mtl
     , optparse-applicative     >=0.14 && <0.17
     , pact                     >=4.3.1
