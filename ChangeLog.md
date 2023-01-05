@@ -1,6 +1,28 @@
 # Changelog
 
-## 2.0.0 (pending)
+## 2.1.0 (2023-01-05)
+
+This release drops the officiall support for Ubuntu 18.04 and adds support for Ubuntu 22.04 (see #100)
+
+This is the last version that uses `beam-automigrate` for managing the database schema, from this version on, we'll switch to managing the schema using incremental migration scripts (see #101, #102, #104). When future versions of `chainweb-data` need to migrate the database from a version earlier than 2.1.0, they will ask the user to first run 2.1.0 to prepare their database for incremental migrations.
+
+- A new `/txs/account` endpoint for fetching the incoming and outgoing transfers of a Kadena or non-Kadena account. #76 (also #83, #96, #103, #110, #114, #117)
+- All search endpoints (`/txs/{account,events,search}`) now support an optional (at the discretion of the HTTP gateway) "bounded execution" workflow  (#109, also #118)
+- The event search endpoint `/txs/event` now accepts 2 new arguments to narrow down the search results (#74):
+   - `modulename`: Narrows down the search to events whose modules names match this value **exactly**
+   - `minheight`: The minimum block height of the search window
+- A _hidden_ new `--serve-swagger-ui` CLI argument that can be passed to `chainweb-data` to make it serve a Swagger UI for an auto-generated OpenAPI 3 spec for the `chainweb-data` HTTP API. The CLI argument is hidden because this spec is rudimentary and unofficial at the time of this release. Future releases will improve it.
+- A new `--ignore-schema-diff` CLI argument to `chainweb-data` to make it ignore any unexpected database schema changes. This can be used by `chainweb-data` operators to make schema changes to their database and keep running  `chainweb-data`, but such ad-hoc database schema changes are not officially supported since they can cause a wide variety of errors under unpredictable conditions.
+- A new `migrate` command for the `chainweb-data` CLI that can be used to run the database migrations and exit.
+- A new `/txs/txs` endpoint similar to `/txs/tx`, but it returns a list of `TxDetail` objects, which can contain more than one entry when a transaction is introduced multiple times into the blockchain on independent branches. #71 #72
+- Code search and event search query optimization (#67)
+- Add requestkey indexes on `events` and `transactions` tables (#98)
+- Refactor richlist generation (#89)
+- Load-based throttling for search endpoints (#116)
+- Optimize the recent transactions query at server start up (#119)
+- Coin circulation calculation fix #97
+
+## 2.0.0 (2021-08-18)
 
 This is a major backwards-incompatible update. All chainweb-data users need to
 delete their DB and rebuild from scratch.  Major changes include:
