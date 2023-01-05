@@ -201,7 +201,7 @@ apiServerCut env senv cutBS = do
             :<|> evHandler logg throttledPool req
             :<|> txHandler logg unThrottledPool
             :<|> txsHandler logg unThrottledPool
-            :<|> accountHandler logg unThrottledPool req
+            :<|> accountHandler logg throttledPool req
           )
             :<|> statsHandler ssRef
             :<|> coinsHandler ssRef
@@ -539,7 +539,7 @@ mkToken contents = NextToken $ T.pack $
 
 accountHandler
   :: LogFunctionIO Text
-  -> M.Managed Connection
+  -> M.Managed ConnectionWithThrottling
   -> Request
   -> Text -- ^ account identifier
   -> Maybe Text -- ^ token type
@@ -548,44 +548,44 @@ accountHandler
   -> Maybe Offset
   -> Maybe NextToken
   -> Handler (NextHeaders [AccountDetail])
-accountHandler logger pool req account token chain limit offset mbNext = do
+accountHandler logger pool req account token chain limit mbOffset mbNext = do
+  let usedCoinType = fromMaybe "coin" token
   liftIO $ logger Info $
-    fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
-  queryStart <- case (mbNext, offset) of
-    (Just nextToken, Nothing) -> case readToken nextToken of
-      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
-      Just ((hgt, reqkey, idx) :: AccountNextToken) -> return $
-        AQSContinue (fromIntegral hgt) (rkcbFromText reqkey) (fromIntegral idx)
-    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _) -> do
-      boundedOffset <- Offset <$> case offset of
-        Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
-          where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
-        Nothing -> return 0
-      return $ AQSNewQuery boundedOffset
-  liftIO $ M.with pool $ \c -> do
-    let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $
-      runSelectReturningList $
-        accountQueryStmt boundedLimit account (fromMaybe "coin" token) chain queryStart
-    let withHeader = if length r < fromIntegral (unLimit boundedLimit)
-          then noHeader
-          else case lastMay r of
-                 Nothing -> noHeader
-                 Just (tr,_) -> addHeader $ mkToken @AccountNextToken
-                     (_tr_height tr, toS $ show $ _tr_requestkey tr, _tr_idx tr )
-    return $ withHeader $ (`map` r) $ \(tr, creationTime) -> AccountDetail
-      { _acDetail_name = _tr_modulename tr
-      , _acDetail_chainid = fromIntegral $ _tr_chainid tr
-      , _acDetail_height = fromIntegral $ _tr_height tr
-      , _acDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
-      , _acDetail_requestKey = getTxHash $ _tr_requestkey tr
-      , _acDetail_idx = fromIntegral $ _tr_idx tr
-      , _acDetail_amount = getKDAScientific $ _tr_amount tr
-      , _acDetail_fromAccount = _tr_from_acct tr
-      , _acDetail_toAccount = _tr_to_acct tr
-      , _acDetail_blockTime = creationTime
-      }
+    fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (T.unpack usedCoinType) (maybe "<all-chains>" show chain)
+
+  continuation <- mkContinuation readEventToken mbOffset mbNext
+  isBounded <- isBoundedStrategyM req
+  let searchParams = TransferSearchParams 
+       { tspToken = usedCoinType
+       , tspChainId = chain
+       , tspAccount = account
+       }
+  liftIO $ M.with pool $ \(c, throttling) -> do
+    let
+      scanLimit = ceiling $ 50000 * throttling
+      maxResultLimit = ceiling $ 250 * throttling
+      resultLimit = min maxResultLimit $ maybe 10 unLimit limit
+      strategy = if isBounded then Bounded scanLimit else Unbounded
+    PG.withTransactionLevel PG.RepeatableRead c $ do
+      (mbCont, results) <- performBoundedScan strategy
+        (runBeamPostgresDebug (logger Debug . T.pack) c)
+        toAccountsSearchCursor
+        (transfersSearchSource searchParams)
+        transferSearchExtras
+        continuation
+        resultLimit
+      return $ maybe noHeader (addHeader . mkEventToken) mbCont  $ results <&> \(tr, extras) -> AccountDetail
+        { _acDetail_name = _tr_modulename tr
+        , _acDetail_chainid = fromIntegral $ _tr_chainid tr
+        , _acDetail_height = fromIntegral $ _tr_height tr
+        , _acDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
+        , _acDetail_requestKey = getTxHash $ _tr_requestkey tr
+        , _acDetail_idx = fromIntegral $ _tr_idx tr
+        , _acDetail_amount = getKDAScientific $ _tr_amount tr
+        , _acDetail_fromAccount = _tr_from_acct tr
+        , _acDetail_toAccount = _tr_to_acct tr
+        , _acDetail_blockTime = tseBlockTime extras
+        }
 
 type EventSearchToken = BSContinuation EventCursor
 

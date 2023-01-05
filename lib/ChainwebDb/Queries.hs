@@ -170,7 +170,54 @@ data AccountQueryStart
   = AQSNewQuery Offset
   | AQSContinue BlockHeight ReqKeyOrCoinbase Int
 
-accountQueryStmt
+toAccountsSearchCursor :: TransferT f -> EventCursorT (Directional f)
+toAccountsSearchCursor Transfer{..} = EventCursor
+  (desc _tr_height)
+  (desc _tr_requestkey)
+  (asc _tr_idx)
+
+data TransferSearchParams = TransferSearchParams
+  { 
+    tspToken :: Text
+  , tspChainId :: Maybe ChainId
+  , tspAccount :: Text
+  }
+
+transfersSearchSource ::
+  TransferSearchParams ->
+  Q Postgres ChainwebDataDb s (FilterMarked TransferT (PgExpr s))
+transfersSearchSource tsp = do
+    tr <- sourceTransfersScan
+    return $ FilterMarked (searchCond tr) tr
+  where
+    tokenCond tr = _tr_modulename tr ==. val_ (tspToken tsp)
+    chainCond tr = maybe (val_ True) (\(ChainId c) -> _tr_chainid tr ==. fromIntegral c) (tspChainId tsp)
+    searchCond tr = tokenCond tr &&. chainCond tr 
+    getOrder tr =
+      ( desc_ $ _tr_height tr
+      , desc_ $ _tr_requestkey tr
+      , asc_ $ _tr_idx tr)
+    accountQuery accountField = orderBy_ getOrder $ do
+      tr <- all_ (_cddb_transfers database)
+      guard_ $ accountField tr ==. val_ (tspAccount tsp)
+      return tr
+    sourceTransfersScan = unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
+
+newtype TransferSearchExtrasT f = TransferSearchExtras
+  { tseBlockTime :: C f UTCTime
+  } deriving (Generic, Beamable)
+
+transferSearchExtras ::
+  TransferT (PgExpr s) ->
+  Q Postgres ChainwebDataDb s (TransferSearchExtrasT (PgExpr s))
+transferSearchExtras tr = do
+  blk <- all_ $ _cddb_blocks database
+  guard_ $ _tr_block tr `references_` blk
+  return $ TransferSearchExtras
+    { tseBlockTime = _block_creationTime blk
+    }
+
+_accountQueryStmt
     :: Limit
     -> Text
     -> Text
@@ -180,7 +227,7 @@ accountQueryStmt
     Postgres
     (QExprToIdentity
     (TransferT (QGenExpr QValueContext Postgres QBaseScope)), UTCTime)
-accountQueryStmt (Limit limit) account token chain aqs =
+_accountQueryStmt (Limit limit) account token chain aqs =
   select $
   limit_ limit $
   offset_ offset $
