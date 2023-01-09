@@ -177,8 +177,7 @@ toAccountsSearchCursor Transfer{..} = EventCursor
   (asc _tr_idx)
 
 data TransferSearchParams = TransferSearchParams
-  { 
-    tspToken :: Text
+  { tspToken :: Text
   , tspChainId :: Maybe ChainId
   , tspAccount :: Text
   }
@@ -192,7 +191,7 @@ transfersSearchSource tsp = do
   where
     tokenCond tr = _tr_modulename tr ==. val_ (tspToken tsp)
     chainCond tr = maybe (val_ True) (\(ChainId c) -> _tr_chainid tr ==. fromIntegral c) (tspChainId tsp)
-    searchCond tr = tokenCond tr &&. chainCond tr 
+    searchCond tr = tokenCond tr &&. chainCond tr
     getOrder tr =
       ( desc_ $ _tr_height tr
       , desc_ $ _tr_requestkey tr
