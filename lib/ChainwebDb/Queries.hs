@@ -217,51 +217,5 @@ transferSearchExtras tr = do
     { tseBlockTime = _block_creationTime blk
     }
 
-_accountQueryStmt
-    :: Limit
-    -> Text
-    -> Text
-    -> Maybe ChainId
-    -> AccountQueryStart
-    -> SqlSelect
-    Postgres
-    (QExprToIdentity
-    (TransferT (QGenExpr QValueContext Postgres QBaseScope)), UTCTime)
-_accountQueryStmt (Limit limit) account token chain aqs =
-  select $
-  limit_ limit $
-  offset_ offset $
-  orderBy_ (getOrder . fst) $ do
-    tr <- transfersScan
-    searchCond tr
-    attachCreationTime tr
-  where
-    getOrder tr =
-      ( desc_ $ _tr_height tr
-      , desc_ $ _tr_requestkey tr
-      , asc_ $ _tr_idx tr)
-    accountQuery accountField = orderBy_ getOrder $ do
-      tr <- all_ (_cddb_transfers database)
-      guard_ $ accountField tr ==. val_ account
-      return tr
-    searchCond tr = do
-      guard_ $ _tr_modulename tr ==. val_ token
-      whenArg chain $ \(ChainId c) -> guard_ $ _tr_chainid tr ==. fromIntegral c
-    transfersScan = do
-      tr <- unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
-      tr <$ rowFilter tr
-    attachCreationTime tr = do
-      blk <- all_ (_cddb_blocks database)
-      (tr,_block_creationTime blk) <$ guard_ (_tr_block tr `references_` blk)
-
-    (Offset offset, rowFilter) = case aqs of
-      AQSNewQuery ofst -> (ofst, const $ return ())
-      AQSContinue height reqKey idx -> (,) (Offset 0) $ \tr ->
-        guard_ $ tupleCmp (<.)
-          [ _tr_height tr :<> fromIntegral height
-          , _tr_requestkey tr :<> val_ reqKey
-          , negate (_tr_idx tr) :<> negate (fromIntegral idx)
-          ]
-
 whenArg :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenArg p a = maybe (return ()) a p
