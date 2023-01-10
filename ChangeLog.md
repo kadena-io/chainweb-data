@@ -21,6 +21,8 @@ This is the last version that uses `beam-automigrate` for managing the database 
 - Load-based throttling for search endpoints (#116)
 - Optimize the recent transactions query at server start up (#119)
 - Coin circulation calculation fix #97
+- Set random_page_cost to 0 for CW-D connections #123
+
 
 ## 2.0.0 (2021-08-18)
 
