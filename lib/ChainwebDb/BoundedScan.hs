@@ -34,8 +34,8 @@ import           Data.Proxy (Proxy(..))
 
 import           Database.Beam
 import           Database.Beam.Backend
-import           Database.Beam.Query.Internal (QNested, QOrd)
-import           Database.Beam.Schema.Tables (Beamable(..), Columnar' (..), Ignored)
+import           Database.Beam.Query.Internal (QOrd)
+import           Database.Beam.Schema.Tables (Beamable(..), Columnar' (..))
 import           Database.Beam.Postgres
 
 import           Safe
@@ -68,14 +68,16 @@ type ScanLimit = Integer
 -- > SELECT <cursor-columns>, found_num, scan_num
 -- > FROM (
 -- >   SELECT $(toCursor rest)
--- >        , match AS matching_row
 -- >        , COUNT(*) OVER (ORDER BY $(orderOverCursor rest)) AS scan_num
 -- >        , COUNT(*) FILTER (WHERE match)
--- >            OVER (ORDER BY $(orderOverCursor row.*)) AS found_num
+-- >            OVER (ORDER BY $(orderOverCursor rest)) AS found_num
 -- >   FROM $source AS t(match,rest...)
+-- >   ORDER BY $(orderOverCursor rest)
+-- >   LIMIT $scanLimit
 -- > ) AS t
 -- > WHERE scan_num = $scanLimit
--- >    OR (matching_row AND found_num = $offset)
+-- >    OR found_num = $offset
+-- > ORDER BY $(orderOverCursor <cursor-columns>)
 -- > LIMIT 1
 --
 -- This query will either find the `offset`th row of `source` with `match = TRUE` and
@@ -87,31 +89,34 @@ type ScanLimit = Integer
 -- since there's no meaningful cursor it could return in the offset=0 case.
 boundedScanOffset :: forall s db rowT cursorT.
   (Beamable rowT, Beamable cursorT) =>
-  QPg db (N3 s) (FilterMarked rowT (Exp (N3 s))) ->
-  (rowT (Exp (N3 s)) -> cursorT (Directional (Exp (N3 s)))) ->
+  (forall s2. QPg db s2 (FilterMarked rowT (Exp s2))) ->
+  (forall f. rowT f -> cursorT (Directional f)) ->
   Offset ->
   ScanLimit ->
   QPg db s (cursorT (Exp s), (Exp s ResultLimit, Exp s ScanLimit))
 boundedScanOffset source toCursor offset scanLimit =
-  limit_ 1 $ do
-    (cursor, matchingRow, scan_num, found_num) <- subselect_ $ withWindow_
-      (\row ->
-        ( frame_ (noPartition_ @Int) (Just $ order $ fmRow row) noBounds_
-        , frame_ (noPartition_ @Int) (Just $ order $ fmRow row) (fromBound_ unbounded_)
+  limit_ 1 $ orderBy_ (\(cur,_) -> orderCursor cur) $ do
+    (cursor, scan_num, found_num) <-
+      subselect_ $ limit_ scanLimit $ orderBy_ (\(cur,_,_) -> orderCursor cur) $ withWindow_
+        (\row ->
+          ( frame_ (noPartition_ @Int) (Just $ orderRow $ fmRow row) noBounds_
+          , frame_ (noPartition_ @Int) (Just $ orderRow $ fmRow row) (fromBound_ unbounded_)
+          )
         )
-      )
-      (\row (wNoBounds, wTrailing) ->
-        ( unDirectional $ toCursor $ fmRow row
-        , fmMatch row
-        , rowNumber_ `over_` wNoBounds
-        , countAll_ `filterWhere_` fmMatch row `over_` wTrailing
+        (\row (wNoBounds, wTrailing) ->
+          ( unDirectional $ toCursor $ fmRow row
+          , rowNumber_ `over_` wNoBounds
+          , countAll_ `filterWhere_` fmMatch row `over_` wTrailing
+          )
         )
-      )
-      source
+        source
     guard_ $ scan_num ==. val_ scanLimit
-         ||. (matchingRow &&. found_num ==. val_ offset)
+         ||. found_num ==. val_ offset
     return (cursor, (found_num, scan_num))
-  where order = directionalOrd . toCursor
+  where orderRow = directionalOrd . toCursor
+        orderCursor :: forall s3. cursorT (Exp s3) -> [AnyOrd Postgres s3]
+        orderCursor cur = directionalOrdZip (toCursor tblSkeleton) cur
+
 
 -- | Build the limit segment of a bounded scan query
 --
@@ -123,7 +128,6 @@ boundedScanOffset source toCursor offset scanLimit =
 -- >   FROM $source AS t(match,rest...)
 -- > ) AS t
 -- > WHERE scan_num = $scanLimit OR match
--- > LIMIT $limit
 --
 -- This query will return up to `limit` number of rows of the `source` table
 -- with `match = True` ordered by `order`, but it won't scan any more than
@@ -131,9 +135,9 @@ boundedScanOffset source toCursor offset scanLimit =
 -- returned will have `matchingRow = FALSE` so that it can be discarded from
 -- the result set but still used as a cursor to resume the search later.
 boundedScanLimit ::
-  (SqlOrderable Postgres ordering, Beamable rowT) =>
-  QPg db (N3 s) (FilterMarked rowT (Exp (N3 s))) ->
-  (rowT (Exp (N3 s)) -> ordering) ->
+  (Beamable rowT) =>
+  (forall s2. QPg db s2 (FilterMarked rowT (Exp s2))) ->
+  (forall s2. rowT (Exp s2) -> [AnyOrd Postgres s2]) ->
   ScanLimit ->
   QPg db s (rowT (Exp s), (Exp s ScanLimit, Exp s Bool))
 boundedScanLimit source order scanLimit = do
@@ -191,9 +195,8 @@ performBoundedScan :: forall db rowT extrasT cursorT m.
 performBoundedScan stg runPg toCursor source decorate contination resultLimit = do
   let
     runOffset mbStart offset scanLimit = do
-      let sourceCont = resumeSource toCursor source mbStart
       mbCursor <- runPg $ runSelectReturningOne $ select $ boundedScanOffset
-        sourceCont
+        (resumeSource toCursor source mbStart)
         toCursor
         offset
         scanLimit
@@ -207,12 +210,15 @@ performBoundedScan stg runPg toCursor source decorate contination resultLimit = 
           else runLimit (Just cursor) (scanLimit - scan_cnt)
 
     runLimit mbStart scanLim = do
-      let sourceCont = resumeSource toCursor source mbStart
-      rows <- runPg $ runSelectReturningList $ select $ limit_ resultLimit $ do
-        (row, a) <- boundedScanLimit
-          sourceCont (directionalOrd . toCursor) scanLim
-        extras <- decorate row
-        return ((row, extras), a)
+      rows <- runPg $ runSelectReturningList $ select $
+        limit_ resultLimit $
+        orderBy_ (\((row,_),_) -> directionalOrd $ toCursor row ) $ do
+          (row, bsBookKeeping) <- boundedScanLimit
+            (resumeSource toCursor source mbStart)
+            (directionalOrd . toCursor)
+            scanLim
+          extras <- decorate row
+          return ((row, extras), bsBookKeeping)
       let
         scanned = fromMaybe 0 $ lastMay rows <&> \(_,(scanNum,_)) -> scanNum
         mbNextCursor = (lastMay rows <&> \((row,_),_) -> unDirectional $ toCursor row)
@@ -288,12 +294,20 @@ data Directional f a = Directional Dir (Columnar' f a)
 -- "cursor order", i.e. in ascending cursor values.
 directionalOrd :: forall t backend s. (BeamSqlBackend backend, Beamable t) =>
   t (Directional (QExpr backend s)) -> [AnyOrd backend s]
-directionalOrd t = fst $ zipBeamFieldsM mkOrd t tblSkeleton where
+directionalOrd t = directionalOrdZip t $ unDirectional t
+
+-- | Given a 'Beamable' row containing Dir-annotations and another row of the
+-- same shape containing SQL expressions, return a value that can be passed to
+-- an 'orderBy_' that orders the results in "cursor order", i.e. in ascending
+-- cursor values.
+directionalOrdZip :: forall t backend s ignored. (BeamSqlBackend backend, Beamable t) =>
+  t (Directional ignored) -> t (QExpr backend s) -> [AnyOrd backend s]
+directionalOrdZip tDirs tExps = fst $ zipBeamFieldsM mkOrd tDirs tExps where
   mkOrd ::
-    Columnar' (Directional (QExpr backend s)) a ->
-    Columnar' Ignored a ->
+    Columnar' (Directional ignored) a ->
+    Columnar' (QExpr backend s) a ->
     ([AnyOrd backend s], Columnar' Proxy a)
-  mkOrd (Columnar' (Directional dir (Columnar' q))) _ = ([ord],Columnar' Proxy)
+  mkOrd (Columnar' (Directional dir _)) (Columnar' q) = ([ord],Columnar' Proxy)
     where ord = anyOrd $ case dir of
             Asc -> asc_ q
             Desc -> desc_ q
@@ -344,7 +358,3 @@ noDecoration _ = return UnitF
 type QPg = Q Postgres
 
 type Exp = QGenExpr QValueContext Postgres
-
-type N1 s = QNested s
-type N2 s = QNested (N1 s)
-type N3 s = QNested (N2 s)
