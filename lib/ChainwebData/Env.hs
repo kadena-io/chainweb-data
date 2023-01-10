@@ -8,7 +8,7 @@ module ChainwebData.Env
   , Env(..)
   , chainStartHeights
   , ServerEnv(..)
-  , Connect(..), withPool
+  , Connect(..), withPoolInit, withPool, withCWDPool
   , Scheme(..)
   , toServantScheme
   , Url(..)
@@ -32,17 +32,18 @@ import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Monad (void)
 import           Data.ByteString (ByteString)
 import           Data.Char (toLower)
 import           Data.IORef
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import           Data.Maybe
 import           Data.String
 import           Data.Pool
 import           Data.Text (pack, Text)
 import           Data.Time.Clock.POSIX
 import           Database.Beam.Postgres
+import           Database.PostgreSQL.Simple (execute_)
 import           Gargoyle
 import           Gargoyle.PostgreSQL
 -- To get gargoyle to give you postgres automatically without having to install
@@ -90,8 +91,11 @@ data Connect = PGInfo ConnectInfo | PGString ByteString | PGGargoyle String
   deriving (Eq,Show)
 
 -- | Equivalent to withPool but uses a Postgres DB started by Gargoyle
-withGargoyleDb :: FilePath -> (Pool Connection -> IO a) -> IO a
-withGargoyleDb dbPath func = do
+withGargoyleDbInit ::
+  (Connection -> IO ()) ->
+  FilePath ->
+  (Pool Connection -> IO a) -> IO a
+withGargoyleDbInit initConn dbPath func = do
   --pg <- postgresNix
   let pg = defaultPostgres
   withGargoyle pg dbPath $ \dbUri -> do
@@ -99,7 +103,7 @@ withGargoyleDb dbPath func = do
     let poolConfig =
           PoolConfig
             {
-              createResource = connectPostgreSQL dbUri
+              createResource = connectPostgreSQL dbUri >>= \c -> c <$ initConn c
             , freeResource = close
             , poolCacheTTL = 5
             , poolMaxResources = caps
@@ -122,10 +126,28 @@ getPool getConn = do
   newPool poolConfig
 
 -- | A bracket for `Pool` interaction.
+withPoolInit :: (Connection -> IO ()) -> Connect -> (Pool Connection -> IO a) -> IO a
+withPoolInit initC = \case
+  PGGargoyle dbPath -> withGargoyleDbInit initC dbPath
+  PGInfo ci -> bracket (getPool $ withInit (connect ci)) destroyAllResources
+  PGString s -> bracket (getPool $ withInit (connectPostgreSQL s)) destroyAllResources
+  where withInit mkConn = mkConn >>= \c -> c <$ initC c
+
+
+-- | A bracket for `Pool` interaction.
 withPool :: Connect -> (Pool Connection -> IO a) -> IO a
-withPool (PGGargoyle dbPath) = withGargoyleDb dbPath
-withPool (PGInfo ci) = bracket (getPool (connect ci)) destroyAllResources
-withPool (PGString s) = bracket (getPool (connectPostgreSQL s)) destroyAllResources
+withPool = withPoolInit mempty
+
+withCWDPool :: Connect -> (Pool Connection -> IO a) -> IO a
+withCWDPool = withPoolInit $ \conn -> do
+  -- The following tells postgres to assume that accesses to random disk pages
+  -- is equally expensive as accessing sequential pages. This is generally a good
+  -- setting for a database that's storing its data on an SSD, but our intention
+  -- here is to encourage Postgres to use index scan over table scans. The
+  -- justification is that we design CW-D indexes and queries in tandem carefully
+  -- to make sure all requests are serviced with predictable performance
+  -- characteristics.
+  void $ execute_ conn "SET random_page_cost = 1.0"
 
 data Scheme = Http | Https
   deriving (Eq,Ord,Show,Enum,Bounded)
