@@ -63,7 +63,7 @@ main = do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
-          withPool pgc $ \pool -> do
+          withCWDPool pgc $ \pool -> do
             runMigrations pool logg ms (isIndexedDisabled c)
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
