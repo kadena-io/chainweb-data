@@ -64,6 +64,7 @@ import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.Common (BlockHeight)
+import           Chainweb.Api.StringEncoded (StringEncoded(..))
 import           Chainweb.Coins
 import           ChainwebDb.Database
 import           ChainwebDb.Queries
@@ -555,7 +556,7 @@ accountHandler logger pool req account token chain limit mbOffset mbNext = do
 
   continuation <- mkContinuation readEventToken mbOffset mbNext
   isBounded <- isBoundedStrategyM req
-  let searchParams = TransferSearchParams 
+  let searchParams = TransferSearchParams
        { tspToken = usedCoinType
        , tspChainId = chain
        , tspAccount = account
@@ -581,7 +582,7 @@ accountHandler logger pool req account token chain limit mbOffset mbNext = do
         , _acDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
         , _acDetail_requestKey = getTxHash $ _tr_requestkey tr
         , _acDetail_idx = fromIntegral $ _tr_idx tr
-        , _acDetail_amount = getKDAScientific $ _tr_amount tr
+        , _acDetail_amount = StringEncoded $ getKDAScientific $ _tr_amount tr
         , _acDetail_fromAccount = _tr_from_acct tr
         , _acDetail_toAccount = _tr_to_acct tr
         , _acDetail_blockTime = tseBlockTime extras
