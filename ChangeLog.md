@@ -6,7 +6,7 @@ This release drops the officiall support for Ubuntu 18.04 and adds support for U
 
 This is the last version that uses `beam-automigrate` for managing the database schema, from this version on, we'll switch to managing the schema using incremental migration scripts (see #101, #102, #104). When future versions of `chainweb-data` need to migrate the database from a version earlier than 2.1.0, they will ask the user to first run 2.1.0 to prepare their database for incremental migrations.
 
-- A new `/txs/account` endpoint for fetching the incoming and outgoing transfers of a Kadena or non-Kadena account. #76 (also #83, #96, #103, #110, #114, #117)
+- A new `/txs/account` endpoint for fetching the incoming and outgoing transfers of a Kadena or non-Kadena account. #76 (also #83, #96, #103, #110, #114, #117, #124, #125)
 - All search endpoints (`/txs/{account,events,search}`) now support an optional (at the discretion of the HTTP gateway) "bounded execution" workflow  (#109, also #118)
 - The event search endpoint `/txs/event` now accepts 2 new arguments to narrow down the search results (#74):
    - `modulename`: Narrows down the search to events whose modules names match this value **exactly**
