@@ -64,6 +64,7 @@ import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.Common (BlockHeight)
+import           Chainweb.Api.StringEncoded (StringEncoded(..))
 import           Chainweb.Coins
 import           ChainwebDb.Database
 import           ChainwebDb.Queries
@@ -74,9 +75,8 @@ import           Chainweb.Lookups
 import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
-import           ChainwebData.AccountDetail
+import           ChainwebData.TransferDetail
 import           ChainwebData.EventDetail
-import           ChainwebData.AccountDetail ()
 import qualified ChainwebData.Spec as Spec
 import           ChainwebData.Pagination
 import           ChainwebData.TxDetail
@@ -547,7 +547,7 @@ accountHandler
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe NextToken
-  -> Handler (NextHeaders [AccountDetail])
+  -> Handler (NextHeaders [TransferDetail])
 accountHandler logger pool req account token chain limit mbOffset mbNext = do
   let usedCoinType = fromMaybe "coin" token
   liftIO $ logger Info $
@@ -555,7 +555,7 @@ accountHandler logger pool req account token chain limit mbOffset mbNext = do
 
   continuation <- mkContinuation readEventToken mbOffset mbNext
   isBounded <- isBoundedStrategyM req
-  let searchParams = TransferSearchParams 
+  let searchParams = TransferSearchParams
        { tspToken = usedCoinType
        , tspChainId = chain
        , tspAccount = account
@@ -574,17 +574,17 @@ accountHandler logger pool req account token chain limit mbOffset mbNext = do
         transferSearchExtras
         continuation
         resultLimit
-      return $ maybe noHeader (addHeader . mkEventToken) mbCont  $ results <&> \(tr, extras) -> AccountDetail
-        { _acDetail_name = _tr_modulename tr
-        , _acDetail_chainid = fromIntegral $ _tr_chainid tr
-        , _acDetail_height = fromIntegral $ _tr_height tr
-        , _acDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
-        , _acDetail_requestKey = getTxHash $ _tr_requestkey tr
-        , _acDetail_idx = fromIntegral $ _tr_idx tr
-        , _acDetail_amount = getKDAScientific $ _tr_amount tr
-        , _acDetail_fromAccount = _tr_from_acct tr
-        , _acDetail_toAccount = _tr_to_acct tr
-        , _acDetail_blockTime = tseBlockTime extras
+      return $ maybe noHeader (addHeader . mkEventToken) mbCont  $ results <&> \(tr, extras) -> TransferDetail
+        { _trDetail_name = _tr_modulename tr
+        , _trDetail_chainid = fromIntegral $ _tr_chainid tr
+        , _trDetail_height = fromIntegral $ _tr_height tr
+        , _trDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
+        , _trDetail_requestKey = getTxHash $ _tr_requestkey tr
+        , _trDetail_idx = fromIntegral $ _tr_idx tr
+        , _trDetail_amount = StringEncoded $ getKDAScientific $ _tr_amount tr
+        , _trDetail_fromAccount = _tr_from_acct tr
+        , _trDetail_toAccount = _tr_to_acct tr
+        , _trDetail_blockTime = tseBlockTime extras
         }
 
 type EventSearchToken = BSContinuation EventCursor
