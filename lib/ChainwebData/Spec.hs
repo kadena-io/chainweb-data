@@ -29,7 +29,7 @@ import ChainwebData.EventDetail (EventDetail)
 import ChainwebData.Util
 import qualified Data.Aeson as A
 import ChainwebData.TxDetail
-import ChainwebData.AccountDetail (AccountDetail)
+import ChainwebData.TransferDetail (TransferDetail)
 import Chainweb.Api.StringEncoded (StringEncoded)
 import Data.Scientific (Scientific)
 
@@ -63,7 +63,7 @@ instance ToSchema TxEvent where
   declareNamedSchema = genericDeclareNamedSchema
     defaultSchemaOptions{ fieldLabelModifier = lensyConstructorToNiceJson 9 }
 
-instance ToSchema AccountDetail where
+instance ToSchema TransferDetail where
   declareNamedSchema = genericDeclareNamedSchema
     defaultSchemaOptions{ fieldLabelModifier = lensyConstructorToNiceJson 10 }
 
