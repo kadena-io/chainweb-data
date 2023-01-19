@@ -46,6 +46,8 @@ main = do
     withLogger (config (getLevel args)) backend $ \logger -> do
       let logg = loggerFunIO logger
       case args of
+        MigrateOnly pgc _ -> withPool pgc $ \pool ->
+          runMigrations pool logg RunMigration False
         RichListArgs (NodeDbPath mfp) _ version -> do
           fp <- case mfp of
             Nothing -> do
@@ -61,19 +63,8 @@ main = do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
-          withPool pgc $ \pool -> do
-            P.withResource pool $ \conn ->
-              unless (isIndexedDisabled c) $ do
-                initializeTables logg ms conn
-                addTransactionsHeightIndex logg conn
-                addEventsHeightChainIdIdxIndex logg conn
-                addEventsHeightNameParamsIndex logg conn
-                addFromAccountsIndex logg conn
-                addToAccountsIndex logg conn
-                addTransactionsRequestKeyIndex logg conn
-                addEventsRequestKeyIndex logg conn
-                initializePGSimpleMigrations logg conn
-            logg Info "DB Tables Initialized"
+          withCWDPool pgc $ \pool -> do
+            runMigrations pool logg ms (isIndexedDisabled c)
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
             getNodeInfo m us >>= \case
@@ -93,7 +84,7 @@ main = do
                       FillEvents as et -> fillEvents env as et
                       Server serverEnv -> apiServer env serverEnv
   where
-    opts = info ((richListP <|> envP) <**> helper)
+    opts = info ((richListP <|> migrateOnlyP <|> envP) <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
     config level = defaultLoggerConfig
       & loggerConfigThreshold .~ level
@@ -104,6 +95,23 @@ main = do
     getLevel = \case
       Args _ _ _ _ level _ -> level
       RichListArgs _ level _ -> level
+      MigrateOnly _ level -> level
+
+runMigrations ::
+  P.Pool Connection -> LogFunctionIO Text -> MigrateStatus -> Bool -> IO ()
+runMigrations pool logg ms indexesDisabled = do
+  P.withResource pool $ \conn ->
+    unless indexesDisabled $ do
+      initializeTables logg ms conn
+      addTransactionsHeightIndex logg conn
+      addEventsHeightChainIdIdxIndex logg conn
+      addEventsHeightNameParamsIndex logg conn
+      addFromAccountsIndex logg conn
+      addToAccountsIndex logg conn
+      addTransactionsRequestKeyIndex logg conn
+      addEventsRequestKeyIndex logg conn
+      initializePGSimpleMigrations logg conn
+  logg Info "DB Tables Initialized"
 
 
 data IndexCreationInfo = IndexCreationInfo

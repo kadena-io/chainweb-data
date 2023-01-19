@@ -23,7 +23,9 @@ import           Chainweb.Api.NodeInfo
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
+import           Control.Exception (bracket_)
 import           Control.Monad.Except
+import qualified Control.Monad.Managed as M
 import           Control.Retry
 import           Data.Aeson hiding (Error)
 import qualified Data.ByteString as BS
@@ -62,6 +64,7 @@ import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.Common (BlockHeight)
+import           Chainweb.Api.StringEncoded (StringEncoded(..))
 import           Chainweb.Coins
 import           ChainwebDb.Database
 import           ChainwebDb.Queries
@@ -72,9 +75,8 @@ import           Chainweb.Lookups
 import           Chainweb.RichList
 import           ChainwebData.Types
 import           ChainwebData.Api
-import           ChainwebData.AccountDetail
+import           ChainwebData.TransferDetail
 import           ChainwebData.EventDetail
-import           ChainwebData.AccountDetail ()
 import qualified ChainwebData.Spec as Spec
 import           ChainwebData.Pagination
 import           ChainwebData.TxDetail
@@ -159,6 +161,17 @@ apiServer env senv = do
        logg Info $ fromString $ show e
     Right cutBS -> apiServerCut env senv cutBS
 
+type ConnectionWithThrottling = (Connection, Double)
+
+-- | Given the amount of contention on connections, calculate a factor between
+-- 0 and 1 that should be used to scale down the amount of work done by request
+-- handlers
+throttlingFactor :: Integer -> Double
+throttlingFactor load = if loadPerCap <= 1 then 1 else 1 / loadPerCap where
+  -- We're arbitrarily assuming that Postgres will handle 3 concurrent requests
+  -- without any slowdown
+  loadPerCap = fromInteger load / 3
+
 apiServerCut :: Env -> ServerEnv -> ByteString -> IO ()
 apiServerCut env senv cutBS = do
   let curHeight = cutMaxHeight cutBS
@@ -174,13 +187,21 @@ apiServerCut env senv cutBS = do
   _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
   _ <- forkIO $ retryingListener env ssRef
   logg Info $ fromString "Starting chainweb-data server"
+  throttledPool <- do
+    loadedSrc <- mkLoadedSource $ M.managed $ P.withResource pool
+    return $ do
+      loadedRes <- loadedSrc
+      load <- M.liftIO (lrLoadRef loadedRes)
+      return (lrResource loadedRes, throttlingFactor load)
+
+  let unThrottledPool = fst <$> throttledPool
   let serverApp req =
         ( ( recentTxsHandler ssRef
-            :<|> searchTxs logg pool req
-            :<|> evHandler logg pool req
-            :<|> txHandler logg pool
-            :<|> txsHandler logg pool
-            :<|> accountHandler logg pool req
+            :<|> searchTxs logg throttledPool req
+            :<|> evHandler logg throttledPool req
+            :<|> txHandler logg unThrottledPool
+            :<|> txsHandler logg unThrottledPool
+            :<|> accountHandler logg throttledPool req
           )
             :<|> statsHandler ssRef
             :<|> coinsHandler ssRef
@@ -325,12 +346,9 @@ isBoundedStrategy req =
       other -> Left $ toS $ "Unknown " <> fromString headerName <> ": " <> other
   where headerName = "Chainweb-Execution-Strategy"
 
-getExecutionStrategy :: Request -> Integer -> Handler ExecutionStrategy
-getExecutionStrategy req scanLimit = do
-  isBounded <- either throw400 return $ isBoundedStrategy req
-  return $ if isBounded
-    then Bounded scanLimit
-    else Unbounded
+isBoundedStrategyM :: Request -> Handler Bool
+isBoundedStrategyM req = do
+  either throw400 return $ isBoundedStrategy req
 
 mkContinuation :: MonadError ServerError m =>
   (NextToken -> Maybe b) ->
@@ -347,7 +365,7 @@ mkContinuation readTkn mbOffset mbNext = case (mbNext, mbOffset) of
 
 searchTxs
   :: LogFunctionIO Text
-  -> P.Pool Connection
+  -> M.Managed ConnectionWithThrottling
   -> Request
   -> Maybe Limit
   -> Maybe Offset
@@ -359,13 +377,16 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
   liftIO $ logger Info $ fromString $ printf
     "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
   continuation <- mkContinuation readTxToken mbOffset mbNext
-  let
-    resultLimit = maybe 10 (min 100 . unLimit) givenMbLim
-    scanLimit = 20000
 
-  strategy <- getExecutionStrategy req scanLimit
+  isBounded <- isBoundedStrategyM req
 
-  liftIO $ P.withResource pool $ \c ->
+  liftIO $ M.with pool $ \(c, throttling) -> do
+    let
+      scanLimit = ceiling $ 50000 * throttling
+      maxResultLimit = ceiling $ 250 * throttling
+      resultLimit = min maxResultLimit $ maybe 10 unLimit givenMbLim
+      strategy = if isBounded then Bounded scanLimit else Unbounded
+
     PG.withTransactionLevel PG.RepeatableRead c $ do
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
@@ -395,12 +416,12 @@ throw400 msg = throwError $ err400 { errBody = msg }
 
 txHandler
   :: LogFunctionIO Text
-  -> P.Pool Connection
+  -> M.Managed Connection
   -> Maybe RequestKey
   -> Handler TxDetail
 txHandler _ _ Nothing = throw404 "You must specify a search string"
 txHandler logger pool (Just (RequestKey rk)) =
-  may404 $ liftIO $ P.withResource pool $ \c ->
+  may404 $ liftIO $ M.with pool $ \c ->
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
     r <- runSelectReturningOne $ select $ do
       tx <- all_ (_cddb_transactions database)
@@ -451,12 +472,12 @@ txHandler logger pool (Just (RequestKey rk)) =
 
 txsHandler
   :: LogFunctionIO Text
-  -> P.Pool Connection
+  -> M.Managed Connection
   -> Maybe RequestKey
   -> Handler [TxDetail]
 txsHandler _ _ Nothing = throw404 "You must specify a search string"
 txsHandler logger pool (Just (RequestKey rk)) =
-  emptyList404 $ liftIO $ P.withResource pool $ \c ->
+  emptyList404 $ liftIO $ M.with pool $ \c ->
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
     r <- runSelectReturningList $ select $ do
       tx <- all_ (_cddb_transactions database)
@@ -518,7 +539,7 @@ mkToken contents = NextToken $ T.pack $
 
 accountHandler
   :: LogFunctionIO Text
-  -> P.Pool Connection
+  -> M.Managed ConnectionWithThrottling
   -> Request
   -> Text -- ^ account identifier
   -> Maybe Text -- ^ token type
@@ -526,45 +547,45 @@ accountHandler
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe NextToken
-  -> Handler (NextHeaders [AccountDetail])
-accountHandler logger pool req account token chain limit offset mbNext = do
+  -> Handler (NextHeaders [TransferDetail])
+accountHandler logger pool req account token chain limit mbOffset mbNext = do
+  let usedCoinType = fromMaybe "coin" token
   liftIO $ logger Info $
-    fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (maybe "coin" T.unpack token) (maybe "<all-chains>" show chain)
-  queryStart <- case (mbNext, offset) of
-    (Just nextToken, Nothing) -> case readToken nextToken of
-      Nothing -> throw400 $ toS $ "Invalid next token: " <> unNextToken nextToken
-      Just ((hgt, reqkey, idx) :: AccountNextToken) -> return $
-        AQSContinue (fromIntegral hgt) (rkcbFromText reqkey) (fromIntegral idx)
-    (Just _, Just _) -> throw400 $ "next token query parameter not allowed with offset"
-    (Nothing, _) -> do
-      boundedOffset <- Offset <$> case offset of
-        Just (Offset o) -> if o >= 10000 then throw400 errMsg else return o
-          where errMsg = toS (printf "the maximum allowed offset is 10,000. You requested %d" o :: String)
-        Nothing -> return 0
-      return $ AQSNewQuery boundedOffset
-  liftIO $ P.withResource pool $ \c -> do
-    let boundedLimit = Limit $ maybe 20 (min 100 . unLimit) limit
-    r <- runBeamPostgresDebug (logger Debug . T.pack) c $
-      runSelectReturningList $
-        accountQueryStmt boundedLimit account (fromMaybe "coin" token) chain queryStart
-    let withHeader = if length r < fromIntegral (unLimit boundedLimit)
-          then noHeader
-          else case lastMay r of
-                 Nothing -> noHeader
-                 Just (tr,_) -> addHeader $ mkToken @AccountNextToken
-                     (_tr_height tr, toS $ show $ _tr_requestkey tr, _tr_idx tr )
-    return $ withHeader $ (`map` r) $ \(tr, creationTime) -> AccountDetail
-      { _acDetail_name = _tr_modulename tr
-      , _acDetail_chainid = fromIntegral $ _tr_chainid tr
-      , _acDetail_height = fromIntegral $ _tr_height tr
-      , _acDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
-      , _acDetail_requestKey = getTxHash $ _tr_requestkey tr
-      , _acDetail_idx = fromIntegral $ _tr_idx tr
-      , _acDetail_amount = getKDAScientific $ _tr_amount tr
-      , _acDetail_fromAccount = _tr_from_acct tr
-      , _acDetail_toAccount = _tr_to_acct tr
-      , _acDetail_blockTime = creationTime
-      }
+    fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (T.unpack usedCoinType) (maybe "<all-chains>" show chain)
+
+  continuation <- mkContinuation readEventToken mbOffset mbNext
+  isBounded <- isBoundedStrategyM req
+  let searchParams = TransferSearchParams
+       { tspToken = usedCoinType
+       , tspChainId = chain
+       , tspAccount = account
+       }
+  liftIO $ M.with pool $ \(c, throttling) -> do
+    let
+      scanLimit = ceiling $ 50000 * throttling
+      maxResultLimit = ceiling $ 250 * throttling
+      resultLimit = min maxResultLimit $ maybe 10 unLimit limit
+      strategy = if isBounded then Bounded scanLimit else Unbounded
+    PG.withTransactionLevel PG.RepeatableRead c $ do
+      (mbCont, results) <- performBoundedScan strategy
+        (runBeamPostgresDebug (logger Debug . T.pack) c)
+        toAccountsSearchCursor
+        (transfersSearchSource searchParams)
+        transferSearchExtras
+        continuation
+        resultLimit
+      return $ maybe noHeader (addHeader . mkEventToken) mbCont  $ results <&> \(tr, extras) -> TransferDetail
+        { _trDetail_name = _tr_modulename tr
+        , _trDetail_chainid = fromIntegral $ _tr_chainid tr
+        , _trDetail_height = fromIntegral $ _tr_height tr
+        , _trDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
+        , _trDetail_requestKey = getTxHash $ _tr_requestkey tr
+        , _trDetail_idx = fromIntegral $ _tr_idx tr
+        , _trDetail_amount = StringEncoded $ getKDAScientific $ _tr_amount tr
+        , _trDetail_fromAccount = _tr_from_acct tr
+        , _trDetail_toAccount = _tr_to_acct tr
+        , _trDetail_blockTime = tseBlockTime extras
+        }
 
 type EventSearchToken = BSContinuation EventCursor
 
@@ -588,7 +609,7 @@ mkEventToken est = mkBSToken $ est <&> \c ->
 
 evHandler
   :: LogFunctionIO Text
-  -> P.Pool Connection
+  -> M.Managed ConnectionWithThrottling
   -> Request
   -> Maybe Limit
   -> Maybe Offset
@@ -608,12 +629,15 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
         , espName = qName
         , espModuleName = qModuleName
         }
-      resultLimit = fromMaybe 100 $ limit <&> \(Limit l) -> min 100 l
-      scanLimit = 20000
 
-  strategy <- getExecutionStrategy req scanLimit
+  isBounded <- isBoundedStrategyM req
 
-  liftIO $ P.withResource pool $ \c ->
+  liftIO $ M.with pool $ \(c, throttling) -> do
+    let
+      scanLimit = ceiling $ 50000 * throttling
+      maxResultLimit = ceiling $ 250 * throttling
+      resultLimit = min maxResultLimit $ maybe 10 unLimit limit
+      strategy = if isBounded then Bounded scanLimit else Unbounded
     PG.withTransactionLevel PG.RepeatableRead c $ do
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
@@ -650,11 +674,9 @@ queryRecentTxs logger pool = do
         runSelectReturningList $ select $ do
         limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
           tx <- all_ (_cddb_transactions database)
-          blk <- all_ (_cddb_blocks database)
-          guard_ (_tx_block tx `references_` blk)
           return
              ( (_tx_chainId tx)
-             , (_block_height blk)
+             , (_tx_height tx)
              , (unBlockId $ _tx_block tx)
              , (_tx_creationTime tx)
              , (_tx_requestKey tx)
@@ -689,3 +711,25 @@ addNewTransactions txs (RecentTxs s1) = RecentTxs s2
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v
+
+-- | A "LoadedResource" is a resource along with a way to read an integer
+-- quantity representing how much load there is on the resource currently
+data LoadedResource resource = LoadedResource
+  { lrResource :: resource
+  , lrLoadRef :: IO Integer
+  }
+
+type LoadedSource resource = M.Managed (LoadedResource resource)
+
+-- | Wrap a given "Managed" with a layer that keeps track of how many other
+-- consumers there currently are using or waiting on the inner "Managed".
+-- At any given moment, this number can be read through the "lrLoadRef" of the
+-- provided "LoadedResource".
+mkLoadedSource :: M.Managed resource -> IO (M.Managed (LoadedResource resource))
+mkLoadedSource innerSource = do
+  loadRef <- newIORef 0
+  let modifyLoad f = atomicModifyIORef' loadRef $ \load -> (f load, ())
+  return $ M.managed $ \outerBorrower ->
+    bracket_ (modifyLoad succ) (modifyLoad pred) $
+      M.with innerSource $ \resource -> outerBorrower $
+        LoadedResource resource (readIORef loadRef)

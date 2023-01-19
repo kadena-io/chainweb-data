@@ -4,13 +4,15 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeOperators #-}
 
 module ChainwebData.Spec where
 
+
+import Control.Lens
 import ChainwebData.Api
 
 import Data.Proxy
@@ -27,7 +29,9 @@ import ChainwebData.EventDetail (EventDetail)
 import ChainwebData.Util
 import qualified Data.Aeson as A
 import ChainwebData.TxDetail
-import ChainwebData.AccountDetail (AccountDetail)
+import ChainwebData.TransferDetail (TransferDetail)
+import Chainweb.Api.StringEncoded (StringEncoded)
+import Data.Scientific (Scientific)
 
 instance ToSchema A.Value where
   declareNamedSchema _ = pure $ NamedSchema (Just "AnyValue") mempty
@@ -59,13 +63,19 @@ instance ToSchema TxEvent where
   declareNamedSchema = genericDeclareNamedSchema
     defaultSchemaOptions{ fieldLabelModifier = lensyConstructorToNiceJson 9 }
 
-instance ToSchema AccountDetail where
+instance ToSchema TransferDetail where
   declareNamedSchema = genericDeclareNamedSchema
     defaultSchemaOptions{ fieldLabelModifier = lensyConstructorToNiceJson 10 }
 
 instance ToSchema ChainwebDataStats where
   declareNamedSchema = genericDeclareNamedSchema
     defaultSchemaOptions{ fieldLabelModifier = drop 5 }
+
+instance ToSchema (StringEncoded Scientific) where
+  declareNamedSchema _ = pure $ NamedSchema (Just "StringEncodedNumber") $ mempty
+    & type_ ?~ OpenApiString
+    & example ?~ A.String "-1234.5e6"
+    & pattern ?~ "[-+]?[0-9]*\\.?[0-9]+([eE][-+]?[0-9]+)?"
 
 spec :: OpenApi
 spec = toOpenApi (Proxy :: Proxy ChainwebDataApi)
