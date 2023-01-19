@@ -16,26 +16,23 @@
 let ubuntuFromDockerHub = pkgs.dockerTools.pullImage {
   imageName = "ubuntu";
   imageDigest = "sha256:965fbcae990b0467ed5657caceaec165018ef44a4d2d46c7cdea80a9dff0d1ea";
-  sha256 = "04amkx2mgwzzf6r14fgn4x38s69s0rxmm8ik2cnh911cdbqvwbn1";
+  sha256 = "10wlr8rhiwxmz1hk95s9vhkrrjkzyvrv6nshg23j86rw08ckrqnz";
   finalImageTag = "22.04";
   finalImageName = "ubuntu";
 };
 in pkgs.dockerTools.buildImage {
   name = "chainweb-data-docker";
   tag = dockerTag;
-  contents = [pkgs.postgresql_12 pkgs.curl pkgs.sqlite pkgs.bash pkgs.coreutils];
 
   fromImage = ubuntuFromDockerHub;
 
   runAsRoot = ''
-    #!${pkgs.runtimeShell}
-    ${pkgs.dockerTools.shadowSetup}
     mkdir -p /chainweb-data
     '';
 
   config = {
     Cmd = [ "--help"];
-    WorkingDir = "/chainweb-data";
+    WorkingDir = "/";
     Volumes = { "/chainweb-data" = {}; };
     Entrypoint = [ "${pkgs.haskell.lib.justStaticExecutables chainweb-data}/bin/chainweb-data" ];
   };
