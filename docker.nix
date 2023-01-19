@@ -32,7 +32,7 @@ in pkgs.dockerTools.buildImage {
 
   config = {
     Cmd = [ "--help"];
-    WorkingDir = "/";
+    WorkingDir = "/chainweb-data";
     Volumes = { "/chainweb-data" = {}; };
     Entrypoint = [ "${pkgs.haskell.lib.justStaticExecutables chainweb-data}/bin/chainweb-data" ];
   };
