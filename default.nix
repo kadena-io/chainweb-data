@@ -18,10 +18,20 @@ let gitignoreSrc = import (pkgs.fetchFromGitHub {
       sha256 = "04n9chlpbifgc5pa3zx6ff3rji9am6msrbn1z3x1iinjz2xjfp4p";
     }) {};
     nix-thunk = import ./deps/nix-thunk {};
+    chainwebDataSrc = pkgs.lib.cleanSourceWith {
+      filter = path: type:
+        # Filter out these files so that nix doesn't recompile CW-D every time
+        # these files change, they're not relevant to the Haskell build anyway.
+        let ignored = map toString [./docker.nix ./default.nix];
+        in !(builtins.elem path ignored);
+      src = gitignoreSrc.gitignoreSource ./.;
+      name = "chainweb-data-src";
+    };
+
 in
 pkgs.haskell.packages.${compiler}.developPackage {
   name = "chainweb-data";
-  root = gitignoreSrc.gitignoreSource ./.;
+  root = chainwebDataSrc;
 
   overrides = self: super: with pkgs.haskell.lib;
     let gargoylePkgs = import ./deps/gargoyle { haskellPackages = self; };
