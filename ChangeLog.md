@@ -4,7 +4,8 @@
 
 This is a quick release after 2.1.0 for fixing an oversight in the new `/txs/accounts` endpoint.
 * Rename `chainid` -> `chain`, `name` -> `token` fields of `/txs/accounts` for consistency (#126)
-* Implement a `minheight` parameter for `/txs/accounts` (#127)
+* A new `minheight` parameter for `/txs/accounts` (#127)
+* A `docker.nix` definition for building Ubuntu-based `chainweb-data` docker images using Nix (#84)
 
 ## 2.1.0 (2023-01-17)
 
