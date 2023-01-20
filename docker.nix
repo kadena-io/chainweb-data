@@ -27,6 +27,7 @@ in pkgs.dockerTools.buildImage {
   fromImage = ubuntuFromDockerHub;
 
   runAsRoot = ''
+    ln -s "${pkgs.haskell.lib.justStaticExecutables chainweb-data}/bin/chainweb-data" /usr/local/bin/
     mkdir -p /chainweb-data
     '';
 
@@ -34,7 +35,7 @@ in pkgs.dockerTools.buildImage {
     Cmd = [ "--help"];
     WorkingDir = "/chainweb-data";
     Volumes = { "/chainweb-data" = {}; };
-    Entrypoint = [ "${pkgs.haskell.lib.justStaticExecutables chainweb-data}/bin/chainweb-data" ];
+    Entrypoint = [ "chainweb-data" ];
   };
 
 }
