@@ -21,7 +21,7 @@ let ubuntuFromDockerHub = pkgs.dockerTools.pullImage {
   finalImageName = "ubuntu";
 };
 in pkgs.dockerTools.buildImage {
-  name = "chainweb-data-docker";
+  name = "chainweb-data";
   tag = dockerTag;
 
   fromImage = ubuntuFromDockerHub;
