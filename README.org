@@ -167,7 +167,7 @@ For more detailed information, see the API definition [[https://github.com/kaden
 
 **** Note about partial search results
 
-~chainweb-data~'s all search endpoints (~/txs/{events,search,account}~) support a common workflow
+All of ~chainweb-data~'s search endpoints (~/txs/{events,search,account}~) support a common workflow
 for efficiently retrieving the results of a given search in non-overlapping batches.
 
 A request to any one of these endpoints that match more rows than the number asked with the ~limit~
