@@ -544,11 +544,12 @@ accountHandler
   -> Text -- ^ account identifier
   -> Maybe Text -- ^ token type
   -> Maybe ChainId -- ^ chain identifier
+  -> Maybe BlockHeight
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe NextToken
   -> Handler (NextHeaders [TransferDetail])
-accountHandler logger pool req account token chain limit mbOffset mbNext = do
+accountHandler logger pool req account token chain minheight limit mbOffset mbNext = do
   let usedCoinType = fromMaybe "coin" token
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (T.unpack usedCoinType) (maybe "<all-chains>" show chain)
@@ -558,6 +559,7 @@ accountHandler logger pool req account token chain limit mbOffset mbNext = do
   let searchParams = TransferSearchParams
        { tspToken = usedCoinType
        , tspChainId = chain
+       , tspMinHeight = minheight
        , tspAccount = account
        }
   liftIO $ M.with pool $ \(c, throttling) -> do

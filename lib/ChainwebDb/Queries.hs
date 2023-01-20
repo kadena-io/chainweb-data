@@ -18,6 +18,7 @@ module ChainwebDb.Queries where
 import           Data.Aeson hiding (Error)
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Int
+import           Data.Functor ((<&>))
 import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import           Data.Time
@@ -106,7 +107,7 @@ eventSearchCond ::
   EventSearchParams ->
   EventT (PgExpr s) ->
   PgExpr s Bool
-eventSearchCond EventSearchParams{..} ev = foldr (&&.) (val_ True) $
+eventSearchCond EventSearchParams{..} ev = and_ $
   concat [searchCond, qualNameCond, paramCond, moduleCond]
   where
     searchString search = "%" <> search <> "%"
@@ -179,6 +180,7 @@ toAccountsSearchCursor Transfer{..} = EventCursor
 data TransferSearchParams = TransferSearchParams
   { tspToken :: Text
   , tspChainId :: Maybe ChainId
+  , tspMinHeight :: Maybe BlockHeight
   , tspAccount :: Text
   }
 
@@ -190,8 +192,8 @@ transfersSearchSource tsp = do
     return $ FilterMarked (searchCond tr) tr
   where
     tokenCond tr = _tr_modulename tr ==. val_ (tspToken tsp)
-    chainCond tr = maybe (val_ True) (\(ChainId c) -> _tr_chainid tr ==. fromIntegral c) (tspChainId tsp)
-    searchCond tr = tokenCond tr &&. chainCond tr
+    chainCond tr = tspChainId tsp <&> \(ChainId c) -> _tr_chainid tr ==. fromIntegral c
+    searchCond tr = and_ $ tokenCond tr : maybeToList (chainCond tr)
     getOrder tr =
       ( desc_ $ _tr_height tr
       , desc_ $ _tr_requestkey tr
@@ -199,6 +201,8 @@ transfersSearchSource tsp = do
     accountQuery accountField = orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
       guard_ $ accountField tr ==. val_ (tspAccount tsp)
+      whenArg (tspMinHeight tsp) $ \hgt ->
+        guard_ $ _tr_height tr >=. val_ (fromIntegral hgt)
       return tr
     sourceTransfersScan = unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
 
@@ -218,3 +222,7 @@ transferSearchExtras tr = do
 
 whenArg :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenArg p a = maybe (return ()) a p
+
+and_ :: BeamSqlBackend be => [QExpr be s Bool] -> QExpr be s Bool
+and_ [] = val_ True
+and_ (cond:conds) = foldr (&&.) cond conds
