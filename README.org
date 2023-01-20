@@ -159,8 +159,8 @@ few endpoints for doing common queries.
 - ~/coins~ returns just the coins in circulation
 - ~/txs/account/<account-identifier>?token=<token-name>&chainid=<chainid>&fromheight=<blockheight>&limit=<some-limit>&offset=<some-offset>~
   returns account information given some ~account-identifier~, ~token~ and
-  ~chainid~. The optional parameter ~fromheight~ forces the results to only have
-  blockheights less than or equal to it. If ~token~ is omitted, the token ~coin~
+  ~chainid~. The optional parameter ~minheight~ forces the results to only have
+  blockheights larger than than or equal to it. If ~token~ is omitted, the token ~coin~
   is assumed. If ~chainid~ is omitted, all chains are searched.
 
 For more detailed information, see the API definition [[https://github.com/kadena-io/chainweb-api/blob/master/lib/ChainwebData/Api.hs#L24][here]].
