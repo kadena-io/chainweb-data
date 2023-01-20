@@ -32,7 +32,6 @@ in pkgs.dockerTools.buildImage {
     '';
 
   config = {
-    Cmd = [ "--help"];
     WorkingDir = "/chainweb-data";
     Volumes = { "/chainweb-data" = {}; };
     Entrypoint = [ "chainweb-data" ];
