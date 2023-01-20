@@ -575,8 +575,8 @@ accountHandler logger pool req account token chain limit mbOffset mbNext = do
         continuation
         resultLimit
       return $ maybe noHeader (addHeader . mkEventToken) mbCont  $ results <&> \(tr, extras) -> TransferDetail
-        { _trDetail_name = _tr_modulename tr
-        , _trDetail_chainid = fromIntegral $ _tr_chainid tr
+        { _trDetail_token = _tr_modulename tr
+        , _trDetail_chain = fromIntegral $ _tr_chainid tr
         , _trDetail_height = fromIntegral $ _tr_height tr
         , _trDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
         , _trDetail_requestKey = getTxHash $ _tr_requestkey tr
