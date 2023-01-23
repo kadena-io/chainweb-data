@@ -9,7 +9,7 @@ This is a quick release after 2.1.0 for fixing an oversight in the new `/txs/acc
 
 ## 2.1.0 (2023-01-17)
 
-*IMPORTANT NOTICE*: Please skip this chainweb-data release and go straight to 2.1.1. Shortly after the release, we've noticed an oversight in the new `/txs/account` endpoint and decided to correct it with a quick breaking change instead of unnecessarily complicating the API. See [PR #126](https://github.com/kadena-io/chainweb-data/pull/126).
+_**IMPORTANT NOTICE**: Please skip this chainweb-data release and go straight to 2.1.1. Shortly after the release, we've noticed an oversight in the new `/txs/account` endpoint and decided to correct it with a quick breaking change instead of unnecessarily complicating the API. See [PR #126](https://github.com/kadena-io/chainweb-data/pull/126)._
 
 This release drops the officiall support for Ubuntu 18.04 and adds support for Ubuntu 22.04 (see #100)
 
