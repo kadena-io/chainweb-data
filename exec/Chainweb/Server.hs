@@ -544,11 +544,12 @@ accountHandler
   -> Text -- ^ account identifier
   -> Maybe Text -- ^ token type
   -> Maybe ChainId -- ^ chain identifier
+  -> Maybe BlockHeight
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe NextToken
   -> Handler (NextHeaders [TransferDetail])
-accountHandler logger pool req account token chain limit mbOffset mbNext = do
+accountHandler logger pool req account token chain minheight limit mbOffset mbNext = do
   let usedCoinType = fromMaybe "coin" token
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (T.unpack usedCoinType) (maybe "<all-chains>" show chain)
@@ -558,6 +559,7 @@ accountHandler logger pool req account token chain limit mbOffset mbNext = do
   let searchParams = TransferSearchParams
        { tspToken = usedCoinType
        , tspChainId = chain
+       , tspMinHeight = minheight
        , tspAccount = account
        }
   liftIO $ M.with pool $ \(c, throttling) -> do
@@ -575,8 +577,8 @@ accountHandler logger pool req account token chain limit mbOffset mbNext = do
         continuation
         resultLimit
       return $ maybe noHeader (addHeader . mkEventToken) mbCont  $ results <&> \(tr, extras) -> TransferDetail
-        { _trDetail_name = _tr_modulename tr
-        , _trDetail_chainid = fromIntegral $ _tr_chainid tr
+        { _trDetail_token = _tr_modulename tr
+        , _trDetail_chain = fromIntegral $ _tr_chainid tr
         , _trDetail_height = fromIntegral $ _tr_height tr
         , _trDetail_blockHash = unDbHash $ unBlockId $ _tr_block tr
         , _trDetail_requestKey = getTxHash $ _tr_requestkey tr
