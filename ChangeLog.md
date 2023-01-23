@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.1.1 (2023-01-20)
+## 2.1.1 (2023-01-23)
 
 This is a quick release after 2.1.0 for fixing an oversight in the new `/txs/accounts` endpoint.
 * Rename `chainid` -> `chain`, `name` -> `token` fields of `/txs/accounts` for consistency (#126)
