@@ -149,7 +149,7 @@ As a new block comes in, its chain number is printed as a single digit.
 ~server~ is just like ~listen~ but also runs an HTTP server that serves a
 few endpoints for doing common queries.
 
-**** endpoints
+**** Endpoints
 
 - ~/txs/recent~ gets a list of recent transactions
 - ~/txs/search?search=foo&limit=20&offset=40~ searches for transactions containing the string ~foo~
@@ -159,11 +159,30 @@ few endpoints for doing common queries.
 - ~/coins~ returns just the coins in circulation
 - ~/txs/account/<account-identifier>?token=<token-name>&chainid=<chainid>&fromheight=<blockheight>&limit=<some-limit>&offset=<some-offset>~
   returns account information given some ~account-identifier~, ~token~ and
-  ~chainid~. The optional parameter ~fromheight~ forces the results to only have
-  blockheights less than or equal to it. If ~token~ is omitted, the token ~coin~
+  ~chainid~. The optional parameter ~minheight~ forces the results to only have
+  blockheights larger than than or equal to it. If ~token~ is omitted, the token ~coin~
   is assumed. If ~chainid~ is omitted, all chains are searched.
 
 For more detailed information, see the API definition [[https://github.com/kadena-io/chainweb-api/blob/master/lib/ChainwebData/Api.hs#L24][here]].
+
+**** Note about partial search results
+
+All of ~chainweb-data~'s search endpoints (~/txs/{events,search,account}~) support a common workflow
+for efficiently retrieving the results of a given search in non-overlapping batches.
+
+A request to any one of these endpoints that match more rows than the number asked with the ~limit~
+query parameter will respond with a ~Chainweb-Next~ response header containing a token. That token
+can be used to call the same endpoint with the same query parameters plus the token passed in via
+the ~next~ query parameter in order to retreive the next batch of results.
+
+~chainweb-data~ supports a ~Chainweb-Execution-Strategy~ request header that can be used (probably by
+~chainweb-data~ operators by setting it in the API gateway) to enable
+an upper bound on the amount of time the server will spend for searching results. Normally, the
+search endpoints will produce the given ~limit~-many results if the search matches at least that many
+entries. However, if ~Chainweb-Execution-Strategy: Bounded~ is passed in, the response can contain
+less than ~limit~ rows even though there are potentially more matches, if those matches aren't found
+quickly enough. In such a case, the returned ~Chainweb-Next~ token will act as a cursor for the search,
+so it's possible to keep searching by making successive calls with subsequent ~Chainweb-Next~ tokens.
 
 *** fill
 
