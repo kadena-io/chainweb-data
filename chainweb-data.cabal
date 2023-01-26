@@ -5,7 +5,7 @@ description:     Data ingestion for Chainweb.
 homepage:        https://github.com/kadena-io/chainweb-data
 author:          Colin Woodbury
 maintainer:
-  Douglas Beardsley <doug@kadena.io>, Emily Pillmore <emily@kadena.io>
+  Douglas Beardsley <doug@kadena.io>, Emily Pillmore <emily@kadena.io>, Enis Bayramoğlu <enis@kadena.io>, Emmanuel Denloye-Ito <emmanuel@kadena.io>
 
 copyright:       2020 Kadena LLC
 license:         BSD-3-Clause
