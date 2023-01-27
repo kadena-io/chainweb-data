@@ -66,6 +66,8 @@ jobs:
       run: cabal v2-test
 
   dockerize:
+    name: Release Docker image with nix
+    runs-on: ubuntu-latest
     env:
       ghcr_image_name: ghcr.io/kadena-io/chainweb-data
     steps:
