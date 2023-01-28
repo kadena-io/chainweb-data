@@ -19,12 +19,7 @@ let gitignoreSrc = import (pkgs.fetchFromGitHub {
     }) {};
     nix-thunk = import ./deps/nix-thunk {};
     chainwebDataSrc = pkgs.lib.cleanSourceWith {
-      filter = path: type:
-        # Filter out these files so that nix doesn't recompile CW-D every time
-        # these files change, they're not relevant to the Haskell build anyway.
-        let ignored = map toString [./docker.nix ./default.nix];
-        in !(builtins.elem path ignored);
-      src = gitignoreSrc.gitignoreSource ./.;
+      src = gitignoreSrc.gitignoreSource ./haskell-src;
       name = "chainweb-data-src";
     };
 
