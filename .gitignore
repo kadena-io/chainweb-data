@@ -1,11 +1,11 @@
-.stack-work/
-dist*
+haskell-src/.stack-work/
+haskell-src/dist*
 *.swp
-*.dump-hi
-.stylish-haskell.yaml
+haskell-src/*.dump-hi
+haskell-src/.stylish-haskell.yaml
 *.db
 result
 .nd
 cwdb-pgdata
-/TAGS
-/stack.yaml.lock
+haskell-src/TAGS
+haskell-src/stack.yaml.lock
