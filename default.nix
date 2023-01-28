@@ -10,6 +10,7 @@
     }
 , returnShellEnv ? false
 , mkDerivation ? null
+, justStatic ? true
 }:
 let gitignoreSrc = import (pkgs.fetchFromGitHub {
       owner = "hercules-ci";
@@ -22,6 +23,7 @@ let gitignoreSrc = import (pkgs.fetchFromGitHub {
       src = gitignoreSrc.gitignoreSource ./haskell-src;
       name = "chainweb-data-src";
     };
+    onlyStatic = drv: if justStatic then pkgs.haskell.lib.justStaticExecutables drv else drv;
 
 in
 pkgs.haskell.packages.${compiler}.developPackage {
@@ -106,12 +108,12 @@ pkgs.haskell.packages.${compiler}.developPackage {
     base64-bytestring = "1.0.0.3";
   };
 
-  modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
+  modifier = drv: onlyStatic (pkgs.haskell.lib.overrideCabal drv (attrs: {
     buildTools = (attrs.buildTools or []) ++ [
       pkgs.zlib
       pkgs.haskell.packages.${compiler}.cabal-install
     ];
-  });
+  }));
 
   inherit returnShellEnv;
 }
