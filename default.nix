@@ -23,97 +23,98 @@ let gitignoreSrc = import (pkgs.fetchFromGitHub {
       src = gitignoreSrc.gitignoreSource ./haskell-src;
       name = "chainweb-data-src";
     };
-    onlyStatic = drv: if justStatic then pkgs.haskell.lib.justStaticExecutables drv else drv;
+    chainweb-data = pkgs.haskell.packages.${compiler}.developPackage {
+      name = "chainweb-data";
+      root = chainwebDataSrc;
 
-in
-pkgs.haskell.packages.${compiler}.developPackage {
-  name = "chainweb-data";
-  root = chainwebDataSrc;
+      overrides = self: super: with pkgs.haskell.lib;
+        let gargoylePkgs = import ./deps/gargoyle { haskellPackages = self; };
+        in {
+          inherit (gargoylePkgs) gargoyle gargoyle-postgresql;
 
-  overrides = self: super: with pkgs.haskell.lib;
-    let gargoylePkgs = import ./deps/gargoyle { haskellPackages = self; };
-    in {
-      inherit (gargoylePkgs) gargoyle gargoyle-postgresql;
+          statistics = self.callHackageDirect {
+            pkg = "statistics";
+            ver = "0.15.2.0";
+            sha256 = "1sg1gv2sc8rdsl6qby6p80xv3iasy6w2khbkc6cx7j2iva67v33r";
+          } {};
 
-      statistics = self.callHackageDirect {
-        pkg = "statistics";
-        ver = "0.15.2.0";
-        sha256 = "1sg1gv2sc8rdsl6qby6p80xv3iasy6w2khbkc6cx7j2iva67v33r";
-      } {};
+          direct-sqlite = self.callHackageDirect {
+            pkg = "direct-sqlite";
+            ver = "2.3.27";
+            sha256 = "0w8wj3210h08qlws40qhidkscgsil3635zk83kdlj929rbd8khip";
+          } {};
 
-      direct-sqlite = self.callHackageDirect {
-        pkg = "direct-sqlite";
-        ver = "2.3.27";
-        sha256 = "0w8wj3210h08qlws40qhidkscgsil3635zk83kdlj929rbd8khip";
-       } {};
+          pretty-simple = dontCheck (self.callHackageDirect {
+            pkg = "pretty-simple";
+            ver = "3.3.0.0";
+            sha256 = "19zwzzvjgadmzp9gw235bsr6wkljr8k0cqy75h5q8n0d5m60ip7m";
+          } {});
 
-      pretty-simple = dontCheck (self.callHackageDirect {
-        pkg = "pretty-simple";
-        ver = "3.3.0.0";
-        sha256 = "19zwzzvjgadmzp9gw235bsr6wkljr8k0cqy75h5q8n0d5m60ip7m";
-      } {});
+          resource-pool = self.callHackageDirect {
+            pkg = "resource-pool";
+            ver = "0.3.0.0";
+            sha256 = "0bpf868b6kq1g83s3sad26kfsawmpd3j0xpkyab8370lsq6zhcs1";
+          } {};
 
-      resource-pool = self.callHackageDirect {
-        pkg = "resource-pool";
-        ver = "0.3.0.0";
-        sha256 = "0bpf868b6kq1g83s3sad26kfsawmpd3j0xpkyab8370lsq6zhcs1";
-      } {};
+          pact = appendConfigureFlag super.pact "-f-build-tool";
 
-      pact = appendConfigureFlag super.pact "-f-build-tool";
+          chainweb-api     = doJailbreak super.chainweb-api;
+          chainweb-storage = dontCheck super.chainweb-storage;
 
-      chainweb-api     = doJailbreak super.chainweb-api;
-      chainweb-storage = dontCheck super.chainweb-storage;
+          beam-automigrate = doJailbreak super.beam-automigrate;
+          beam-core        = doJailbreak super.beam-core;
+          beam-migrate     = doJailbreak super.beam-migrate;
+          beam-postgres    = doJailbreak super.beam-postgres;
+          hashable         = doJailbreak super.hashable;
+          rebase           = doJailbreak super.rebase;
+          streaming-events = unmarkBroken (doJailbreak super.streaming-events);
+          tmp-postgres     = dontCheck (doJailbreak super.tmp-postgres);
+          token-bucket     = unmarkBroken super.token-bucket;
 
-      beam-automigrate = doJailbreak super.beam-automigrate;
-      beam-core        = doJailbreak super.beam-core;
-      beam-migrate     = doJailbreak super.beam-migrate;
-      beam-postgres    = doJailbreak super.beam-postgres;
-      hashable         = doJailbreak super.hashable;
-      rebase           = doJailbreak super.rebase;
-      streaming-events = unmarkBroken (doJailbreak super.streaming-events);
-      tmp-postgres     = dontCheck (doJailbreak super.tmp-postgres);
-      token-bucket     = unmarkBroken super.token-bucket;
+          # Cuckoo tests fail due to a missing symbol
+          cuckoo        = dontCheck super.cuckoo;
 
-      # Cuckoo tests fail due to a missing symbol
-      cuckoo        = dontCheck super.cuckoo;
+          # These tests pull in unnecessary dependencies
+          http2         = dontCheck super.http2;
+          prettyprinter = dontCheck super.prettyprinter;
+          aeson         = dontCheck super.aeson;
+          generic-data  = dontCheck super.generic-data;
+      };
 
-      # These tests pull in unnecessary dependencies
-      http2         = dontCheck super.http2;
-      prettyprinter = dontCheck super.prettyprinter;
-      aeson         = dontCheck super.aeson;
-      generic-data  = dontCheck super.generic-data;
-  };
+      source-overrides = {
+        beam-automigrate = nix-thunk.thunkSource ./deps/beam-automigrate;
+        chainweb-api     = nix-thunk.thunkSource ./deps/chainweb-api;
+        pact             = nix-thunk.thunkSource ./deps/pact;
 
-  source-overrides = {
-    beam-automigrate = nix-thunk.thunkSource ./deps/beam-automigrate;
-    chainweb-api     = nix-thunk.thunkSource ./deps/chainweb-api;
-    pact             = nix-thunk.thunkSource ./deps/pact;
+        OneTuple                    = "0.3";
+        aeson                       = "1.5.6.0";
+        ansi-terminal               = "0.11.3";
+        prettyprinter-ansi-terminal = "1.1.2";
+        time-compat                 = "1.9.5";
+        trifecta                    = "2.1.1";
+        unordered-containers        = "0.2.15.0";
 
-    OneTuple                    = "0.3";
-    aeson                       = "1.5.6.0";
-    ansi-terminal               = "0.11.3";
-    prettyprinter-ansi-terminal = "1.1.2";
-    time-compat                 = "1.9.5";
-    trifecta                    = "2.1.1";
-    unordered-containers        = "0.2.15.0";
+        http-client     = "0.6.4.1";
+        http-client-tls = "0.3.5.3";
+        retry           = "0.8.1.2";
 
-    http-client     = "0.6.4.1";
-    http-client-tls = "0.3.5.3";
-    retry           = "0.8.1.2";
+        # These are required in order to not break payload validation
+        base16-bytestring = "0.1.1.7";
+        prettyprinter     = "1.6.0";
+        hashable          = "1.3.0.0";
+        base64-bytestring = "1.0.0.3";
+      };
 
-    # These are required in order to not break payload validation
-    base16-bytestring = "0.1.1.7";
-    prettyprinter     = "1.6.0";
-    hashable          = "1.3.0.0";
-    base64-bytestring = "1.0.0.3";
-  };
+      modifier = drv: pkgs.haskell.lib.overrideCabal drv (attrs: {
+        buildTools = (attrs.buildTools or []) ++ [
+          pkgs.zlib
+          pkgs.haskell.packages.${compiler}.cabal-install
+        ];
+      });
 
-  modifier = drv: onlyStatic (pkgs.haskell.lib.overrideCabal drv (attrs: {
-    buildTools = (attrs.buildTools or []) ++ [
-      pkgs.zlib
-      pkgs.haskell.packages.${compiler}.cabal-install
-    ];
-  }));
+      inherit returnShellEnv;
+    };
 
-  inherit returnShellEnv;
-}
+in if justStatic
+  then pkgs.haskell.lib.justStaticExecutables chainweb-data
+  else chainweb-data
