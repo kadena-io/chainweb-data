@@ -1,1 +1,258 @@
-haskell-src/README.org
+#+TITLE: Chainweb Data
+#+AUTHOR: Colin
+
+[[https://github.com/kadena-io/chainweb-data/workflows/Build/badge.svg]]
+
+* Table of Contents                                       :TOC_4_gh:noexport:
+- [[#overview][Overview]]
+- [[#requirements][Requirements]]
+- [[#building][Building]]
+- [[#usage][Usage]]
+  - [[#connecting-to-the-database][Connecting to the Database]]
+    - [[#via-flags][via Flags]]
+    - [[#via-a-postgres-connection-string][via a Postgres Connection String]]
+  - [[#connecting-to-a-node][Connecting to a Node]]
+    - [[#configuring-the-node][Configuring the Node]]
+  - [[#how-to-run-chainweb-data][How to run chainweb-data]]
+  - [[#commands][Commands]]
+    - [[#listen][listen]]
+    - [[#server][server]]
+      - [[#endpoints][endpoints]]
+    - [[#fill][fill]]
+    - [[#backfill][backfill]]
+    - [[#backfill-transfers][backfill-transfers]]
+    - [[#gaps][gaps]]
+    - [[#single][single]]
+
+* Overview
+
+~chainweb-data~ stores and serves data from the Kadena Public Blockchain in a
+form optimized for lookups and analysis by humans. With this reindexed data we
+can easily determine mining statistics and confirm transaction contents.
+
+* Requirements
+
+~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]]. If you plan to host a chainweb-data instance
+on a cloud machine (e.g. Amazon EC2), we recommend that you run the postgres
+instance on an instance attached storage unit.
+
+* Building 
+
+~chainweb-data~ can be built with either ~cabal~, ~stack~, or
+[[https://nixos.org/download.html][Nix]].  Building with ~nix~ is the most
+predictable because it is a single build command once you've installed Nix.
+This process will go significantly faster if you set up the Kadena nix cache
+as described
+[[https://github.com/kadena-io/pact/wiki/Building-Kadena-Projects][here]].
+Building with ~cabal~ or ~stack~ will probably require a little more knowledge
+of the Haskell ecosystem.
+
+#+begin_example
+git clone https://github.com/kadena-io/chainweb-data
+cd chainweb-data
+nix-build
+#+end_example
+
+* Usage
+
+** Connecting to the Database
+
+By default, ~chainweb-data~ will attempt to connect to Postgres via the
+following values:
+
+| Field   | Value       |
+|---------+-------------|
+| Host    | ~localhost~ |
+| Port    | ~5432~      |
+| User    | ~postgres~  |
+| Pass    | Empty       |
+| DB Name | ~postgres~  |
+
+You can alter these defaults via command line flags, or via a [[https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING][Postgres
+Connection String]].
+
+*** via Flags
+
+Assuming you had set up Postgres, done a ~createdb chainweb-data~, and had
+configured user permissions for a user named ~joe~, the following would connect
+to a local Postgres database at port 5432:
+
+#+begin_example
+chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbuser=joe --dbname=chainweb-data
+#+end_example
+
+*** via a Postgres Connection String
+
+#+begin_example
+chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbstring="host=localhost port=5432..."
+#+end_example
+
+** Connecting to a Node
+
+~chainweb-data~ syncs its data from a running ~chainweb-node~. The node's
+P2P address is specified with the ~--p2p-host~ command. The node's
+Service address is specified with the ~--service-host~ command.  
+If custom ports are used, you can specify them with ~--service-port~ and ~--p2p-port~
+
+#+begin_example
+chainweb-data <command> --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com ...
+#+end_example
+
+*** Configuring the Node
+
+~chainweb-data~ also needs some special node configuration.  The ~server~
+command needs ~headerStream~ and some of the other stats and information made
+available requires ~allowReadsInLocal~.  Increasing the throttling settings on
+the node also makes the ~backfill~ and ~gaps~ operations dramatically faster.
+
+#+begin_example
+chainweb:
+  allowReadsInLocal: true
+  headerStream: true
+  throttling:
+    global: 1000
+#+end_example
+
+You can find an example node config in this repository in
+[node-config-for-chainweb-data.yaml](node-config-for-chainweb-data.yaml).
+
+** How to run chainweb-data
+   
+When running chainweb-data for the first time you should run ~chainweb-data
+server -m~ (with the necessary DB and node options of course). This will create
+the database and start filling the database with blocks. Wait a couple minutes,
+then hit Ctrl-c to stop the server process. Next run ~chainweb-data fill
+--disable-indexes~ (again with the necessary options). If you want to leave the
+server running while you run ~fill~, you should not use ~--disable-indexes~.
+This will take longer but will allow the server to stay running. After the
+~fill~ operation finishes, you can run ~server~ again with the ~-f~ option and it
+will automatically run fill once a day to populate the DB with missing blocks.
+
+** Commands
+
+*** listen
+
+~listen~ fetches live data from a ~chainweb-node~ whose ~headerStream~
+configuration value is ~true~.
+
+#+begin_example
+  > chainweb-data listen --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  DB Tables Initialized
+  28911337084492566901513774
+#+end_example
+
+As a new block comes in, its chain number is printed as a single digit.
+~listen~ will continue until you stop it.
+
+*** server
+
+~server~ is just like ~listen~ but also runs an HTTP server that serves a
+few endpoints for doing common queries.
+
+**** Endpoints
+
+- ~/txs/recent~ gets a list of recent transactions
+- ~/txs/search?search=foo&limit=20&offset=40~ searches for transactions containing the string ~foo~
+- ~/txs/tx?requestkey=<request-key>~ gets the details of a transaction with the given request key
+- ~/txs/events?search=foo&limit=20&offset=40~ gets the details of a transaction with the given request key
+- ~/stats~ returns a few stats such as transaction count and coins in circulation
+- ~/coins~ returns just the coins in circulation
+- ~/txs/account/<account-identifier>?token=<token-name>&chainid=<chainid>&fromheight=<blockheight>&limit=<some-limit>&offset=<some-offset>~
+  returns account information given some ~account-identifier~, ~token~ and
+  ~chainid~. The optional parameter ~minheight~ forces the results to only have
+  blockheights larger than than or equal to it. If ~token~ is omitted, the token ~coin~
+  is assumed. If ~chainid~ is omitted, all chains are searched.
+
+For more detailed information, see the API definition [[https://github.com/kadena-io/chainweb-api/blob/master/lib/ChainwebData/Api.hs#L24][here]].
+
+**** Note about partial search results
+
+All of ~chainweb-data~'s search endpoints (~/txs/{events,search,account}~) support a common workflow
+for efficiently retrieving the results of a given search in non-overlapping batches.
+
+A request to any one of these endpoints that match more rows than the number asked with the ~limit~
+query parameter will respond with a ~Chainweb-Next~ response header containing a token. That token
+can be used to call the same endpoint with the same query parameters plus the token passed in via
+the ~next~ query parameter in order to retreive the next batch of results.
+
+~chainweb-data~ supports a ~Chainweb-Execution-Strategy~ request header that can be used (probably by
+~chainweb-data~ operators by setting it in the API gateway) to enable
+an upper bound on the amount of time the server will spend for searching results. Normally, the
+search endpoints will produce the given ~limit~-many results if the search matches at least that many
+entries. However, if ~Chainweb-Execution-Strategy: Bounded~ is passed in, the response can contain
+less than ~limit~ rows even though there are potentially more matches, if those matches aren't found
+quickly enough. In such a case, the returned ~Chainweb-Next~ token will act as a cursor for the search,
+so it's possible to keep searching by making successive calls with subsequent ~Chainweb-Next~ tokens.
+
+*** fill
+
+~fill~ fills in missing blocks. This command used to be called ~gaps~ but it has
+been improved to encompass all block filling operations.
+
+#+begin_example
+  > chainweb-data fill --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+#+end_example
+
+*** backfill
+
+*Deprecated:* The backfill command is deprecated and will be removed in future
+releases. Use the ~fill~ command instead.
+
+~backfill~ rapidly fills the database downward from the lowest block height it
+can find for each chain.
+
+*Note:* If your database is empty, you must fetch at least one block for each
+chain first via ~listen~ before doing ~backfill~! If ~backfill~ detects any
+empty chains, it won't proceed.
+
+#+begin_example
+  > chainweb-data backfill --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  DB Tables Initialized
+  Backfilling...
+  [INFO] Processed blocks: 1000. Progress sample: Chain 9, Height 361720
+  [INFO] Processed blocks: 2000. Progress sample: Chain 4, Height 361670
+#+end_example
+
+~backfill~ will stop when it reaches height 0.
+
+*** backfill-transfers
+
+~backfill-transfers~ fills entries in the transfers table from the highest block
+height it can find for each chain up until the height that events for coinbase
+transfers began to exist.
+
+*Note:* If the transfers table is empty, you must fetch at least one row for each
+chain first via ~listen~ before doing ~backfill-transfers~! If ~backfill-transfers~ detects any
+empty chains, it won't proceed.
+
+
+*** gaps
+
+*Deprecated:* The backfill command is deprecated and will be removed in future
+releases. Use the ~fill~ command instead.
+
+~gaps~ fills in missing blocks that may have been missed during ~listen~ or
+~backfill~. Such gaps will naturally occur if you turn ~listen~ off or use
+~single~.
+
+#+begin_example
+  > chainweb-data gaps --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  DB Tables Initialized
+  [INFO] Processed blocks: 1000. Progress sample: Chain 9, Height 361624
+  [INFO] Processed blocks: 2000. Progress sample: Chain 9, Height 362938
+  [INFO] Filled in 2113 missing blocks.
+#+end_example
+
+*** single
+
+~single~ allows you to sync a block at any location in the blockchain.
+
+#+begin_example
+  > chainweb-data single --chain=0 --height=200 --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+  DB Tables Initialized
+  [INFO] Filled in 1 blocks.
+#+end_example
+
+*Note:* Even though you specified a single chain/height pair, you might see it
+report that it filled in more than one block. This is expected, and will occur
+when orphans/forks are present at that height.
