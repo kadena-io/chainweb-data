@@ -1,2 +1,2 @@
 args@{ pkgs ? null }:
-import ./default.nix (args // { returnShellEnv = true; })
+import ./default.nix (args // { returnShellEnv = true; justStatic = false; })
