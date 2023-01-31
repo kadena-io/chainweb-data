@@ -27,7 +27,7 @@ pkgs.dockerTools.buildImage {
   fromImage = baseImage;
 
   runAsRoot = ''
-    ln -s "${pkgs.haskell.lib.justStaticExecutables chainweb-data}/bin/chainweb-data" /usr/local/bin/
+    ln -s "${chainweb-data}/bin/chainweb-data" /usr/local/bin/
     mkdir -p /chainweb-data
     '';
 

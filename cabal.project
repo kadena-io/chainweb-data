@@ -1,4 +1,4 @@
-packages: chainweb-data.cabal
+packages: haskell-src/chainweb-data.cabal
 
 package aeson
     flags: +cffi
