@@ -26,7 +26,7 @@
             (final: prev: {
 	    chainweb-data =
 	      final.haskell-nix.project' {
-	        src = ./haskell-src;
+	        src = ./.;
 	        compiler-nix-name = "ghc8107";
                 cabalProject = "cabal.project";
 	        shell.tools = {
