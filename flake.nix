@@ -28,7 +28,7 @@
 	      final.haskell-nix.project' {
 	        src = ./.;
 	        compiler-nix-name = "ghc8107";
-                cabalProject = "cabal.project";
+          projectFileName = "cabal.project";
 	        shell.tools = {
 	          cabal = {};
 	        };
