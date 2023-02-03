@@ -99,9 +99,6 @@ executable chainweb-data
   main-is:        Main.hs
   hs-source-dirs: exec data
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
-  extra-source-files: 
-    data/miner_rewards.csv 
-    data/token_payments.csv
   build-depends:
     , async                    ^>=2.2
     , base16-bytestring
