@@ -11,7 +11,7 @@ jobs:
       matrix:
         ghc: ['8.8.4']
         cabal: ['3.4']
-        os: ['ubuntu-18.04', 'ubuntu-20.04', 'macOS-latest']
+        os: ['ubuntu-20.04', 'ubuntu-22.04', 'macOS-latest']
 
     steps:
     - name: 'GitHub actions env workaround'
@@ -45,15 +45,23 @@ jobs:
     - name: Update package database
       run: cabal update
     - name: Display outdated packages
-      run: cabal outdated
+      run: |
+        cd haskell-src
+        cabal outdated
     - name: Install build dependencies
-      run: cabal build --only-dependencies
+      run: |
+        cd haskell-src
+        cabal build --only-dependencies
     - name: Build
-      run: cabal build
+      run: |
+        cd haskell-src
+        cabal build
 
     # Upload artifacts
     - name: Copy build artifact
-      run: cp `cabal list-bin exe:chainweb-data` .
+      run: |
+        cd haskell-src
+        cp `cabal list-bin exe:chainweb-data` ..
     - name: Stripping binary
       run: strip chainweb-data
     - uses: actions/upload-artifact@v2
@@ -63,4 +71,6 @@ jobs:
 
     # Test
     - name: Test
-      run: cabal v2-test
+      run: |
+        cd haskell-src
+        cabal v2-test
