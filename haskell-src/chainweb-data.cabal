@@ -97,7 +97,7 @@ library
 executable chainweb-data
   import:         commons
   main-is:        Main.hs
-  hs-source-dirs: exec
+  hs-source-dirs: exec data
   ghc-options:    -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     , async                    ^>=2.2
