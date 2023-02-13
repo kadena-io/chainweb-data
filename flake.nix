@@ -46,6 +46,6 @@
           ];
         in  flake // {
           packages.default = executable; 
-          packages.chainweb-data-docker = import ./docker-legacy.nix { inherit pkgs; chainweb-data = executable; };
+          packages.chainweb-data-docker = import ./docker-legacy.nix { chainweb-data = executable; };
           });
 }
