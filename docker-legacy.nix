@@ -1,5 +1,5 @@
 # PLEASE USE "nix build .#"chainweb-data-docker" to build docker image
-# DO NOT CALL "nix-build docker.nix"
+# DO NOT CALL "nix-build docker-legacy.nix"
 { pkgs
 , chainweb-data ? import ./.
 , dockerTag ? "latest"
