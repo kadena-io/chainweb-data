@@ -30,7 +30,6 @@ module ChainwebData.Env
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
-import           Control.Concurrent
 import           Control.Exception
 import           Control.Monad (void)
 import           Data.ByteString (ByteString)
@@ -51,6 +50,7 @@ import           Gargoyle.PostgreSQL
 -- the same thing down in withGargoyleDb and uncomment the gargoyle-postgres-nix
 -- package in the cabal file.
 --import Gargoyle.PostgreSQL.Nix
+import           GHC.Conc ( threadDelay, getNumProcessors )
 import           Network.HTTP.Client (Manager)
 import           Options.Applicative
 import qualified Servant.Client as S
@@ -99,7 +99,7 @@ withGargoyleDbInit initConn dbPath func = do
   --pg <- postgresNix
   let pg = defaultPostgres
   withGargoyle pg dbPath $ \dbUri -> do
-    caps <- getNumCapabilities
+    caps <- getNumProcessors
     let poolConfig =
           PoolConfig
             {
@@ -114,7 +114,7 @@ withGargoyleDbInit initConn dbPath func = do
 -- | Create a `Pool` based on `Connect` settings designated on the command line.
 getPool :: IO Connection -> IO (Pool Connection)
 getPool getConn = do
-  caps <- getNumCapabilities
+  caps <- getNumProcessors
   let poolConfig =
         PoolConfig
           {

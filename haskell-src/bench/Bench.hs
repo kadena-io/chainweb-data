@@ -5,7 +5,6 @@
 {-# LANGUAGE TypeFamilies #-}
 module Main where
 
-import           Control.Concurrent
 import           Control.Exception
 import           Data.Char
 import           Data.ByteString (ByteString)
@@ -24,6 +23,7 @@ import           Database.Beam
 -- import qualified Database.Beam.AutoMigrate as BA
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Syntax
+import           GHC.Conc (getNumProcessors)
 import           Options.Applicative
 import           Text.Printf
 import           System.Exit
@@ -135,7 +135,7 @@ withPool ci = bracket (getPool (connect ci)) destroyAllResources
 -- | Create a `Pool` based on `Connect` settings designated on the command line.
 getPool :: IO Connection -> IO (Pool Connection)
 getPool getConn = do
-  caps <- getNumCapabilities
+  caps <- getNumProcessors
   createPool getConn close 1 5 caps
 
 searchTxsBench :: Pool Connection -> [Text] -> IO (Vector BenchResult)
