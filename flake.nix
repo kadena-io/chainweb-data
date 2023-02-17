@@ -22,28 +22,13 @@
         "aarch64-linux" "aarch64-darwin" ] (system:
         let
           pkgs = import nixpkgs {
-            inherit system overlays;
+            inherit system;
             inherit (haskellNix) config;
+            overlays = [ haskellNix.overlay ];
           };
-          flake = pkgs.chainweb-data.flake {
-
-          };
-          executable = (flake.packages."chainweb-data:exe:chainweb-data").override { dontStrip = false; };
-          overlays = [ haskellNix.overlay
-            (final: prev: {
-	    chainweb-data =
-	      final.haskell-nix.project' {
-	        src = ./.;
-                index-state = "2023-02-01T00:00:00Z";
-	        compiler-nix-name = "ghc8107";
-                projectFileName = "cabal.project";
-	        shell.tools = {
-	          cabal = {};
-	        };
-	      };
-
-            })
-          ];
+          defaultNix = import ./default.nix { inherit pkgs; };
+          flake = defaultNix.flake;
+          executable = defaultNix.default;
         in  flake // {
           packages.default = executable;
           packages.chainweb-data-docker = import ./docker-legacy.nix {

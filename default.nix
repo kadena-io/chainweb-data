@@ -1,7 +1,20 @@
-(import (
-  fetchTarball {
-    url = "https://github.com/edolstra/flake-compat/archive/35bb57c0c8d8b62bbfd284272c928ceb64ddbde9.tar.gz";
-    sha256 = "1prd9b1xx8c0sfwnyzkspplh30m613j42l1k789s521f4kv4c2z2"; }
-) {
-  src =  ./.;
-}).defaultNix
+let inputs = import ./flake-inputs.nix;
+    pkgsDef = import inputs.nixpkgs (import inputs.haskellNix {}).nixpkgsArgs;
+in
+{ pkgs ? pkgsDef
+, ...
+}:
+let chainweb-data = pkgs.haskell-nix.project' {
+	    src = ./.;
+      index-state = "2023-02-01T00:00:00Z";
+	    compiler-nix-name = "ghc8107";
+      projectFileName = "cabal.project";
+	    shell.tools = {
+	      cabal = {};
+	    };
+    };
+    flake = chainweb-data.flake {};
+    default = flake.packages."chainweb-data:exe:chainweb-data".override { dontStrip = false; };
+in {
+  inherit flake default;
+}
