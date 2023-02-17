@@ -1,5 +1,6 @@
 # WE PREFER YOU USE "nix build .#"chainweb-data-docker" TO BUILD THE DOCKER IMAGE
 # INSTEAD OF "nix-build docker-legacy.nix" (BOTH WORK)
+let inputs = import ./flake-inputs.nix; in
 { chainweb-data ? import ./.
 , dockerTag ? "latest"
 , baseImageDef ? {
@@ -9,18 +10,11 @@
       finalImageTag = "22.04";
       finalImageName = "ubuntu";
       }
-, pkgs ?
-    let flakeFile = with builtins; fromJSON (readFile ./flake.lock);
-        rev = flakeFile.nodes.nixpkgs-unstable.locked.rev;
-        sha256 = flakeFile.nodes.nixpkgs-unstable.locked.narHash;
-    in import (builtins.fetchTarball {
-         url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
-         inherit sha256;
-         }) {}
+, nixpkgs ? import inputs.nixpkgs.sourceInfo.outPath {}
 , ... }:
 
-let baseImage = pkgs.dockerTools.pullImage baseImageDef;
-in pkgs.dockerTools.buildImage {
+let baseImage = nixpkgs.dockerTools.pullImage baseImageDef;
+in nixpkgs.dockerTools.buildImage {
   name = "chainweb-data";
   tag = dockerTag;
 
