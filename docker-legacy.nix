@@ -1,7 +1,7 @@
 # WE PREFER YOU USE "nix build .#"chainweb-data-docker" TO BUILD THE DOCKER IMAGE
 # INSTEAD OF "nix-build docker-legacy.nix" (BOTH WORK)
 let inputs = import ./flake-inputs.nix; in
-{ chainweb-data ? import ./.
+{ chainweb-data ? (import ./. {}).default
 , dockerTag ? "latest"
 , baseImageDef ? {
       imageName = "ubuntu";
