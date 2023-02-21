@@ -370,10 +370,12 @@ searchTxs
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text
+  -> Maybe BlockHeight -- ^ minimum block height
+  -> Maybe BlockHeight -- ^ maximum block height
   -> Maybe NextToken
   -> Handler (NextHeaders [TxSummary])
-searchTxs _ _ _ _ _ Nothing _ = throw404 "You must specify a search string"
-searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
+searchTxs _ _ _ _ _ Nothing _ _ _ = throw404 "You must specify a search string"
+searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight mbNext = do
   liftIO $ logger Info $ fromString $ printf
     "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
   continuation <- mkContinuation readTxToken mbOffset mbNext
@@ -391,7 +393,7 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) mbNext = do
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         toTxSearchCursor
-        (txSearchSource search)
+        (txSearchSource search $ HeightRangeParams maxheight minheight)
         noDecoration
         continuation
         resultLimit
@@ -544,12 +546,13 @@ accountHandler
   -> Text -- ^ account identifier
   -> Maybe Text -- ^ token type
   -> Maybe ChainId -- ^ chain identifier
-  -> Maybe BlockHeight
+  -> Maybe BlockHeight -- ^ minimum block height
+  -> Maybe BlockHeight -- ^ maximum block height
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe NextToken
   -> Handler (NextHeaders [TransferDetail])
-accountHandler logger pool req account token chain minheight limit mbOffset mbNext = do
+accountHandler logger pool req account token chain minheight maxheight limit mbOffset mbNext = do
   let usedCoinType = fromMaybe "coin" token
   liftIO $ logger Info $
     fromString $ printf "Account search from %s for: %s %s %s" (show $ remoteHost req) (T.unpack account) (T.unpack usedCoinType) (maybe "<all-chains>" show chain)
@@ -559,7 +562,7 @@ accountHandler logger pool req account token chain minheight limit mbOffset mbNe
   let searchParams = TransferSearchParams
        { tspToken = usedCoinType
        , tspChainId = chain
-       , tspMinHeight = minheight
+       , tspHeightRange = HeightRangeParams maxheight minheight
        , tspAccount = account
        }
   liftIO $ M.with pool $ \(c, throttling) -> do
@@ -619,10 +622,11 @@ evHandler
   -> Maybe EventParam
   -> Maybe EventName
   -> Maybe EventModuleName
-  -> Maybe BlockHeight
+  -> Maybe BlockHeight -- ^ minimum block height
+  -> Maybe BlockHeight -- ^ maximum block height
   -> Maybe NextToken
   -> Handler (NextHeaders [EventDetail])
-evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minheight mbNext = do
+evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minheight maxheight mbNext = do
   liftIO $ logger Info $ fromString $ printf "Event search from %s: %s" (show $ remoteHost req) (maybe "\"\"" T.unpack qSearch)
   continuation <- mkContinuation readEventToken mbOffset mbNext
   let searchParams = EventSearchParams
@@ -644,7 +648,7 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         toEventsSearchCursor
-        (eventsSearchSource searchParams minheight)
+        (eventsSearchSource searchParams $ HeightRangeParams maxheight minheight)
         eventSearchExtras
         continuation
         resultLimit
