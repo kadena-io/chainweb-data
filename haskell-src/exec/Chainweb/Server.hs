@@ -393,7 +393,7 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight 
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         toTxSearchCursor
-        (txSearchSource search $ HeightRangeParams maxheight minheight)
+        (txSearchSource search $ HeightRangeParams minheight maxheight)
         noDecoration
         continuation
         resultLimit
@@ -562,7 +562,7 @@ accountHandler logger pool req account token chain minheight maxheight limit mbO
   let searchParams = TransferSearchParams
        { tspToken = usedCoinType
        , tspChainId = chain
-       , tspHeightRange = HeightRangeParams maxheight minheight
+       , tspHeightRange = HeightRangeParams minheight maxheight
        , tspAccount = account
        }
   liftIO $ M.with pool $ \(c, throttling) -> do
@@ -648,7 +648,7 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
         toEventsSearchCursor
-        (eventsSearchSource searchParams $ HeightRangeParams maxheight minheight)
+        (eventsSearchSource searchParams $ HeightRangeParams minheight maxheight)
         eventSearchExtras
         continuation
         resultLimit

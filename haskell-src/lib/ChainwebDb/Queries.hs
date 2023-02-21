@@ -47,14 +47,14 @@ type PgExpr s = QGenExpr QValueContext Postgres s
 type PgBaseExpr = PgExpr QBaseScope
 
 data HeightRangeParams = HeightRangeParams
-  { hrpMaxHeight :: Maybe BlockHeight
-  , hrpMinHeight :: Maybe BlockHeight
+  { hrpMinHeight :: Maybe BlockHeight
+  , hrpMaxHeight :: Maybe BlockHeight
   }
 
 guardInRange :: HeightRangeParams -> PgExpr s Int64 -> Q Postgres db s ()
 guardInRange HeightRangeParams{..} hgt = do
-  whenArg hrpMaxHeight $ \h -> guard_ $ hgt <=. val_ (fromIntegral h)
   whenArg hrpMinHeight $ \h -> guard_ $ hgt >=. val_ (fromIntegral h)
+  whenArg hrpMaxHeight $ \h -> guard_ $ hgt <=. val_ (fromIntegral h)
 
 -- | A subset of the TransactionT record, used with beam for querying the
 -- /txs/search endpoint response payload
