@@ -94,11 +94,16 @@ library
     ghc-options:        -fplugin GhcFlags.Plugin
     build-depends:      ghcflags
 
+flag threaded
+  description: Build chainweb-data with threading support
+  default: True
+
 executable chainweb-data
   import:         commons
   main-is:        Main.hs
   hs-source-dirs: exec data
-  ghc-options:    -threaded -rtsopts -with-rtsopts=-N
+  if flag(threaded)
+      ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     , async                    ^>=2.2
     , base16-bytestring
