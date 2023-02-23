@@ -31,9 +31,6 @@
           executable = defaultNix.default;
         in  flake // {
           packages.default = executable;
-          packages.chainweb-data-docker = import ./docker-legacy.nix {
-            nixpkgs = import nixpkgs { inherit system; };
-            chainweb-data = executable;
-          };
+          packages.chainweb-data-docker = defaultNix.dockerImage;
         });
 }
