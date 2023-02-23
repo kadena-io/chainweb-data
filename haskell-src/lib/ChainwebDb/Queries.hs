@@ -46,6 +46,16 @@ type PgSelect a = SqlSelect Postgres (QExprToIdentity a)
 type PgExpr s = QGenExpr QValueContext Postgres s
 type PgBaseExpr = PgExpr QBaseScope
 
+data HeightRangeParams = HeightRangeParams
+  { hrpMinHeight :: Maybe BlockHeight
+  , hrpMaxHeight :: Maybe BlockHeight
+  }
+
+guardInRange :: HeightRangeParams -> PgExpr s Int64 -> Q Postgres db s ()
+guardInRange HeightRangeParams{..} hgt = do
+  whenArg hrpMinHeight $ \h -> guard_ $ hgt >=. val_ (fromIntegral h)
+  whenArg hrpMaxHeight $ \h -> guard_ $ hgt <=. val_ (fromIntegral h)
+
 -- | A subset of the TransactionT record, used with beam for querying the
 -- /txs/search endpoint response payload
 data DbTxSummaryT f = DbTxSummary
@@ -89,9 +99,11 @@ toDbTxSummary Transaction{..} = DbTxSummary
 
 txSearchSource ::
   Text ->
+  HeightRangeParams ->
   Q Postgres ChainwebDataDb s (FilterMarked DbTxSummaryT (PgExpr s))
-txSearchSource search = do
+txSearchSource search hgtRange = do
   tx <- all_ $ _cddb_transactions database
+  guardInRange hgtRange (_tx_height tx)
   let searchExp = val_ ("%" <> search <> "%")
       isMatch = fromMaybe_ (val_ "") (_tx_code tx) `like_` searchExp
   return $ FilterMarked isMatch $ toDbTxSummary tx
@@ -141,12 +153,11 @@ toEventsSearchCursor Event{..} = EventCursor
 
 eventsSearchSource ::
   EventSearchParams ->
-  EventQueryStart ->
+  HeightRangeParams ->
   Q Postgres ChainwebDataDb s (FilterMarked EventT (PgExpr s))
-eventsSearchSource esp mbHeight = do
+eventsSearchSource esp hgtRange = do
   ev <- all_ $ _cddb_events database
-  whenArg mbHeight $ \hgt -> guard_ $
-    _ev_height ev >=. val_ (fromIntegral hgt)
+  guardInRange hgtRange (_ev_height ev)
   return $ FilterMarked (eventSearchCond esp ev) ev
 
 newtype EventSearchExtrasT f = EventSearchExtras
@@ -180,7 +191,7 @@ toAccountsSearchCursor Transfer{..} = EventCursor
 data TransferSearchParams = TransferSearchParams
   { tspToken :: Text
   , tspChainId :: Maybe ChainId
-  , tspMinHeight :: Maybe BlockHeight
+  , tspHeightRange :: HeightRangeParams
   , tspAccount :: Text
   }
 
@@ -201,8 +212,7 @@ transfersSearchSource tsp = do
     accountQuery accountField = orderBy_ getOrder $ do
       tr <- all_ (_cddb_transfers database)
       guard_ $ accountField tr ==. val_ (tspAccount tsp)
-      whenArg (tspMinHeight tsp) $ \hgt ->
-        guard_ $ _tr_height tr >=. val_ (fromIntegral hgt)
+      guardInRange (tspHeightRange tsp) (_tr_height tr)
       return tr
     sourceTransfersScan = unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
 
