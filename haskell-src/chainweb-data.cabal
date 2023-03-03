@@ -87,6 +87,7 @@ library
     , optparse-applicative     >=0.14 && <0.17
     , servant-client
     , servant-openapi3
+    , vector
     , yet-another-logger
 
   if flag(ghc-flags)

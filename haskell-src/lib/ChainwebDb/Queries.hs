@@ -22,6 +22,7 @@ import           Data.Functor ((<&>))
 import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import           Data.Time
+import           Data.Vector (Vector)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Syntax
@@ -97,6 +98,33 @@ toDbTxSummary Transaction{..} = DbTxSummary
   , dtsGoodResult = _tx_goodResult
    }
 
+data ContinuationHistoryF f = ContinuationHistory
+  { chCode :: C f (Maybe Text)
+  , chSteps :: C f (Vector Text)
+  } deriving (Generic, Beamable)
+
+type ContinuationHistory = ContinuationHistoryF Identity
+
+deriving instance Show ContinuationHistory
+
+joinContinuationHistory :: PgExpr s (Maybe (DbHash TxHash)) ->
+  Q Postgres ChainwebDataDb s (ContinuationHistoryF (PgExpr s))
+joinContinuationHistory pactIdExp = pgUnnest $ (customExpr_ $ \pactId ->
+  "LATERAL ( " <>
+    "WITH RECURSIVE transactionSteps AS ( " <>
+      "SELECT DISTINCT ON (depth) tInner.code, tInner.pactid, 1 AS depth, tInner.requestkey " <>
+      "FROM transactions AS tInner " <>
+      "WHERE (tInner.requestkey) = " <> pactId <>
+      "UNION ALL " <>
+      "SELECT DISTINCT ON (depth) tInner.code, tInner.pactid, tRec.depth + 1, tInner.requestkey " <>
+      "FROM transactions AS tInner " <>
+      "INNER JOIN transactionSteps AS tRec ON tRec.pactid = tInner.requestkey " <>
+    ")" <>
+    "SELECT (array_agg(code) FILTER (WHERE code IS NOT NULL))[1] as code " <>
+         ", array_agg(requestkey ORDER BY depth) as steps " <>
+    "FROM transactionSteps " <>
+  ")") pactIdExp
+
 txSearchSource ::
   Text ->
   HeightRangeParams ->
@@ -104,11 +132,10 @@ txSearchSource ::
 txSearchSource search hgtRange = do
   txMerged <- do
     tx <- all_ $ _cddb_transactions database
-    initTx <- leftJoin_' (all_ $ _cddb_transactions database) $ \tx2 ->
-      just_ (_tx_requestKey tx2) ==?. _tx_pactId tx
+    contHist <- joinContinuationHistory (_tx_pactId tx)
     let codeMerged = coalesce_
-          [ just_ (_tx_code tx)
-          , _tx_code initTx
+          [ just_ $ _tx_code tx
+          , just_ $ chCode contHist
           ]
           nothing_
     return $ tx { _tx_code = codeMerged }
