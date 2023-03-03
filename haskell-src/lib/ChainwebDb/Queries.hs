@@ -110,6 +110,15 @@ deriving instance Show ContinuationHistory
 joinContinuationHistory :: PgExpr s (Maybe (DbHash TxHash)) ->
   Q Postgres ChainwebDataDb s (ContinuationHistoryF (PgExpr s))
 joinContinuationHistory pactIdExp = pgUnnest $ (customExpr_ $ \pactId ->
+  -- We need the following LATERAL keyword so that it can be used liberally
+  -- in any Q context despite the fact that it refers to the `pactIdExp` coming
+  -- from the outside scope. The LATERAL helps, because when the expression below
+  -- appears after a XXXX JOIN, this LATERAL prefix will turn it into a lateral
+  -- join. This is very hacky, but Postgres allows the LATERAL keyword after FROM
+  -- as well, so I can't think of a case that would cause the hack to blow up.
+  -- Either way, once we have migrations going, we should replace this body with
+  -- a Postgres function call, which the pgUnnest + customExpr_ combination was
+  -- designed for.
   "LATERAL ( " <>
     "WITH RECURSIVE transactionSteps AS ( " <>
       "SELECT DISTINCT ON (depth) tInner.code, tInner.pactid, 1 AS depth, tInner.requestkey " <>
