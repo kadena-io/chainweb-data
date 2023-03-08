@@ -62,14 +62,14 @@ let profilingModule = {
     };
   signing-api-src = builtins.fetchTarball {
     url = https://github.com/kadena-io/signing-api/archive/9124a37d4847f3959d3a4ef21405e93b97525632.tar.gz;
-    sha256 = "sha256:1ml0i155xywk3gbbp8shxjfbzxkmh98wby1zfds4sys5x8iz35kz";
+    sha256 = "sha256:1sjvy9zn53m4hn0ap1bmab904c7ipj5ycz4zlsph49nwkvcrb62l";
   };
   signing-api = import signing-api-src {};
   all = with signing-api; pkgs.writeScript "all" ''
     ${schemathesis}
-    ${api.swagger-cli}
+    ${swagger-cli}
     ${signingProject.shells.ghc}
   '';
 in {
-  inherit all;
+  inherit flake all;
 }
