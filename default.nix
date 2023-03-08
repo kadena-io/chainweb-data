@@ -71,5 +71,5 @@ let profilingModule = {
     ${signingProject.shells.ghc}
   '';
 in {
-  inherit flake all;
+  inherit all flake;
 }
