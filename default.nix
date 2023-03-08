@@ -65,6 +65,10 @@ let profilingModule = {
     sha256 = "sha256:1ml0i155xywk3gbbp8shxjfbzxkmh98wby1zfds4sys5x8iz35kw";
   };
   signing-api = import signing-api-src {};
+  all = pkgs.writeScript "all" ''
+    ${signing-api.schemathesis}
+    ${signing-api.swagger-cli}
+  '';
 in {
-  inherit (signing-api) schemathesis swagger-cli;
+  inherit all;
 }
