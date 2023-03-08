@@ -69,6 +69,8 @@ let profilingModule = {
     ${schemathesis}
     ${swagger-cli}
     ${signingProject.shells.ghc}
+    ${kadena-signing-api}
+    ${kadena-signing-api-mock}
   '';
 in {
   inherit all flake;
