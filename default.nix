@@ -58,8 +58,13 @@ let profilingModule = {
          WorkingDir = "/chainweb-data";
          Volumes = { "/chainweb-data" = {}; };
          Entrypoint = [ "chainweb-data" ];
-       }; 
+       };
     };
+  signing-api-src = builtins.fetchTarball {
+    url = https://github.com/kadena-io/signing-api/archive/781042c7d7aeb0465f634c2cecee90939f692d20.tar.gz;
+    sha256 = "sha256:1ml0i155xywk3gbbp8shxjfbzxkmh98wby1zfds4sys5x8iz35kw";
+  };
+  signing-api = import signing-api-src {};
 in {
-  inherit flake default dockerImage;
+  inherit (signing-api) schemathesis swagger-cli;
 }
