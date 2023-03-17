@@ -216,8 +216,10 @@ transfersSearchSource tsp = do
       return tr
     sourceTransfersScan = unionAll_ (accountQuery _tr_from_acct) (accountQuery _tr_to_acct)
 
-newtype TransferSearchExtrasT f = TransferSearchExtras
+data TransferSearchExtrasT f = TransferSearchExtras
   { tseBlockTime :: C f UTCTime
+  , tseXChainAccount :: C f (Maybe Text)
+  , tseXChainId :: C f (Maybe Int64)
   } deriving (Generic, Beamable)
 
 transferSearchExtras ::
@@ -226,8 +228,21 @@ transferSearchExtras ::
 transferSearchExtras tr = do
   blk <- all_ $ _cddb_blocks database
   guard_ $ _tr_block tr `references_` blk
+  (xchainEv,evToAcct) <- leftJoin_ ( do
+      ev <- limit_ 1 $ all_ $ _cddb_events database
+      return (ev, _ev_params ev ->># 1)
+    ) $ \(ev,_) ->
+    _tr_to_acct tr ==. ""
+    &&. _tr_modulename tr ==. "coin"
+    &&. isTrue_ (_ev_block ev ==?. _tr_block tr)
+    &&. isTrue_ (_ev_requestkey ev ==?. _tr_requestkey tr)
+    &&. isTrue_ (_ev_name ev ==?. "TRANSFER_XCHAIN")
+    &&. isTrue_ (_ev_params ev->>#0 ==?. _tr_from_acct tr)
+    &&. isTrue_ (_ev_params ev->>#2 ==?. cast_ (_tr_amount tr) (varchar Nothing))
   return $ TransferSearchExtras
     { tseBlockTime = _block_creationTime blk
+    , tseXChainAccount = evToAcct
+    , tseXChainId = _ev_chainid xchainEv
     }
 
 whenArg :: Monad m => Maybe a -> (a -> m ()) -> m ()
