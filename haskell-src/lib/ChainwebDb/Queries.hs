@@ -244,7 +244,7 @@ joinXChainInfo :: TransferT (PgExpr s) ->
   Q Postgres ChainwebDataDb s (XChainInfoT (PgExpr s))
 joinXChainInfo tr = pgUnnest $ (customExpr_ $ \fromAcct toAcct idx mdName blk req amt ->
   -- We need the following LATERAL keyword so that it can be used liberally
-  -- in any Q context despite the fact that it refers to the `pactIdExp` coming
+  -- in any Q context despite the fact that it refers to the `tr` coming
   -- from the outside scope. The LATERAL helps, because when the expression below
   -- appears after a XXXX JOIN, this LATERAL prefix will turn it into a lateral
   -- join. This is very hacky, but Postgres allows the LATERAL keyword after FROM
