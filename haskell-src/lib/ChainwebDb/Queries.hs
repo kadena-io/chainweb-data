@@ -228,29 +228,66 @@ transferSearchExtras ::
 transferSearchExtras tr = do
   blk <- all_ $ _cddb_blocks database
   guard_ $ _tr_block tr `references_` blk
-  (xChainAcct, xChainId) <- gatherXChainInfo tr
+  xChainInfo <- joinXChainInfo tr
   return $ TransferSearchExtras
     { tseBlockTime = _block_creationTime blk
-    , tseXChainAccount = xChainAcct
-    , tseXChainId = xChainId
+    , tseXChainAccount = xciAccount xChainInfo
+    , tseXChainId = xciChainId xChainInfo
     }
 
-gatherXChainInfo ::
-  TransferT (PgExpr s) ->
-  Q Postgres ChainwebDataDb s (PgExpr s (Maybe Text), PgExpr s (Maybe Int64))
-gatherXChainInfo tr = do
-  (xchainEv,evToAcct) <- leftJoin_' ( do
-      ev <- all_ $ _cddb_events database
-      return (ev, _ev_params ev ->># 1)
-    ) $ \(ev,_) ->
-    sqlBool_ (_tr_to_acct tr ==. "")
-    &&?. sqlBool_ (_tr_modulename tr ==. "coin")
-    &&?. (_ev_block ev ==?. _tr_block tr)
-    &&?. (_ev_requestkey ev ==?. _tr_requestkey tr)
-    &&?. (_ev_name ev ==?. "TRANSFER_XCHAIN")
-    &&?. (_ev_params ev->>#0 ==?. _tr_from_acct tr)
-    &&?. (_ev_params ev->>#2 ==?. cast_ (_tr_amount tr) (varchar Nothing))
-  return (evToAcct, _ev_chainid xchainEv)
+data XChainInfoT f = XChainInfo
+  { xciAccount :: C f (Maybe Text)
+  , xciChainId :: C f (Maybe Int64)
+  } deriving (Generic, Beamable)
+
+joinXChainInfo :: TransferT (PgExpr s) ->
+  Q Postgres ChainwebDataDb s (XChainInfoT (PgExpr s))
+joinXChainInfo tr = pgUnnest $ (customExpr_ $ \fromAcct toAcct idx mdName blk req amt ->
+  -- We need the following LATERAL keyword so that it can be used liberally
+  -- in any Q context despite the fact that it refers to the `pactIdExp` coming
+  -- from the outside scope. The LATERAL helps, because when the expression below
+  -- appears after a XXXX JOIN, this LATERAL prefix will turn it into a lateral
+  -- join. This is very hacky, but Postgres allows the LATERAL keyword after FROM
+  -- as well, so I can't think of a case that would cause the hack to blow up.
+  -- Either way, once we have migrations going, we should replace this body with
+  -- a Postgres function call, which the pgUnnest + customExpr_ combination was
+  -- designed for.
+  " LATERAL ( " <>
+    " SELECT e.params->>1 AS acct, e.chainid " <>
+    " FROM events e " <>
+    " WHERE e.block = " <> blk <>
+      " AND e.requestkey = " <> req <>
+      " AND e.qualname = 'coin.TRANSFER_XCHAIN' " <>
+      " AND e.params->>0 = " <> fromAcct <>
+      " AND " <> toAcct <> " = '' " <>
+      " AND e.params->>2 = CAST(" <> amt <> "AS VARCHAR) " <>
+      " AND e.idx = " <> idx <> " - 1 " <>
+      " AND " <> mdName <> " = 'coin' " <>
+    " UNION ALL " <>
+    " SELECT e.params->>0 AS acct, e.chainid " <>
+    " FROM transactions tRec, transactions tSend, events e " <>
+    " WHERE " <> mdName <> " = 'coin' " <>
+      " AND " <> req <> " != 'cb' " <>
+      " AND " <> fromAcct <> " = '' " <>
+      " AND tRec.block = " <> blk <>
+      " AND tRec.requestkey = " <> req <>
+      " AND tSend.requestkey = tRec.pactid " <>
+      " AND e.block = tSend.block " <>
+      " AND e.requestkey = tSend.requestkey " <>
+      " AND e.qualname = 'coin.TRANSFER_XCHAIN' " <>
+      " AND e.params->>1 = " <> toAcct <>
+      " AND e.params->>2 = CAST(" <> amt <> "AS VARCHAR) " <>
+    " UNION ALL " <>
+    " SELECT NULL, NULL " <>
+    " LIMIT 1 " <>
+  ")")
+  (_tr_from_acct tr)
+  (_tr_to_acct tr)
+  (_tr_idx tr)
+  (_tr_modulename tr)
+  (unBlockId $ _tr_block tr)
+  (_tr_requestkey tr)
+  (_tr_amount tr)
 
 whenArg :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenArg p a = maybe (return ()) a p
