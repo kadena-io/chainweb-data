@@ -228,22 +228,29 @@ transferSearchExtras ::
 transferSearchExtras tr = do
   blk <- all_ $ _cddb_blocks database
   guard_ $ _tr_block tr `references_` blk
-  (xchainEv,evToAcct) <- leftJoin_ ( do
-      ev <- limit_ 1 $ all_ $ _cddb_events database
-      return (ev, _ev_params ev ->># 1)
-    ) $ \(ev,_) ->
-    _tr_to_acct tr ==. ""
-    &&. _tr_modulename tr ==. "coin"
-    &&. isTrue_ (_ev_block ev ==?. _tr_block tr)
-    &&. isTrue_ (_ev_requestkey ev ==?. _tr_requestkey tr)
-    &&. isTrue_ (_ev_name ev ==?. "TRANSFER_XCHAIN")
-    &&. isTrue_ (_ev_params ev->>#0 ==?. _tr_from_acct tr)
-    &&. isTrue_ (_ev_params ev->>#2 ==?. cast_ (_tr_amount tr) (varchar Nothing))
+  (xChainAcct, xChainId) <- gatherXChainInfo tr
   return $ TransferSearchExtras
     { tseBlockTime = _block_creationTime blk
-    , tseXChainAccount = evToAcct
-    , tseXChainId = _ev_chainid xchainEv
+    , tseXChainAccount = xChainAcct
+    , tseXChainId = xChainId
     }
+
+gatherXChainInfo ::
+  TransferT (PgExpr s) ->
+  Q Postgres ChainwebDataDb s (PgExpr s (Maybe Text), PgExpr s (Maybe Int64))
+gatherXChainInfo tr = do
+  (xchainEv,evToAcct) <- leftJoin_' ( do
+      ev <- all_ $ _cddb_events database
+      return (ev, _ev_params ev ->># 1)
+    ) $ \(ev,_) ->
+    sqlBool_ (_tr_to_acct tr ==. "")
+    &&?. sqlBool_ (_tr_modulename tr ==. "coin")
+    &&?. (_ev_block ev ==?. _tr_block tr)
+    &&?. (_ev_requestkey ev ==?. _tr_requestkey tr)
+    &&?. (_ev_name ev ==?. "TRANSFER_XCHAIN")
+    &&?. (_ev_params ev->>#0 ==?. _tr_from_acct tr)
+    &&?. (_ev_params ev->>#2 ==?. cast_ (_tr_amount tr) (varchar Nothing))
+  return (evToAcct, _ev_chainid xchainEv)
 
 whenArg :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenArg p a = maybe (return ()) a p
