@@ -589,6 +589,8 @@ accountHandler logger pool req account token chain minheight maxheight limit mbO
         , _trDetail_amount = StringEncoded $ getKDAScientific $ _tr_amount tr
         , _trDetail_fromAccount = _tr_from_acct tr
         , _trDetail_toAccount = _tr_to_acct tr
+        , _trDetail_crossChainAccount = tseXChainAccount extras
+        , _trDetail_crossChainId = fromIntegral <$> tseXChainId extras
         , _trDetail_blockTime = tseBlockTime extras
         }
 
