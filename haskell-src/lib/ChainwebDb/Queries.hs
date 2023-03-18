@@ -253,7 +253,7 @@ joinXChainInfo tr = pgUnnest $ (customExpr_ $ \fromAcct toAcct idx mdName blk re
   -- a Postgres function call, which the pgUnnest + customExpr_ combination was
   -- designed for.
   " LATERAL ( " <>
-    " SELECT e.params->>1 AS acct, e.chainid " <>
+    " SELECT e.params->>1 AS acct, CAST(e.params->>3 AS INT) " <>
     " FROM events e " <>
     " WHERE e.block = " <> blk <>
       " AND e.requestkey = " <> req <>
