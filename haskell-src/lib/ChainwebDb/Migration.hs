@@ -66,8 +66,8 @@ matchSteps = matchRecursive Nothing
       (thisOrder, thisName) <- parseScriptName $ msName ms
       forM_ mbPrevOrder $ \prevOrder -> do
         unless (prevOrder < thisOrder) $ Left $ "Steps out of order: " <> thisName
-      rest <- case existing of
-        [] -> return []
+      case existing of
+        [] -> (ms:) <$> matchRecursive (Just thisOrder) steps []
         (sm:rest) -> do
           (order, name) <- parseScriptName $ T.unpack $ T.decodeUtf8 $ Mg.schemaMigrationName sm
           unless (thisOrder == order) $ Left
@@ -83,8 +83,7 @@ matchSteps = matchRecursive Nothing
             $ "Checksum mismatch: Wanted step " <> show thisName
            <> " with checksum " <> show wantedChecksum <> " but found step " <> show name
            <> " with checksum " <> show foundChecksum
-          return rest
-      matchRecursive (Just thisOrder) steps rest
+          matchRecursive (Just thisOrder) steps rest
 
 data MigrationAction
   = RunMigrations
