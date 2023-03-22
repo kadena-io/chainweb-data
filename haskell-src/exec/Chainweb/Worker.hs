@@ -41,7 +41,7 @@ import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
-import           Database.Beam.Postgres.Full (insert, onConflictDefault, onConflict)
+import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 import           System.Logger hiding (logg)
 ---

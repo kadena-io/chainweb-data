@@ -1,7 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
 
@@ -23,12 +21,10 @@ import           Data.ByteString.Lazy (ByteString)
 import           Data.IORef
 import           Data.Int
 import qualified Data.Map.Strict as M
-import qualified Data.Pool as P
 import           Data.String
 import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import           Database.PostgreSQL.Simple
 import           System.Logger hiding (logg)
 import           System.Exit (exitFailure)
 import           Text.Printf
@@ -89,37 +85,6 @@ gapsCut env args cutBS = do
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
         Right hs -> writeBlocks env pool count hs
       maybe mempty threadDelay delay
-
-dedupeMinerKeysTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeMinerKeysTable pool logger = do
-    logger Info "Deduping minerkeys table"
-    P.withResource pool $ \conn ->
-      void $ execute_ conn dedupestmt
-  where
-    dedupestmt =
-      "DELETE FROM minerkeys WHERE ctid IN (SELECT\
-      \ ctid FROM (SELECT\
-      \ block,key,ctid,row_number() OVER (PARTITION BY\
-      \ block,key) AS row_num FROM minerkeys) t WHERE t.row_num >1);"
-
-dedupeSignersTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeSignersTable pool logger = do
-    logger Debug "Deduping signers table"
-    P.withResource pool $ \conn ->
-      void $ execute_ conn dedupestmt
-  where
-    dedupestmt =
-      "DELETE FROM signers WHERE ctid IN (SELECT ctid\
-      \ FROM (SELECT requestkey,idx,ctid,row_number() OVER (PARTITION BY requestkey,idx)\
-      \ AS row_num FROM signers) t WHERE t.row_num > 1);"
-
-dedupeTables :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeTables pool logger = do
-  -- We don't need to dedupe the following tables because their primary keys
-  -- should be unique across any data we might encounter:
-  -- events, transactions, blocks
-  dedupeMinerKeysTable pool logger
-  dedupeSignersTable pool logger
 
 getBlockGaps :: Env -> M.Map Int64 (Maybe Int64) -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
