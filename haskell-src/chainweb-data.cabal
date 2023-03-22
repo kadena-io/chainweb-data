@@ -66,6 +66,7 @@ library
     ChainwebData.Spec
     ChainwebDb.BoundedScan
     ChainwebDb.Database
+    ChainwebDb.Migration
     ChainwebDb.Queries
     ChainwebDb.Types.Block
     ChainwebDb.Types.Common
@@ -77,6 +78,7 @@ library
     ChainwebDb.Types.Transfer
   build-depends:
     base64-bytestring        ^>=1.0
+    , cryptohash
     , Decimal
     , gargoyle
     , gargoyle-postgresql
@@ -85,6 +87,7 @@ library
     , http-types
     , openapi3
     , optparse-applicative     >=0.14 && <0.17
+    , postgresql-simple-migration
     , servant-client
     , servant-openapi3
     , yet-another-logger
@@ -101,7 +104,7 @@ flag threaded
 executable chainweb-data
   import:         commons
   main-is:        Main.hs
-  hs-source-dirs: exec data
+  hs-source-dirs: exec data db-schema
   if flag(threaded)
       ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
