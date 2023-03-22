@@ -7,6 +7,7 @@ import BasePrelude (exitFailure)
 import Control.Monad
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.Map as Map
 import qualified Data.Pool as P
 import qualified Data.Text as T
@@ -84,7 +85,7 @@ matchSteps stepsIn existingIn = do
       unless (thisName == name) $ Left
         $ "Steps out of order: Wanted step " <> show thisName
        <> " but found step " <> show name
-      let wantedChecksum = MD5.hash $ msBody ms
+      let wantedChecksum = B64.encode $ MD5.hash $ msBody ms
           foundChecksum = Mg.schemaMigrationChecksum sm
       unless (wantedChecksum == foundChecksum) $ Left
         $ "Checksum mismatch: Wanted step " <> show thisName
