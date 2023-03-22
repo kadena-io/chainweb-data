@@ -7,6 +7,7 @@ import BasePrelude (exitFailure)
 import Control.Monad
 
 import qualified Data.ByteString as BS
+import qualified Data.Map as Map
 import qualified Data.Pool as P
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -57,33 +58,39 @@ matchSteps ::
   [MigrationStep] ->
   [Mg.SchemaMigration] ->
   Either String [MigrationStep]
-matchSteps = matchRecursive Nothing
+matchSteps stepsIn existingIn = do
+    orderedSteps <- do
+      orderTagged <- forM stepsIn $ \ms -> do
+        (order, _) <- parseScriptName $ msName ms
+        return (order, pure ms)
+      sequence $ Map.elems $ flip Map.fromListWithKey orderTagged $
+        \order left' right' -> do
+          left <- left'
+          right <- right'
+          Left $ "Duplicate step order: " <> show order <> " for steps "
+              <> show (msName left) <> " and " <> show (msName right)
+    matchRecursive orderedSteps existingIn
   where
-    matchRecursive _ [] [] = Right []
-    matchRecursive _ [] (sm:_) = Left $
+    matchRecursive steps [] = Right steps
+    matchRecursive [] (sm:_) = Left $
       "Extra steps in existing migrations: " <> show (Mg.schemaMigrationName sm) <> "..."
-    matchRecursive mbPrevOrder (ms:steps) existing = do
+    matchRecursive (ms:steps) (sm:rest) = do
       (thisOrder, thisName) <- parseScriptName $ msName ms
-      forM_ mbPrevOrder $ \prevOrder -> do
-        unless (prevOrder < thisOrder) $ Left $ "Steps out of order: " <> thisName
-      case existing of
-        [] -> (ms:) <$> matchRecursive (Just thisOrder) steps []
-        (sm:rest) -> do
-          (order, name) <- parseScriptName $ T.unpack $ T.decodeUtf8 $ Mg.schemaMigrationName sm
-          unless (thisOrder == order) $ Left
-            $ "Steps out of order: Wanted step " <> show thisName
-           <> " has order " <> show thisOrder <> " but found step " <> show name
-           <> " with order " <> show order
-          unless (thisName == name) $ Left
-            $ "Steps out of order: Wanted step " <> show thisName
-           <> " but found step " <> show name
-          let wantedChecksum = MD5.hash $ msBody ms
-              foundChecksum = Mg.schemaMigrationChecksum sm
-          unless (wantedChecksum == foundChecksum) $ Left
-            $ "Checksum mismatch: Wanted step " <> show thisName
-           <> " with checksum " <> show wantedChecksum <> " but found step " <> show name
-           <> " with checksum " <> show foundChecksum
-          matchRecursive (Just thisOrder) steps rest
+      (order, name) <- parseScriptName $ T.unpack $ T.decodeUtf8 $ Mg.schemaMigrationName sm
+      unless (thisOrder == order) $ Left
+        $ "Steps out of order: Wanted step " <> show thisName
+       <> " has order " <> show thisOrder <> " but found step " <> show name
+       <> " with order " <> show order
+      unless (thisName == name) $ Left
+        $ "Steps out of order: Wanted step " <> show thisName
+       <> " but found step " <> show name
+      let wantedChecksum = MD5.hash $ msBody ms
+          foundChecksum = Mg.schemaMigrationChecksum sm
+      unless (wantedChecksum == foundChecksum) $ Left
+        $ "Checksum mismatch: Wanted step " <> show thisName
+       <> " with checksum " <> show wantedChecksum <> " but found step " <> show name
+       <> " with checksum " <> show foundChecksum
+      matchRecursive steps rest
 
 data MigrationAction
   = RunMigrations
