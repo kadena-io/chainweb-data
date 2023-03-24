@@ -70,12 +70,9 @@ matchSteps stepsIn existingIn = do
           right <- right'
           Left $ "Duplicate step order: " <> show order <> " for steps "
               <> show (msName left) <> " and " <> show (msName right)
-    matchRecursive orderedSteps existingIn
-  where
-    matchRecursive steps [] = Right steps
-    matchRecursive [] (sm:_) = Left $
-      "Extra steps in existing migrations: " <> show (Mg.schemaMigrationName sm) <> "..."
-    matchRecursive (ms:steps) (sm:rest) = do
+    let (mustMatch, missingSteps, unexpectedExisting) =
+          zipWithRemainders (,) orderedSteps existingIn
+    forM_ mustMatch $ \(ms,sm) -> do
       (thisOrder, thisName) <- parseScriptName $ msName ms
       (order, name) <- parseScriptName $ T.unpack $ T.decodeUtf8 $ Mg.schemaMigrationName sm
       unless (thisOrder == order) $ Left
@@ -91,7 +88,15 @@ matchSteps stepsIn existingIn = do
         $ "Checksum mismatch: Wanted step " <> show thisName
        <> " with checksum " <> show wantedChecksum <> " but found step " <> show name
        <> " with checksum " <> show foundChecksum
-      matchRecursive steps rest
+    unless (null unexpectedExisting) $ Left
+      $ "Unexpected migrations found: " <> show (Mg.schemaMigrationName <$> unexpectedExisting) <> "..."
+    return missingSteps
+
+zipWithRemainders :: (a -> b -> c) -> [a] -> [b] -> ([c], [a], [b])
+zipWithRemainders _ as [] = ([], as, [])
+zipWithRemainders _ [] bs = ([], [], bs)
+zipWithRemainders f (a:as) (b:bs) = (f a b : cs, as', bs')
+  where (cs, as', bs') = zipWithRemainders f as bs
 
 data MigrationAction
   = RunMigrations
