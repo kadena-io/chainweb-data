@@ -97,19 +97,10 @@ setCors = cors . const . Just $ simpleCorsResourcePolicy
     }
 
 data ServerState = ServerState
-    { _ssRecentTxs :: RecentTxs
-    , _ssHighestBlockHeight :: BlockHeight
+    { _ssHighestBlockHeight :: BlockHeight
     , _ssTransactionCount :: Maybe Int64
     , _ssCirculatingCoins :: Decimal
     } deriving (Eq,Show)
-
-ssRecentTxs
-    :: Functor f
-    => (RecentTxs -> f RecentTxs)
-    -> ServerState -> f ServerState
-ssRecentTxs = lens _ssRecentTxs setter
-  where
-    setter sc v = sc { _ssRecentTxs = v }
 
 ssHighestBlockHeight
     :: Functor f
@@ -180,9 +171,8 @@ apiServerCut env senv cutBS = do
   let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  recentTxs <- RecentTxs . S.fromList <$> queryRecentTxs logg pool
   numTxs <- getTransactionCount logg pool
-  ssRef <- newIORef $ ServerState recentTxs 0 numTxs circulatingCoins
+  ssRef <- newIORef $ ServerState 0 numTxs circulatingCoins
   logg Info $ fromString $ "Total number of transactions: " <> show numTxs
   _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
   _ <- forkIO $ retryingListener env ssRef
@@ -196,7 +186,7 @@ apiServerCut env senv cutBS = do
 
   let unThrottledPool = fst <$> throttledPool
   let serverApp req =
-        ( ( recentTxsHandler ssRef
+        ( ( recentTxsHandler logg unThrottledPool
             :<|> searchTxs logg throttledPool req
             :<|> evHandler logg throttledPool req
             :<|> txHandler logg unThrottledPool
@@ -283,9 +273,6 @@ statsHandler ssRef = liftIO $ do
     mkStats ss = ChainwebDataStats (fromIntegral <$> _ssTransactionCount ss)
                                    (Just $ realToFrac $ _ssCirculatingCoins ss)
 
-recentTxsHandler :: IORef ServerState -> Handler [TxSummary]
-recentTxsHandler ss = liftIO $ fmap (toList . _recentTxs_txs . _ssRecentTxs) $ readIORef ss
-
 serverHeaderHandler :: Env -> IORef ServerState -> PowHeader -> IO ()
 serverHeaderHandler env ssRef ph@(PowHeader h _) = do
   let pool = _env_dbConnPool env
@@ -303,8 +290,7 @@ serverHeaderHandler env ssRef ph@(PowHeader h _) = do
       let hash = _blockHeader_hash h
           tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
           ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
-          f ss = (ss & ssRecentTxs %~ addNewTransactions ts
-                     & ssHighestBlockHeight %~ max height
+          f ss = (ss & ssHighestBlockHeight %~ max height
                      & (ssTransactionCount . _Just) +~ (fromIntegral $ S.length ts), ())
 
       let msg = printf "Got new header on chain %d height %d" (unChainId chain) height
@@ -674,10 +660,10 @@ type instance QExprToIdentity (a :. b) = (QExprToIdentity a) :. (QExprToIdentity
 type instance QExprToField (a :. b) = (QExprToField a) :. (QExprToField b)
 
 
-queryRecentTxs :: LogFunctionIO Text -> P.Pool Connection -> IO [TxSummary]
-queryRecentTxs logger pool = do
-    liftIO $ logger Info "Getting recent transactions"
-    P.withResource pool $ \c -> do
+recentTxsHandler :: LogFunctionIO Text -> M.Managed Connection ->  Handler [TxSummary]
+recentTxsHandler logger pool = liftIO $ do
+    logger Info "Getting recent transactions"
+    M.with pool $ \c -> do
       res <- runBeamPostgresDebug (logger Debug . T.pack) c $
         runSelectReturningList $ select $ do
         limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
