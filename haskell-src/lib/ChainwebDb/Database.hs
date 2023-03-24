@@ -13,7 +13,7 @@
 module ChainwebDb.Database
   ( ChainwebDataDb(..)
   , database
-  , initializeTables
+  , checkTables
   , bench_initializeTables
 
   , withDb
@@ -27,7 +27,7 @@ import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
-import           Control.Monad (unless)
+import           Control.Monad (when)
 import           Data.Functor ((<&>))
 import qualified Data.Pool as P
 import           Data.Text (Text)
@@ -161,27 +161,24 @@ showMigration conn = do
   runBeamPostgres conn $
     BA.printMigration $ BA.createMigration diff
 
--- | Create the DB tables if necessary.
-initializeTables :: LogFunctionIO Text -> MigrateStatus -> Connection -> IO ()
-initializeTables logg migrateStatus conn = do
+-- | Check if the DB schema is coherent with `database`.
+checkTables :: LogFunctionIO Text -> Bool -> Connection -> IO ()
+checkTables logg fatalDiffs conn = do
     diffA <- calcCWMigrationSteps conn
     case diffA of
       Left err -> do
           logg Error "Error detecting database migration requirements: "
           logg Error $ fromString $ show err
-      Right [] -> logg Info "No database migration needed.  Continuing..."
+      Right [] -> logg Info "The DB schema is compatible with the ORM definition."
       Right _ -> do
-        logg Info "Database migration needed."
-        case migrateStatus of
-          RunMigration -> do
-            BA.tryRunMigrationsWithEditUpdate annotatedDb conn
-            logg Info "Done with database migration."
-          DontMigrate ignoreDiffs -> do
-            logg Info "Database needs to be migrated."
-            showMigration conn
-            unless ignoreDiffs $ do
-              logg Error "Re-run with the -m option or you can run the queries above manually"
-              exitFailure
+        let logLevel = if fatalDiffs then Error else Info
+        logg logLevel "The DB schema is not compatible with the ORM definition."
+        logg logLevel "The following changes are needed:"
+        showMigration conn
+        logg logLevel "These changes are probably due to manual changes to the DB schema, if not please report this as a bug."
+        when fatalDiffs $ do
+          logg Error "Exiting due to fatal DB schema differences."
+          exitFailure
 
 
 

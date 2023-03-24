@@ -247,7 +247,7 @@ scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
 
     when runFill $ do
       logg Info "Filling missing blocks"
-      gaps env (FillArgs fillDelay False)
+      gaps env (FillArgs fillDelay)
       logg Info "Fill finished"
   where
     micros = 1000000

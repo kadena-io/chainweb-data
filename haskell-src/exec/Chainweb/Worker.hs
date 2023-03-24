@@ -41,7 +41,7 @@ import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
-import           Database.Beam.Postgres.Full (insert, onConflictDefault, onConflict)
+import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 import           System.Logger hiding (logg)
 ---
@@ -82,39 +82,34 @@ writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ d
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
-batchWrites :: P.Pool Connection -> Bool -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
-batchWrites pool indexesDisabled bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
+batchWrites :: P.Pool Connection -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
+batchWrites pool bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
     runBeamPostgres c $ do
       -- Write the Blocks if unique
       runInsert
         $ insert (_cddb_blocks database) (insertValues bs)
-        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       -- Write Pub Key many-to-many relationships if unique --
       runInsert
         $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
-        $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
     withSavepoint c $ do
       runBeamPostgres c $ do
         -- Write the TXs if unique
         runInsert
           $ insert (_cddb_transactions database) (insertValues $ concat tss)
-          $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
         runInsert
           $ insert (_cddb_events database) (insertValues $ concat ess)
-          $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         runInsert
           $ insert (_cddb_signers database) (insertValues $ concat sss)
-          $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         runInsert
           $ insert (_cddb_transfers database) (insertValues $ concat tfs)
-          $ actionOnConflict $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-  where
-    {- the type system won't allow me to simply inline the "other" expression -}
-    actionOnConflict other = if indexesDisabled
-      then onConflictDefault -- There shouldn't be any constraints on any tables, so this SHOULD be no-op
-      else other
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
 
 asPow :: BlockHeader -> PowHeader
@@ -148,8 +143,8 @@ writeBlock env pool count bh = do
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
 
-writeBlocks :: Env -> P.Pool Connection -> Bool -> IORef Int -> [BlockHeader] -> IO ()
-writeBlocks env pool disableIndexesPred count bhs = do
+writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [BlockHeader] -> IO ()
+writeBlocks env pool count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs')) id) >>= \case
@@ -171,7 +166,7 @@ writeBlocks env pool disableIndexesPred count bhs = do
               err = printf "writeBlocks failed because we don't know how to work this version %s" version
           withEventsMinHeight version err $ \evMinHeight -> do
               let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
-              batchWrites pool disableIndexesPred (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
+              batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
               atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 

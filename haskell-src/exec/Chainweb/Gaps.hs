@@ -1,7 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 
 module Chainweb.Gaps ( gaps ) where
 
@@ -17,20 +15,16 @@ import           ChainwebData.Types
 import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Monad
-import           Control.Monad.Catch
 import           Control.Scheduler
 import           Data.Bool
 import           Data.ByteString.Lazy (ByteString)
 import           Data.IORef
 import           Data.Int
 import qualified Data.Map.Strict as M
-import qualified Data.Pool as P
 import           Data.String
 import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import           Database.PostgreSQL.Simple
-import           Database.PostgreSQL.Simple.Types
 import           System.Logger hiding (logg)
 import           System.Exit (exitFailure)
 import           Text.Printf
@@ -72,13 +66,10 @@ gapsCut env args cutBS = do
                     (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
               final <- readIORef count
               logg Info $ fromString $ printf "Filled in %d missing blocks." final
-        if disableIndexesPred
-          then withDroppedIndexes pool logg gapFiller
-          else gapFiller
+        gapFiller
   where
     pool = _env_dbConnPool env
     delay =  _fillArgs_delayMicros args
-    disableIndexesPred =  _fillArgs_disableIndexes args
     gi = mkGenesisInfo $ _env_nodeInfo env
     logg = _env_logger env
     createRanges cid (low, high)
@@ -92,70 +83,8 @@ gapsCut env args cutBS = do
       headersBetween env range >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> writeBlocks env pool disableIndexesPred count hs
+        Right hs -> writeBlocks env pool count hs
       maybe mempty threadDelay delay
-
-listIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO [(String, String)]
-listIndexes pool logger = P.withResource pool $ \conn -> do
-    res <- query_ conn qry
-    forM_ res $ \(_,name) -> do
-      logger Debug "index name"
-      logger Debug $ fromString name
-    return res
-  where
-    qry =
-      "SELECT tablename, indexname FROM pg_indexes WHERE schemaname='public';"
-
-dropIndexes :: P.Pool Connection -> [(String, String)] -> IO ()
-dropIndexes pool indexinfos = forM_ indexinfos $ \(tablename, indexname) -> P.withResource pool $ \conn ->
-  execute_ conn $ Query $ fromString $ printf "ALTER TABLE %s DROP CONSTRAINT %s CASCADE;" tablename indexname
-
-dropExtensions :: P.Pool Connection -> IO ()
-dropExtensions pool = P.withResource pool $ \conn ->
-    mapM_ (execute_ conn . Query) stmts
-  where
-    stmts = map ("DROP EXTENSION " <>) ["btree_gin;"]
-
-
-dedupeMinerKeysTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeMinerKeysTable pool logger = do
-    logger Info "Deduping minerkeys table"
-    P.withResource pool $ \conn ->
-      void $ execute_ conn dedupestmt
-  where
-    dedupestmt =
-      "DELETE FROM minerkeys WHERE ctid IN (SELECT\
-      \ ctid FROM (SELECT\
-      \ block,key,ctid,row_number() OVER (PARTITION BY\
-      \ block,key) AS row_num FROM minerkeys) t WHERE t.row_num >1);"
-
-dedupeSignersTable :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeSignersTable pool logger = do
-    logger Debug "Deduping signers table"
-    P.withResource pool $ \conn ->
-      void $ execute_ conn dedupestmt
-  where
-    dedupestmt =
-      "DELETE FROM signers WHERE ctid IN (SELECT ctid\
-      \ FROM (SELECT requestkey,idx,ctid,row_number() OVER (PARTITION BY requestkey,idx)\
-      \ AS row_num FROM signers) t WHERE t.row_num > 1);"
-
-dedupeTables :: P.Pool Connection -> LogFunctionIO Text -> IO ()
-dedupeTables pool logger = do
-  -- We don't need to dedupe the following tables because their primary keys
-  -- should be unique across any data we might encounter:
-  -- events, transactions, blocks
-  dedupeMinerKeysTable pool logger
-  dedupeSignersTable pool logger
-
-withDroppedIndexes :: P.Pool Connection -> LogFunctionIO Text -> IO a -> IO a
-withDroppedIndexes pool logger action = do
-    indexInfos <- listIndexes pool logger
-    fmap fst $ generalBracket (dropIndexes pool indexInfos >> dropExtensions pool) release (const action)
-  where
-    release _ = \case
-      ExitCaseSuccess _ -> dedupeTables pool logger
-      _ -> return ()
 
 getBlockGaps :: Env -> M.Map Int64 (Maybe Int64) -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env existingMinHeights = withDbDebug env Debug $ do

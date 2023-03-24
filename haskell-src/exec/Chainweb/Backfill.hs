@@ -86,7 +86,7 @@ backfillBlocksCut env args cutBS = do
       headersBetween env range >>= \case
         Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> writeBlocks env pool False count hs
+        Right hs -> writeBlocks env pool count hs
       delayFunc
 
 -- | For all blocks written to the DB, find the shortest (in terms of block

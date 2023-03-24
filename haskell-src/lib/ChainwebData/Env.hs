@@ -3,9 +3,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 module ChainwebData.Env
-  ( MigrateStatus(..)
-  , Args(..)
+  ( Args(..)
   , Env(..)
+  , MigrationsFolder
   , chainStartHeights
   , ServerEnv(..)
   , Connect(..), withPoolInit, withPool, withCWDPool
@@ -30,6 +30,7 @@ module ChainwebData.Env
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.NodeInfo
+import           ChainwebDb.Migration
 import           Control.Concurrent
 import           Control.Exception
 import           Control.Monad (void)
@@ -60,15 +61,14 @@ import           Text.Printf
 
 ---
 
-data MigrateStatus = RunMigration | DontMigrate Bool
-  deriving (Eq,Ord,Show,Read)
+type MigrationsFolder = FilePath
 
 data Args
-  = Args Command Connect UrlScheme Url LogLevel MigrateStatus
+  = Args Command Connect UrlScheme Url LogLevel MigrationAction (Maybe MigrationsFolder)
     -- ^ arguments for all but the richlist command
   | RichListArgs NodeDbPath LogLevel ChainwebVersion
     -- ^ arguments for the Richlist command
-  | MigrateOnly Connect LogLevel
+  | MigrateOnly Connect LogLevel (Maybe MigrationsFolder)
   deriving (Show)
 
 data Env = Env
@@ -220,7 +220,6 @@ data BackfillArgs = BackfillArgs
 
 data FillArgs = FillArgs
   { _fillArgs_delayMicros :: Maybe Int
-  , _fillArgs_disableIndexes :: Bool
   } deriving (Eq, Ord, Show)
 
 data ServerEnv = ServerEnv
@@ -238,15 +237,23 @@ envP = Args
   <*> urlParser "p2p" 443
   <*> logLevelParser
   <*> migrationP
+  <*> migrationsFolderParser
 
-migrationP :: Parser MigrateStatus
+migrationsFolderParser :: Parser (Maybe MigrationsFolder)
+migrationsFolderParser = optional $ strOption
+    ( long "migrations-folder"
+   <> metavar "PATH"
+   <> help "Path to the migrations folder"
+    )
+
+migrationP :: Parser MigrationAction
 migrationP
-    = flag' RunMigration (short 'm' <> long "migrate" <> help "Run DB migration")
-  <|> flag' (DontMigrate True)
+    = flag' RunMigrations (short 'm' <> long "migrate" <> help "Run DB migration")
+  <|> flag' PrintMigrations
         ( long "ignore-schema-diff"
        <> help "Ignore any unexpected differences in the database schema"
         )
-  <|> pure (DontMigrate False)
+  <|> pure CheckMigrations
 
 logLevelParser :: Parser LogLevel
 logLevelParser =
@@ -266,6 +273,7 @@ migrateOnlyP = hsubparser
     opts = MigrateOnly
       <$> connectP
       <*> logLevelParser
+      <*> migrationsFolderParser
 
 richListP :: Parser Args
 richListP = hsubparser
@@ -343,7 +351,6 @@ bfArgsP = BackfillArgs
 fillArgsP :: Parser FillArgs
 fillArgsP = FillArgs
   <$> delayP
-  <*> flag False True (long "disable-indexes" <> short 'd' <> help "Disable indexes on tables while filling.")
 
 data EventType = CoinbaseAndTx | OnlyTx
   deriving (Eq,Ord,Show,Read,Enum,Bounded)
