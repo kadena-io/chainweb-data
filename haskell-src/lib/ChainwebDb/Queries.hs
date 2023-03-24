@@ -98,17 +98,17 @@ toDbTxSummary Transaction{..} = DbTxSummary
   , dtsGoodResult = _tx_goodResult
    }
 
-data ContinuationHistoryF f = ContinuationHistory
+data ContinuationHistoryT f = ContinuationHistory
   { chCode :: C f (Maybe Text)
   , chSteps :: C f (Vector Text)
   } deriving (Generic, Beamable)
 
-type ContinuationHistory = ContinuationHistoryF Identity
+type ContinuationHistory = ContinuationHistoryT Identity
 
 deriving instance Show ContinuationHistory
 
 joinContinuationHistory :: PgExpr s (Maybe (DbHash TxHash)) ->
-  Q Postgres ChainwebDataDb s (ContinuationHistoryF (PgExpr s))
+  Q Postgres ChainwebDataDb s (ContinuationHistoryT (PgExpr s))
 joinContinuationHistory pactIdExp = pgUnnest $ (customExpr_ $ \pactId ->
   -- We need the following LATERAL keyword so that it can be used liberally
   -- in any Q context despite the fact that it refers to the `pactIdExp` coming
@@ -134,24 +134,30 @@ joinContinuationHistory pactIdExp = pgUnnest $ (customExpr_ $ \pactId ->
     "FROM transactionSteps " <>
   ")") pactIdExp
 
+data TxSummaryWithHistoryT f = TxSummaryWithHistory
+  { txwhSummary :: DbTxSummaryT f
+  , txwhContHistory :: ContinuationHistoryT f
+  } deriving (Generic, Beamable)
+
+type TxSummaryWithHistory = TxSummaryWithHistoryT Identity
+
 txSearchSource ::
   Text ->
   HeightRangeParams ->
-  Q Postgres ChainwebDataDb s (FilterMarked DbTxSummaryT (PgExpr s))
+  Q Postgres ChainwebDataDb s (FilterMarked TxSummaryWithHistoryT (PgExpr s))
 txSearchSource search hgtRange = do
-  txMerged <- do
-    tx <- all_ $ _cddb_transactions database
-    contHist <- joinContinuationHistory (_tx_pactId tx)
-    let codeMerged = coalesce_
-          [ just_ $ _tx_code tx
-          , just_ $ chCode contHist
-          ]
-          nothing_
-    return $ tx { _tx_code = codeMerged }
-  guardInRange hgtRange (_tx_height txMerged)
+  tx <- all_ $ _cddb_transactions database
+  contHist <- joinContinuationHistory (_tx_pactId tx)
+  let codeMerged = coalesce_
+        [ just_ $ _tx_code tx
+        , just_ $ chCode contHist
+        ]
+        nothing_
+  guardInRange hgtRange (_tx_height tx)
   let searchExp = val_ ("%" <> search <> "%")
-      isMatch = fromMaybe_ (val_ "") (_tx_code txMerged) `like_` searchExp
-  return $ FilterMarked isMatch $ toDbTxSummary txMerged
+      isMatch = fromMaybe_ (val_ "") codeMerged `like_` searchExp
+  return $ FilterMarked isMatch $
+    TxSummaryWithHistory (toDbTxSummary tx) contHist
 
 data EventSearchParams = EventSearchParams
   { espSearch :: Maybe Text

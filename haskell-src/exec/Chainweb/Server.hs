@@ -46,6 +46,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Data.Time
 import           Data.Tuple.Strict (T2(..))
+import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
@@ -349,8 +350,8 @@ mkContinuation readTkn mbOffset mbNext = case (mbNext, mbOffset) of
     (Nothing, Just (Offset offset)) -> return $ Left $ offset <$ guard (offset > 0)
     (Nothing, Nothing) -> return $ Left Nothing
 
-dbToApiTxSummary :: DbTxSummary -> TxSummary
-dbToApiTxSummary s = TxSummary
+dbToApiTxSummary :: DbTxSummary -> ContinuationHistory -> TxSummary
+dbToApiTxSummary s contHist = TxSummary
   { _txSummary_chain = fromIntegral $ dtsChainId s
   , _txSummary_height = fromIntegral $ dtsHeight s
   , _txSummary_blockHash = unDbHash $ dtsBlock s
@@ -360,6 +361,8 @@ dbToApiTxSummary s = TxSummary
   , _txSummary_code = dtsCode s
   , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
   , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
+  , _txSummary_initialCode = chCode contHist
+  , _txSummary_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
   }
 
 searchTxs
@@ -391,13 +394,13 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight 
     PG.withTransactionLevel PG.RepeatableRead c $ do
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
-        toTxSearchCursor
+        (toTxSearchCursor . txwhSummary)
         (txSearchSource search $ HeightRangeParams minheight maxheight)
         noDecoration
         continuation
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
-        results <&> \(s,_) -> dbToApiTxSummary s
+        results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
@@ -405,8 +408,8 @@ throw404 msg = throwError $ err404 { errBody = msg }
 throw400 :: MonadError ServerError m => ByteString -> m a
 throw400 msg = throwError $ err400 { errBody = msg }
 
-toApiTxDetail :: Transaction -> Block -> [Event] -> TxDetail
-toApiTxDetail tx blk evs = TxDetail
+toApiTxDetail :: Transaction -> ContinuationHistory -> Block -> [Event] -> TxDetail
+toApiTxDetail tx contHist blk evs = TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx
         , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
         , _txDetail_gasPrice = _tx_gasPrice tx
@@ -434,6 +437,8 @@ toApiTxDetail tx blk evs = TxDetail
         , _txDetail_code = _tx_code tx
         , _txDetail_success = isJust $ _tx_goodResult tx
         , _txDetail_events = map toTxEvent evs
+        , _txDetail_initialCode = chCode contHist
+        , _txDetail_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
         }
   where
     unMaybeValue = maybe Null unPgJsonb
@@ -445,15 +450,16 @@ queryTxsByKey logger rk c =
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
     r <- runSelectReturningList $ select $ do
       tx <- all_ (_cddb_transactions database)
+      contHist <- joinContinuationHistory (_tx_pactId tx)
       blk <- all_ (_cddb_blocks database)
       guard_ (_tx_block tx `references_` blk)
       guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
-      return (tx,blk)
+      return (tx,contHist, blk)
     evs <- runSelectReturningList $ select $ do
        ev <- all_ (_cddb_events database)
        guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
        return ev
-    return $ (`fmap` r) $ \(tx,blk) -> toApiTxDetail tx blk evs
+    return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
 
 txHandler
   :: LogFunctionIO Text
@@ -627,10 +633,11 @@ recentTxsHandler logger pool = liftIO $ do
     M.with pool $ \c -> do
       res <- runBeamPostgresDebug (logger Debug . T.pack) c $
         runSelectReturningList $ select $ do
-        limit_ 10 $ orderBy_ (desc_ . dtsHeight) $ do
+        limit_ 10 $ orderBy_ (desc_ . dtsHeight . fst) $ do
           tx <- all_ (_cddb_transactions database)
-          return $ toDbTxSummary tx
-      return $ dbToApiTxSummary <$> res
+          contHist <- joinContinuationHistory (_tx_pactId tx)
+          return $ (toDbTxSummary tx, contHist)
+      return $ uncurry dbToApiTxSummary <$> res
 
 getTransactionCount :: LogFunctionIO Text -> P.Pool Connection -> IO (Maybe Int64)
 getTransactionCount logger pool = do
