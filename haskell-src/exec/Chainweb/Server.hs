@@ -4,7 +4,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -32,12 +31,10 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Decimal
-import           Data.Foldable
 import           Data.Int
 import           Data.IORef
 import qualified Data.Pool as P
 import           Data.Proxy
-import           Data.Sequence (Seq)
 import qualified Data.Sequence as S
 import           Data.String
 import           Data.String.Conv (toS)
@@ -620,13 +617,6 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
           , _evDetail_idx = fromIntegral $ _ev_idx ev
           }
 
-data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
-infixr 3 :.
-
-type instance QExprToIdentity (a :. b) = (QExprToIdentity a) :. (QExprToIdentity b)
-type instance QExprToField (a :. b) = (QExprToField a) :. (QExprToField b)
-
-
 recentTxsHandler :: LogFunctionIO Text -> M.Managed Connection ->  Handler [TxSummary]
 recentTxsHandler logger pool = liftIO $ do
     logger Info "Getting recent transactions"
@@ -644,19 +634,6 @@ getTransactionCount logger pool = do
     P.withResource pool $ \c -> do
       runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningOne $ select $
         aggregate_ (\_ -> as_ @Int64 countAll_) (all_ (_cddb_transactions database))
-
-data RecentTxs = RecentTxs
-  { _recentTxs_txs :: Seq TxSummary
-  } deriving (Eq,Show)
-
-getSummaries :: RecentTxs -> [TxSummary]
-getSummaries (RecentTxs s) = toList s
-
-addNewTransactions :: Seq TxSummary -> RecentTxs -> RecentTxs
-addNewTransactions txs (RecentTxs s1) = RecentTxs s2
-  where
-    maxTransactions = 10
-    s2 = S.take maxTransactions $ txs <> s1
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v
