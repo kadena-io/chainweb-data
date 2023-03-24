@@ -349,6 +349,19 @@ mkContinuation readTkn mbOffset mbNext = case (mbNext, mbOffset) of
     (Nothing, Just (Offset offset)) -> return $ Left $ offset <$ guard (offset > 0)
     (Nothing, Nothing) -> return $ Left Nothing
 
+dbToApiTxSummary :: DbTxSummary -> TxSummary
+dbToApiTxSummary s = TxSummary
+  { _txSummary_chain = fromIntegral $ dtsChainId s
+  , _txSummary_height = fromIntegral $ dtsHeight s
+  , _txSummary_blockHash = unDbHash $ dtsBlock s
+  , _txSummary_creationTime = dtsCreationTime s
+  , _txSummary_requestKey = unDbHash $ dtsReqKey s
+  , _txSummary_sender = dtsSender s
+  , _txSummary_code = dtsCode s
+  , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
+  , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
+  }
+
 searchTxs
   :: LogFunctionIO Text
   -> M.Managed ConnectionWithThrottling
@@ -384,17 +397,7 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight 
         continuation
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
-        results <&> \(s,_) -> TxSummary
-          { _txSummary_chain = fromIntegral $ dtsChainId s
-          , _txSummary_height = fromIntegral $ dtsHeight s
-          , _txSummary_blockHash = unDbHash $ dtsBlock s
-          , _txSummary_creationTime = dtsCreationTime s
-          , _txSummary_requestKey = unDbHash $ dtsReqKey s
-          , _txSummary_sender = dtsSender s
-          , _txSummary_code = dtsCode s
-          , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
-          , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
-          }
+        results <&> \(s,_) -> dbToApiTxSummary s
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
@@ -666,23 +669,10 @@ recentTxsHandler logger pool = liftIO $ do
     M.with pool $ \c -> do
       res <- runBeamPostgresDebug (logger Debug . T.pack) c $
         runSelectReturningList $ select $ do
-        limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
+        limit_ 10 $ orderBy_ (desc_ . dtsHeight) $ do
           tx <- all_ (_cddb_transactions database)
-          return
-             ( (_tx_chainId tx)
-             , (_tx_height tx)
-             , (unBlockId $ _tx_block tx)
-             , (_tx_creationTime tx)
-             , (_tx_requestKey tx)
-             , (_tx_sender tx)
-             , ((_tx_code tx)
-             , (_tx_continuation tx)
-             , (_tx_goodResult tx)
-             ))
-      return $ mkSummary <$> res
-  where
-    getHeight (_,a,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+          return $ toDbTxSummary tx
+      return $ dbToApiTxSummary <$> res
 
 getTransactionCount :: LogFunctionIO Text -> P.Pool Connection -> IO (Maybe Int64)
 getTransactionCount logger pool = do
