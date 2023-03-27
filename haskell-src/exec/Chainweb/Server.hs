@@ -4,7 +4,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -32,12 +31,10 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64
 import           Data.ByteString.Lazy (ByteString)
 import           Data.Decimal
-import           Data.Foldable
 import           Data.Int
 import           Data.IORef
 import qualified Data.Pool as P
 import           Data.Proxy
-import           Data.Sequence (Seq)
 import qualified Data.Sequence as S
 import           Data.String
 import           Data.String.Conv (toS)
@@ -46,6 +43,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Data.Time
 import           Data.Tuple.Strict (T2(..))
+import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
@@ -349,6 +347,21 @@ mkContinuation readTkn mbOffset mbNext = case (mbNext, mbOffset) of
     (Nothing, Just (Offset offset)) -> return $ Left $ offset <$ guard (offset > 0)
     (Nothing, Nothing) -> return $ Left Nothing
 
+dbToApiTxSummary :: DbTxSummary -> ContinuationHistory -> TxSummary
+dbToApiTxSummary s contHist = TxSummary
+  { _txSummary_chain = fromIntegral $ dtsChainId s
+  , _txSummary_height = fromIntegral $ dtsHeight s
+  , _txSummary_blockHash = unDbHash $ dtsBlock s
+  , _txSummary_creationTime = dtsCreationTime s
+  , _txSummary_requestKey = unDbHash $ dtsReqKey s
+  , _txSummary_sender = dtsSender s
+  , _txSummary_code = dtsCode s
+  , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
+  , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
+  , _txSummary_initialCode = chCode contHist
+  , _txSummary_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
+  }
+
 searchTxs
   :: LogFunctionIO Text
   -> M.Managed ConnectionWithThrottling
@@ -378,29 +391,72 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight 
     PG.withTransactionLevel PG.RepeatableRead c $ do
       (mbCont, results) <- performBoundedScan strategy
         (runBeamPostgresDebug (logger Debug . T.pack) c)
-        toTxSearchCursor
+        (toTxSearchCursor . txwhSummary)
         (txSearchSource search $ HeightRangeParams minheight maxheight)
         noDecoration
         continuation
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
-        results <&> \(s,_) -> TxSummary
-          { _txSummary_chain = fromIntegral $ dtsChainId s
-          , _txSummary_height = fromIntegral $ dtsHeight s
-          , _txSummary_blockHash = unDbHash $ dtsBlock s
-          , _txSummary_creationTime = dtsCreationTime s
-          , _txSummary_requestKey = unDbHash $ dtsReqKey s
-          , _txSummary_sender = dtsSender s
-          , _txSummary_code = dtsCode s
-          , _txSummary_continuation = unPgJsonb <$> dtsContinuation s
-          , _txSummary_result = maybe TxFailed (const TxSucceeded) $ dtsGoodResult s
-          }
+        results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
 
 throw400 :: MonadError ServerError m => ByteString -> m a
 throw400 msg = throwError $ err400 { errBody = msg }
+
+toApiTxDetail :: Transaction -> ContinuationHistory -> Block -> [Event] -> TxDetail
+toApiTxDetail tx contHist blk evs = TxDetail
+        { _txDetail_ttl = fromIntegral $ _tx_ttl tx
+        , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
+        , _txDetail_gasPrice = _tx_gasPrice tx
+        , _txDetail_nonce = _tx_nonce tx
+        , _txDetail_pactId = unDbHash <$> _tx_pactId tx
+        , _txDetail_rollback = _tx_rollback tx
+        , _txDetail_step = fromIntegral <$> _tx_step tx
+        , _txDetail_data = unMaybeValue $ _tx_data tx
+        , _txDetail_proof = _tx_proof tx
+        , _txDetail_gas = fromIntegral $ _tx_gas tx
+        , _txDetail_result =
+          maybe (unMaybeValue $ _tx_badResult tx) unPgJsonb $
+          _tx_goodResult tx
+        , _txDetail_logs = fromMaybe "" $ _tx_logs tx
+        , _txDetail_metadata = unMaybeValue $ _tx_metadata tx
+        , _txDetail_continuation = unPgJsonb <$> _tx_continuation tx
+        , _txDetail_txid = maybe 0 fromIntegral $ _tx_txid tx
+        , _txDetail_chain = fromIntegral $ _tx_chainId tx
+        , _txDetail_height = fromIntegral $ _block_height blk
+        , _txDetail_blockTime = _block_creationTime blk
+        , _txDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
+        , _txDetail_creationTime = _tx_creationTime tx
+        , _txDetail_requestKey = unDbHash $ _tx_requestKey tx
+        , _txDetail_sender = _tx_sender tx
+        , _txDetail_code = _tx_code tx
+        , _txDetail_success = isJust $ _tx_goodResult tx
+        , _txDetail_events = map toTxEvent evs
+        , _txDetail_initialCode = chCode contHist
+        , _txDetail_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
+        }
+  where
+    unMaybeValue = maybe Null unPgJsonb
+    toTxEvent ev =
+      TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
+
+queryTxsByKey :: LogFunctionIO Text -> Text -> Connection -> IO [TxDetail]
+queryTxsByKey logger rk c =
+  runBeamPostgresDebug (logger Debug . T.pack) c $ do
+    r <- runSelectReturningList $ select $ do
+      tx <- all_ (_cddb_transactions database)
+      contHist <- joinContinuationHistory (_tx_pactId tx)
+      blk <- all_ (_cddb_blocks database)
+      guard_ (_tx_block tx `references_` blk)
+      guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
+      return (tx,contHist, blk)
+    evs <- runSelectReturningList $ select $ do
+       ev <- all_ (_cddb_events database)
+       guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
+       return ev
+    return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
 
 txHandler
   :: LogFunctionIO Text
@@ -409,54 +465,9 @@ txHandler
   -> Handler TxDetail
 txHandler _ _ Nothing = throw404 "You must specify a search string"
 txHandler logger pool (Just (RequestKey rk)) =
-  may404 $ liftIO $ M.with pool $ \c ->
-  runBeamPostgresDebug (logger Debug . T.pack) c $ do
-    r <- runSelectReturningOne $ select $ do
-      tx <- all_ (_cddb_transactions database)
-      blk <- all_ (_cddb_blocks database)
-      guard_ (_tx_block tx `references_` blk)
-      guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
-      return (tx,blk)
-    evs <- runSelectReturningList $ select $ do
-       ev <- all_ (_cddb_events database)
-       guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
-       return ev
-    return $ (`fmap` r) $ \(tx,blk) -> TxDetail
-        { _txDetail_ttl = fromIntegral $ _tx_ttl tx
-        , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
-        , _txDetail_gasPrice = _tx_gasPrice tx
-        , _txDetail_nonce = _tx_nonce tx
-        , _txDetail_pactId = _tx_pactId tx
-        , _txDetail_rollback = _tx_rollback tx
-        , _txDetail_step = fromIntegral <$> _tx_step tx
-        , _txDetail_data = unMaybeValue $ _tx_data tx
-        , _txDetail_proof = _tx_proof tx
-        , _txDetail_gas = fromIntegral $ _tx_gas tx
-        , _txDetail_result =
-          maybe (unMaybeValue $ _tx_badResult tx) unPgJsonb $
-          _tx_goodResult tx
-        , _txDetail_logs = fromMaybe "" $ _tx_logs tx
-        , _txDetail_metadata = unMaybeValue $ _tx_metadata tx
-        , _txDetail_continuation = unPgJsonb <$> _tx_continuation tx
-        , _txDetail_txid = maybe 0 fromIntegral $ _tx_txid tx
-        , _txDetail_chain = fromIntegral $ _tx_chainId tx
-        , _txDetail_height = fromIntegral $ _block_height blk
-        , _txDetail_blockTime = _block_creationTime blk
-        , _txDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
-        , _txDetail_creationTime = _tx_creationTime tx
-        , _txDetail_requestKey = unDbHash $ _tx_requestKey tx
-        , _txDetail_sender = _tx_sender tx
-        , _txDetail_code = _tx_code tx
-        , _txDetail_success =
-          maybe False (const True) $ _tx_goodResult tx
-        , _txDetail_events = map toTxEvent evs
-        }
-
-  where
-    unMaybeValue = maybe Null unPgJsonb
-    toTxEvent ev =
-      TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
-    may404 a = a >>= maybe (throw404 "Tx not found") return
+  liftIO (M.with pool $ queryTxsByKey logger rk) >>= \case
+    [x] -> return x
+    _ -> throw404 "Tx not found"
 
 txsHandler
   :: LogFunctionIO Text
@@ -465,56 +476,9 @@ txsHandler
   -> Handler [TxDetail]
 txsHandler _ _ Nothing = throw404 "You must specify a search string"
 txsHandler logger pool (Just (RequestKey rk)) =
-  emptyList404 $ liftIO $ M.with pool $ \c ->
-  runBeamPostgresDebug (logger Debug . T.pack) c $ do
-    r <- runSelectReturningList $ select $ do
-      tx <- all_ (_cddb_transactions database)
-      blk <- all_ (_cddb_blocks database)
-      guard_ (_tx_block tx `references_` blk)
-      guard_ (_tx_requestKey tx ==. val_ (DbHash rk))
-      return (tx,blk)
-    evs <- runSelectReturningList $ select $ do
-       ev <- all_ (_cddb_events database)
-       guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
-       return ev
-    return $ (`fmap` r) $ \(tx,blk) -> TxDetail
-        { _txDetail_ttl = fromIntegral $ _tx_ttl tx
-        , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
-        , _txDetail_gasPrice = _tx_gasPrice tx
-        , _txDetail_nonce = _tx_nonce tx
-        , _txDetail_pactId = _tx_pactId tx
-        , _txDetail_rollback = _tx_rollback tx
-        , _txDetail_step = fromIntegral <$> _tx_step tx
-        , _txDetail_data = unMaybeValue $ _tx_data tx
-        , _txDetail_proof = _tx_proof tx
-        , _txDetail_gas = fromIntegral $ _tx_gas tx
-        , _txDetail_result =
-          maybe (unMaybeValue $ _tx_badResult tx) unPgJsonb $
-          _tx_goodResult tx
-        , _txDetail_logs = fromMaybe "" $ _tx_logs tx
-        , _txDetail_metadata = unMaybeValue $ _tx_metadata tx
-        , _txDetail_continuation = unPgJsonb <$> _tx_continuation tx
-        , _txDetail_txid = maybe 0 fromIntegral $ _tx_txid tx
-        , _txDetail_chain = fromIntegral $ _tx_chainId tx
-        , _txDetail_height = fromIntegral $ _block_height blk
-        , _txDetail_blockTime = _block_creationTime blk
-        , _txDetail_blockHash = unDbHash $ unBlockId $ _tx_block tx
-        , _txDetail_creationTime = _tx_creationTime tx
-        , _txDetail_requestKey = unDbHash $ _tx_requestKey tx
-        , _txDetail_sender = _tx_sender tx
-        , _txDetail_code = _tx_code tx
-        , _txDetail_success =
-          maybe False (const True) $ _tx_goodResult tx
-        , _txDetail_events = map toTxEvent evs
-        }
-
-  where
-    emptyList404 xs = xs >>= \case
-      [] -> throw404 "no txs not found"
-      ys ->  return ys
-    unMaybeValue = maybe Null unPgJsonb
-    toTxEvent ev =
-      TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
+  liftIO (M.with pool $ queryTxsByKey logger rk) >>= \case
+    [] -> throw404 "Tx not found"
+    xs -> return xs
 
 type AccountNextToken = (Int64, T.Text, Int64)
 
@@ -653,55 +617,23 @@ evHandler logger pool req limit mbOffset qSearch qParam qName qModuleName minhei
           , _evDetail_idx = fromIntegral $ _ev_idx ev
           }
 
-data h :. t = h :. t deriving (Eq,Ord,Show,Read,Typeable)
-infixr 3 :.
-
-type instance QExprToIdentity (a :. b) = (QExprToIdentity a) :. (QExprToIdentity b)
-type instance QExprToField (a :. b) = (QExprToField a) :. (QExprToField b)
-
-
 recentTxsHandler :: LogFunctionIO Text -> M.Managed Connection ->  Handler [TxSummary]
 recentTxsHandler logger pool = liftIO $ do
     logger Info "Getting recent transactions"
     M.with pool $ \c -> do
       res <- runBeamPostgresDebug (logger Debug . T.pack) c $
         runSelectReturningList $ select $ do
-        limit_ 20 $ orderBy_ (desc_ . getHeight) $ do
+        limit_ 10 $ orderBy_ (desc_ . dtsHeight . fst) $ do
           tx <- all_ (_cddb_transactions database)
-          return
-             ( (_tx_chainId tx)
-             , (_tx_height tx)
-             , (unBlockId $ _tx_block tx)
-             , (_tx_creationTime tx)
-             , (_tx_requestKey tx)
-             , (_tx_sender tx)
-             , ((_tx_code tx)
-             , (_tx_continuation tx)
-             , (_tx_goodResult tx)
-             ))
-      return $ mkSummary <$> res
-  where
-    getHeight (_,a,_,_,_,_,_) = a
-    mkSummary (a,b,c,d,e,f,(g,h,i)) = TxSummary (fromIntegral a) (fromIntegral b) (unDbHash c) d (unDbHash e) f g (unPgJsonb <$> h) (maybe TxFailed (const TxSucceeded) i)
+          contHist <- joinContinuationHistory (_tx_pactId tx)
+          return $ (toDbTxSummary tx, contHist)
+      return $ uncurry dbToApiTxSummary <$> res
 
 getTransactionCount :: LogFunctionIO Text -> P.Pool Connection -> IO (Maybe Int64)
 getTransactionCount logger pool = do
     P.withResource pool $ \c -> do
       runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningOne $ select $
         aggregate_ (\_ -> as_ @Int64 countAll_) (all_ (_cddb_transactions database))
-
-data RecentTxs = RecentTxs
-  { _recentTxs_txs :: Seq TxSummary
-  } deriving (Eq,Show)
-
-getSummaries :: RecentTxs -> [TxSummary]
-getSummaries (RecentTxs s) = toList s
-
-addNewTransactions :: Seq TxSummary -> RecentTxs -> RecentTxs
-addNewTransactions txs (RecentTxs s1) = RecentTxs s2
-  where
-    maxTransactions = 10
-    s2 = S.take maxTransactions $ txs <> s1
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v

@@ -22,6 +22,7 @@ import           Data.Functor ((<&>))
 import           Data.Maybe (maybeToList)
 import           Data.Text (Text)
 import           Data.Time
+import           Data.Vector (Vector)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Syntax
@@ -97,16 +98,66 @@ toDbTxSummary Transaction{..} = DbTxSummary
   , dtsGoodResult = _tx_goodResult
    }
 
+data ContinuationHistoryT f = ContinuationHistory
+  { chCode :: C f (Maybe Text)
+  , chSteps :: C f (Vector Text)
+  } deriving (Generic, Beamable)
+
+type ContinuationHistory = ContinuationHistoryT Identity
+
+deriving instance Show ContinuationHistory
+
+joinContinuationHistory :: PgExpr s (Maybe (DbHash TxHash)) ->
+  Q Postgres ChainwebDataDb s (ContinuationHistoryT (PgExpr s))
+joinContinuationHistory pactIdExp = pgUnnest $ (customExpr_ $ \pactId ->
+  -- We need the following LATERAL keyword so that it can be used liberally
+  -- in any Q context despite the fact that it refers to the `pactIdExp` coming
+  -- from the outside scope. The LATERAL helps, because when the expression below
+  -- appears after a XXXX JOIN, this LATERAL prefix will turn it into a lateral
+  -- join. This is very hacky, but Postgres allows the LATERAL keyword after FROM
+  -- as well, so I can't think of a case that would cause the hack to blow up.
+  -- Either way, once we have migrations going, we should replace this body with
+  -- a Postgres function call, which the pgUnnest + customExpr_ combination was
+  -- designed for.
+  "LATERAL ( " <>
+    "WITH RECURSIVE transactionSteps AS ( " <>
+      "SELECT DISTINCT ON (depth) tInner.code, tInner.pactid, 1 AS depth, tInner.requestkey " <>
+      "FROM transactions AS tInner " <>
+      "WHERE (tInner.requestkey) = " <> pactId <>
+      "UNION ALL " <>
+      "SELECT DISTINCT ON (depth) tInner.code, tInner.pactid, tRec.depth + 1, tInner.requestkey " <>
+      "FROM transactions AS tInner " <>
+      "INNER JOIN transactionSteps AS tRec ON tRec.pactid = tInner.requestkey " <>
+    ")" <>
+    "SELECT (array_agg(code) FILTER (WHERE code IS NOT NULL))[1] as code " <>
+         ", array_agg(requestkey ORDER BY depth) as steps " <>
+    "FROM transactionSteps " <>
+  ")") pactIdExp
+
+data TxSummaryWithHistoryT f = TxSummaryWithHistory
+  { txwhSummary :: DbTxSummaryT f
+  , txwhContHistory :: ContinuationHistoryT f
+  } deriving (Generic, Beamable)
+
+type TxSummaryWithHistory = TxSummaryWithHistoryT Identity
+
 txSearchSource ::
   Text ->
   HeightRangeParams ->
-  Q Postgres ChainwebDataDb s (FilterMarked DbTxSummaryT (PgExpr s))
+  Q Postgres ChainwebDataDb s (FilterMarked TxSummaryWithHistoryT (PgExpr s))
 txSearchSource search hgtRange = do
   tx <- all_ $ _cddb_transactions database
+  contHist <- joinContinuationHistory (_tx_pactId tx)
+  let codeMerged = coalesce_
+        [ just_ $ _tx_code tx
+        , just_ $ chCode contHist
+        ]
+        nothing_
   guardInRange hgtRange (_tx_height tx)
   let searchExp = val_ ("%" <> search <> "%")
-      isMatch = fromMaybe_ (val_ "") (_tx_code tx) `like_` searchExp
-  return $ FilterMarked isMatch $ toDbTxSummary tx
+      isMatch = fromMaybe_ (val_ "") codeMerged `like_` searchExp
+  return $ FilterMarked isMatch $
+    TxSummaryWithHistory (toDbTxSummary tx) contHist
 
 data EventSearchParams = EventSearchParams
   { espSearch :: Maybe Text

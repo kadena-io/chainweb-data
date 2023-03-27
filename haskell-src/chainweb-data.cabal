@@ -90,6 +90,7 @@ library
     , postgresql-simple-migration
     , servant-client
     , servant-openapi3
+    , vector
     , yet-another-logger
 
   if flag(ghc-flags)
