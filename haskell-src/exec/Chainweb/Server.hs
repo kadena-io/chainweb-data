@@ -369,14 +369,15 @@ searchTxs
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text
+  -> Maybe Text
   -> Maybe BlockHeight -- ^ minimum block height
   -> Maybe BlockHeight -- ^ maximum block height
   -> Maybe NextToken
   -> Handler (NextHeaders [TxSummary])
-searchTxs _ _ _ _ _ Nothing _ _ _ = throw404 "You must specify a search string"
-searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight mbNext = do
+searchTxs _ _ _ _ _ Nothing Nothing _ _ _ = throw404 "You must specify a search string"
+searchTxs logger pool req givenMbLim mbOffset (Just search) Nothing minheight maxheight mbNext = do
   liftIO $ logger Info $ fromString $ printf
-    "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
+    "Transaction search from %s: Search string: %s" (show $ remoteHost req) (T.unpack search)
   continuation <- mkContinuation readTxToken mbOffset mbNext
 
   isBounded <- isBoundedStrategyM req
@@ -398,6 +399,33 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight 
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
         results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
+searchTxs logger pool req givenMbLim mbOffset Nothing (Just pactid) minheight maxheight mbNext = do
+  liftIO $ logger Info $ fromString $ printf
+    "Transaction search from %s: PactId string: %s" (show $ remoteHost req) (T.unpack pactid)
+
+  continuation <- mkContinuation readTxToken mbOffset mbNext
+
+  isBounded <- isBoundedStrategyM req
+
+  liftIO $ M.with pool $ \(c, throttling) -> do
+    let
+      scanLimit = ceiling $ 50000 * throttling
+      maxResultLimit = ceiling $ 250 * throttling
+      resultLimit = min maxResultLimit $ maybe 10 unLimit givenMbLim
+      strategy = if isBounded then Bounded scanLimit else Unbounded
+
+    PG.withTransactionLevel PG.RepeatableRead c $ do
+      (mbCont, results) <- performBoundedScan strategy
+        (runBeamPostgresDebug (logger Debug . T.pack) c)
+        (toTxSearchCursor . txwhSummary)
+        (txSearchSourcePactId pactid $ HeightRangeParams minheight maxheight)
+        noDecoration
+        continuation
+        resultLimit
+      return $ maybe noHeader (addHeader . mkTxToken) mbCont $
+        results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
+searchTxs _logger _pool _req _givenMbLim _mbOffset (Just _search) (Just _pactId) _minheight _maxheight _mbNext =
+  throw404 "You should only specify a pactid or a search string, not both!"
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
