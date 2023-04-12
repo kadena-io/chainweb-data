@@ -152,7 +152,10 @@ annotatedDb = BA.defaultAnnotatedDbSettings database
 calcCWMigrationSteps :: Connection -> IO BA.Diff
 calcCWMigrationSteps conn = BA.calcMigrationSteps annotatedDb conn <&> \eiSteps ->
   flip fmap eiSteps $ filter $ \step -> case BA._editAction $ fst $ BA.unPriority step of
-    BA.TableRemoved _ -> False
+    BA.TableRemoved{} -> False
+    BA.ColumnRemoved{} -> False
+    BA.EnumTypeRemoved{} -> False
+    BA.SequenceRemoved{} -> False
     _ -> True
 
 showMigration :: Connection -> IO ()
