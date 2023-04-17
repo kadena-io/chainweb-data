@@ -156,6 +156,8 @@ calcCWMigrationSteps conn = BA.calcMigrationSteps annotatedDb conn <&> \eiSteps 
     BA.ColumnRemoved{} -> False
     BA.EnumTypeRemoved{} -> False
     BA.SequenceRemoved{} -> False
+    BA.TableConstraintRemoved{} -> False
+    BA.ColumnConstraintRemoved{} -> False
     _ -> True
 
 showMigration :: Connection -> IO ()
