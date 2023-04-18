@@ -399,15 +399,11 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) Nothing minheight ma
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
         results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
-searchTxs logger pool req _givenMbLim _mbOffset Nothing (Just pactid) minheight maxheight mbNext = do
-  liftIO $ logger Info $ fromString $ printf
+searchTxs logger pool req _givenMbLim _mbOffset Nothing (Just pactid) _minheight _maxheight _mbNext = liftIO $ do
+  logger Info $ fromString $ printf
     "Transaction search from %s: PactId string: %s" (show $ remoteHost req) (T.unpack pactid)
 
-  let convert = undefined
-
-  liftIO (M.with pool (queryTxsByPactId logger pactid . fst)) >>= \case
-    [] -> throw404 $ "No transactions found for pactid: " <> toS pactid
-    xs -> return $ convert xs
+  M.with pool (fmap noHeader . queryTxsByPactId logger pactid . fst)
 searchTxs _logger _pool _req _givenMbLim _mbOffset (Just _search) (Just _pactId) _minheight _maxheight _mbNext =
   throw404 "You should only specify a pactid or a search string, not both!"
 
@@ -454,6 +450,21 @@ toApiTxDetail tx contHist blk evs = TxDetail
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
 
+toApiTxSummary :: Transaction -> ContinuationHistory -> Block -> TxSummary
+toApiTxSummary tx contHist blk = TxSummary
+        { _txSummary_chain = fromIntegral $ _tx_chainId tx
+        , _txSummary_height = fromIntegral $ _block_height blk
+        , _txSummary_blockHash = unDbHash $ unBlockId $ _tx_block tx
+        , _txSummary_creationTime = _tx_creationTime tx
+        , _txSummary_requestKey = unDbHash $ _tx_requestKey tx
+        , _txSummary_sender = _tx_sender tx
+        , _txSummary_code = _tx_code tx
+        , _txSummary_continuation = unPgJsonb <$> _tx_continuation tx
+        , _txSummary_result = maybe TxFailed (const TxSucceeded) $ _tx_goodResult tx
+        , _txSummary_initialCode = chCode contHist
+        , _txSummary_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
+        }
+
 queryTxsByKey :: LogFunctionIO Text -> Text -> Connection -> IO [TxDetail]
 queryTxsByKey logger rk c =
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
@@ -470,7 +481,7 @@ queryTxsByKey logger rk c =
        return ev
     return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
 
-queryTxsByPactId :: LogFunctionIO Text -> Text -> Connection -> IO [TxDetail]
+queryTxsByPactId :: LogFunctionIO Text -> Text -> Connection -> IO [TxSummary]
 queryTxsByPactId logger pactid c =
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
     r <- runSelectReturningList $ select $ do
@@ -481,12 +492,7 @@ queryTxsByPactId logger pactid c =
       let searchExp = val_ (DbHash pactid)
       guard_ (maybe_ (val_ False) (==. searchExp) (_tx_pactId tx))
       return (tx,contHist, blk)
-    evs <- runSelectReturningList $ select $ do
-       ev <- all_ (_cddb_events database)
-       let getBlock (_,_,blk) = val_ $ _block_hash blk
-       guard_ (unBlockId (_ev_block ev) `in_` fmap getBlock r)
-       return ev
-    return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
+    return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxSummary tx contHist blk
 
 txHandler
   :: LogFunctionIO Text
