@@ -399,31 +399,15 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) Nothing minheight ma
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
         results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
-searchTxs logger pool req givenMbLim mbOffset Nothing (Just pactid) minheight maxheight mbNext = do
+searchTxs logger pool req _givenMbLim _mbOffset Nothing (Just pactid) minheight maxheight mbNext = do
   liftIO $ logger Info $ fromString $ printf
     "Transaction search from %s: PactId string: %s" (show $ remoteHost req) (T.unpack pactid)
 
-  continuation <- mkContinuation readTxToken mbOffset mbNext
+  let convert = undefined
 
-  isBounded <- isBoundedStrategyM req
-
-  liftIO $ M.with pool $ \(c, throttling) -> do
-    let
-      scanLimit = ceiling $ 50000 * throttling
-      maxResultLimit = ceiling $ 250 * throttling
-      resultLimit = min maxResultLimit $ maybe 10 unLimit givenMbLim
-      strategy = if isBounded then Bounded scanLimit else Unbounded
-
-    PG.withTransactionLevel PG.RepeatableRead c $ do
-      (mbCont, results) <- performBoundedScan strategy
-        (runBeamPostgresDebug (logger Debug . T.pack) c)
-        (toTxSearchCursor . txwhSummary)
-        (txSearchSourcePactId pactid $ HeightRangeParams minheight maxheight)
-        noDecoration
-        continuation
-        resultLimit
-      return $ maybe noHeader (addHeader . mkTxToken) mbCont $
-        results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
+  liftIO (M.with pool (queryTxsByPactId logger pactid . fst)) >>= \case
+    [] -> throw404 $ "No transactions found for pactid: " <> toS pactid
+    xs -> return $ convert xs
 searchTxs _logger _pool _req _givenMbLim _mbOffset (Just _search) (Just _pactId) _minheight _maxheight _mbNext =
   throw404 "You should only specify a pactid or a search string, not both!"
 
@@ -483,6 +467,24 @@ queryTxsByKey logger rk c =
     evs <- runSelectReturningList $ select $ do
        ev <- all_ (_cddb_events database)
        guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
+       return ev
+    return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
+
+queryTxsByPactId :: LogFunctionIO Text -> Text -> Connection -> IO [TxDetail]
+queryTxsByPactId logger pactid c =
+  runBeamPostgresDebug (logger Debug . T.pack) c $ do
+    r <- runSelectReturningList $ select $ do
+      tx <- all_ (_cddb_transactions database)
+      contHist <- joinContinuationHistory (_tx_pactId tx)
+      blk <- all_ (_cddb_blocks database)
+      guard_ (_tx_block tx `references_` blk)
+      let searchExp = val_ (DbHash pactid)
+      guard_ (maybe_ (val_ False) (==. searchExp) (_tx_pactId tx))
+      return (tx,contHist, blk)
+    evs <- runSelectReturningList $ select $ do
+       ev <- all_ (_cddb_events database)
+       let getBlock (_,_,blk) = val_ $ _block_hash blk
+       guard_ (unBlockId (_ev_block ev) `in_` fmap getBlock r)
        return ev
     return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
 
