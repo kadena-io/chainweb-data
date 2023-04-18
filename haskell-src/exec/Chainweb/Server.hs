@@ -95,18 +95,18 @@ setCors = cors . const . Just $ simpleCorsResourcePolicy
     }
 
 data ServerState = ServerState
-    { _ssHighestBlockHeight :: BlockHeight
-    , _ssTransactionCount :: Maybe Int64
+    { -- _ssHighestBlockHeight :: BlockHeight
+      _ssTransactionCount :: Maybe Int64
     , _ssCirculatingCoins :: Decimal
     } deriving (Eq,Show)
 
-ssHighestBlockHeight
-    :: Functor f
-    => (BlockHeight -> f BlockHeight)
-    -> ServerState -> f ServerState
-ssHighestBlockHeight = lens _ssHighestBlockHeight setter
-  where
-    setter sc v = sc { _ssHighestBlockHeight = v }
+-- ssHighestBlockHeight
+--     :: Functor f
+--     => (BlockHeight -> f BlockHeight)
+--     -> ServerState -> f ServerState
+-- ssHighestBlockHeight = lens _ssHighestBlockHeight setter
+--   where
+--     setter sc v = sc { _ssHighestBlockHeight = v }
 
 ssTransactionCount
     :: Functor f
@@ -170,7 +170,7 @@ apiServerCut env senv cutBS = do
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
   numTxs <- getTransactionCount logg pool
-  ssRef <- newIORef $ ServerState 0 numTxs circulatingCoins
+  ssRef <- newIORef $ ServerState numTxs circulatingCoins
   logg Info $ fromString $ "Total number of transactions: " <> show numTxs
   _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
   _ <- forkIO $ retryingListener env ssRef
@@ -228,8 +228,8 @@ scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
     now <- getCurrentTime
     logg Info $ fromString $ show now
     logg Info "Recalculating coins in circulation:"
-    height <- _ssHighestBlockHeight <$> readIORef ssRef
-    let circulatingCoins = getCirculatingCoins (fromIntegral height) now
+    height <- getMaxBlockHeight logg pool
+    let circulatingCoins = getCirculatingCoins (fromIntegral $ fromMaybe (error "") height) now
     logg Info $ fromString $ show circulatingCoins
     let f ss = (ss & ssCirculatingCoins .~ circulatingCoins, ())
     atomicModifyIORef' ssRef f
@@ -288,8 +288,7 @@ serverHeaderHandler env ssRef ph@(PowHeader h _) = do
       let hash = _blockHeader_hash h
           tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
           ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
-          f ss = (ss & ssHighestBlockHeight %~ max height
-                     & (ssTransactionCount . _Just) +~ (fromIntegral $ S.length ts), ())
+          f ss = (ss & (ssTransactionCount . _Just) +~ (fromIntegral $ S.length ts), ())
 
       let msg = printf "Got new header on chain %d height %d" (unChainId chain) height
           addendum = if S.length ts == 0
@@ -441,6 +440,20 @@ toApiTxDetail tx contHist blk evs = TxDetail
     unMaybeValue = maybe Null unPgJsonb
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
+
+getMaxBlockHeight :: LogFunctionIO Text -> P.Pool Connection -> IO (Maybe BlockHeight)
+getMaxBlockHeight logger pool =
+  P.withResource pool $ \c ->
+    runBeamPostgresDebug (logger Debug . T.pack) c $ 
+      fmap f $ runSelectReturningOne $ select $ do
+        blk <- all_ (_cddb_blocks database)
+        return $ max_ (_block_height blk)
+  where
+    f :: Maybe (Maybe Int64) -> Maybe BlockHeight
+    f = \case
+       Just (Just h) -> Just $ fromIntegral h
+       _ -> Nothing
+
 
 queryTxsByKey :: LogFunctionIO Text -> Text -> Connection -> IO [TxDetail]
 queryTxsByKey logger rk c =
