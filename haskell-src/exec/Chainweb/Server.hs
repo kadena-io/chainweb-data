@@ -484,7 +484,7 @@ queryTxsByKey logger rk c =
 queryTxsByPactId :: LogFunctionIO Text -> Text -> Connection -> IO [TxSummary]
 queryTxsByPactId logger pactid c =
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
-    r <- runSelectReturningList $ select $ do
+    r <- runSelectReturningList $ select $ orderBy_ statusOrd $ do
       tx <- all_ (_cddb_transactions database)
       contHist <- joinContinuationHistory (_tx_pactId tx)
       blk <- all_ (_cddb_blocks database)
@@ -493,6 +493,8 @@ queryTxsByPactId logger pactid c =
       guard_ (maybe_ (val_ False) (==. searchExp) (_tx_pactId tx))
       return (tx,contHist, blk)
     return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxSummary tx contHist blk
+  where
+    statusOrd (tx,_,_) = (desc_ (_tx_goodResult tx), desc_ (_tx_height tx))
 
 txHandler
   :: LogFunctionIO Text
