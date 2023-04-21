@@ -21,6 +21,7 @@ module ChainwebData.Env
   , FillArgs(..)
   , envP
   , migrateOnlyP
+  , checkSchemaP
   , richListP
   , NodeDbPath(..)
   , progress
@@ -69,6 +70,7 @@ data Args
   | RichListArgs NodeDbPath LogLevel ChainwebVersion
     -- ^ arguments for the Richlist command
   | MigrateOnly Connect LogLevel (Maybe MigrationsFolder)
+  | CheckSchema Connect LogLevel
   deriving (Show)
 
 data Env = Env
@@ -274,6 +276,18 @@ migrateOnlyP = hsubparser
       <$> connectP
       <*> logLevelParser
       <*> migrationsFolderParser
+
+checkSchemaP :: Parser Args
+checkSchemaP = hsubparser
+  ( command "check-schema"
+    ( info opts $ progDesc
+        "Check the DB schema against the ORM definitions"
+    )
+  )
+  where
+    opts = CheckSchema
+      <$> connectP
+      <*> logLevelParser
 
 richListP :: Parser Args
 richListP = hsubparser
