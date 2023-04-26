@@ -494,8 +494,8 @@ queryTxsByPactId' pactid =
       contHist <- joinContinuationHistory (_tx_pactId tx)
       blk <- all_ (_cddb_blocks database)
       guard_ (_tx_block tx `references_` blk)
-      let searchExp = val_ (DbHash pactid)
-      guard_ (maybe_ (val_ False) (==. searchExp) (_tx_pactId tx))
+      let searchExp = val_ (Just $ DbHash pactid)
+      guard_' (_tx_pactId tx ==?. searchExp)
       return (tx,contHist, blk)
   where
     statusOrd (tx,_,_) = (desc_ (_tx_goodResult tx), desc_ (_tx_height tx))
