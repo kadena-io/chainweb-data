@@ -485,20 +485,18 @@ queryTxsByPactId :: LogFunctionIO Text -> Text -> Connection -> IO [TxSummary]
 queryTxsByPactId logger pactid c =
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
     r <- runSelectReturningList (queryTxsByPactId' pactid)
-    return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxSummary tx contHist blk
+    return $ (`fmap` r) $ \(tx,contHist) -> dbToApiTxSummary (toDbTxSummary tx) contHist
 
-queryTxsByPactId' :: Text -> SqlSelect Postgres (TransactionT Identity, ContinuationHistoryT Identity, BlockT Identity)
+queryTxsByPactId' :: Text -> SqlSelect Postgres (TransactionT Identity, ContinuationHistoryT Identity)
 queryTxsByPactId' pactid =
     select $ orderBy_ statusOrd $ do
       tx <- all_ (_cddb_transactions database)
       contHist <- joinContinuationHistory (_tx_pactId tx)
-      blk <- all_ (_cddb_blocks database)
-      guard_ (_tx_block tx `references_` blk)
       let searchExp = val_ (Just $ DbHash pactid)
       guard_' (_tx_pactId tx ==?. searchExp)
-      return (tx,contHist, blk)
+      return (tx,contHist)
   where
-    statusOrd (tx,_,_) = (desc_ (_tx_goodResult tx), desc_ (_tx_height tx))
+    statusOrd (tx,_) = (desc_ (_tx_goodResult tx), desc_ (_tx_height tx))
 
 txHandler
   :: LogFunctionIO Text
