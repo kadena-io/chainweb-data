@@ -160,19 +160,6 @@ txSearchSource search hgtRange = do
   return $ FilterMarked isMatch $
     TxSummaryWithHistory (toDbTxSummary tx) contHist
 
-txSearchSourcePactId ::
-  Text ->
-  HeightRangeParams ->
-  Q Postgres ChainwebDataDb s (FilterMarked TxSummaryWithHistoryT (PgExpr s))
-txSearchSourcePactId pactId hgtRange = do
-  tx <- all_ $ _cddb_transactions database
-  contHist <- joinContinuationHistory (_tx_pactId tx)
-  guardInRange hgtRange (_tx_height tx)
-  let searchExp = val_ $ DbHash @TxHash pactId
-      isMatch = maybe_ (val_ False) (==. searchExp) (_tx_pactId tx)
-  return $ FilterMarked isMatch $
-    TxSummaryWithHistory (toDbTxSummary tx) contHist
-
 data EventSearchParams = EventSearchParams
   { espSearch :: Maybe Text
   , espParam :: Maybe EventParam
