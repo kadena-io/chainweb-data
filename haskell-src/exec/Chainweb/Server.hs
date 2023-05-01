@@ -405,7 +405,7 @@ searchTxs logger pool req _givenMbLim _mbOffset Nothing (Just pactid) _minheight
 
   M.with pool (fmap noHeader . queryTxsByPactId logger pactid . fst)
 searchTxs _logger _pool _req _givenMbLim _mbOffset (Just _search) (Just _pactId) _minheight _maxheight _mbNext =
-  throw404 "You should only specify a pactid or a search string, not both!"
+  throw400 "You should only specify a pactid or a search string, not both!"
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
