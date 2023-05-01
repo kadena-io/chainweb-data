@@ -1,3 +1,3 @@
 CREATE INDEX transactions_pactid_index 
-  ON transactions (pactid, goodresult DESC, height DESC) 
+  ON transactions (pactid, (goodresult IS NOT NULL), height DESC)
   WHERE pactid IS NOT NULL;

@@ -494,9 +494,10 @@ queryTxsByPactId' pactid =
       contHist <- joinContinuationHistory (_tx_pactId tx)
       let searchExp = val_ (Just $ DbHash pactid)
       guard_' (_tx_pactId tx ==?. searchExp)
+      guard_ (isJust_ $ _tx_goodResult tx)
       return (tx,contHist)
   where
-    statusOrd (tx,_) = (desc_ (_tx_goodResult tx), desc_ (_tx_height tx))
+    statusOrd (tx,_) = desc_ (_tx_height tx)
 
 txHandler
   :: LogFunctionIO Text
