@@ -399,11 +399,15 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) Nothing minheight ma
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
         results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
-searchTxs logger pool req _givenMbLim _mbOffset Nothing (Just pactid) _minheight _maxheight _mbNext = liftIO $ do
+searchTxs logger pool req givenMbLim _mbOffset Nothing (Just pactid) _minheight _maxheight _mbNext = liftIO $ do
   logger Info $ fromString $ printf
     "Transaction search from %s: PactId string: %s" (show $ remoteHost req) (T.unpack pactid)
 
-  M.with pool (fmap noHeader . queryTxsByPactId logger pactid . fst)
+  let actualLimit = case givenMbLim of
+        Nothing -> Limit 50
+        Just (Limit l) -> Limit $ min 50 l
+
+  M.with pool (fmap noHeader . queryTxsByPactId logger actualLimit pactid . fst)
 searchTxs _logger _pool _req _givenMbLim _mbOffset (Just _search) (Just _pactId) _minheight _maxheight _mbNext =
   throw400 "You should only specify a pactid or a search string, not both!"
 
@@ -466,15 +470,15 @@ queryTxsByKey logger rk c =
        return ev
     return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
 
-queryTxsByPactId :: LogFunctionIO Text -> Text -> Connection -> IO [TxSummary]
-queryTxsByPactId logger pactid c =
+queryTxsByPactId :: LogFunctionIO Text -> Limit -> Text -> Connection -> IO [TxSummary]
+queryTxsByPactId logger limit pactid c =
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
-    r <- runSelectReturningList (queryTxsByPactId' pactid)
+    r <- runSelectReturningList (queryTxsByPactId' limit pactid)
     return $ (`fmap` r) $ uncurry dbToApiTxSummary
 
-queryTxsByPactId' :: Text -> SqlSelect Postgres (DbTxSummaryT Identity, ContinuationHistoryT Identity)
-queryTxsByPactId' pactid =
-    select $ fmap toDbSummary $ orderBy_ statusOrd $ do
+queryTxsByPactId' :: Limit -> Text -> SqlSelect Postgres (DbTxSummaryT Identity, ContinuationHistoryT Identity)
+queryTxsByPactId' (Limit limit) pactid =
+    select $ fmap toDbSummary $ onLimit $ orderBy_ statusOrd $ do
       tx <- all_ (_cddb_transactions database)
       contHist <- joinContinuationHistory (_tx_pactId tx)
       let searchExp = val_ (Just $ DbHash pactid)
@@ -483,6 +487,7 @@ queryTxsByPactId' pactid =
   where
     statusOrd (tx,_) = (desc_ (isJust_ (_tx_goodResult tx)), desc_ (_tx_height tx))
     toDbSummary (tx,ch) = (toDbTxSummary tx, ch)
+    onLimit = limit_ limit
 
 txHandler
   :: LogFunctionIO Text
