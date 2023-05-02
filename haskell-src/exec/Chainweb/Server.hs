@@ -450,21 +450,6 @@ toApiTxDetail tx contHist blk evs = TxDetail
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
 
-toApiTxSummary :: Transaction -> ContinuationHistory -> Block -> TxSummary
-toApiTxSummary tx contHist blk = TxSummary
-        { _txSummary_chain = fromIntegral $ _tx_chainId tx
-        , _txSummary_height = fromIntegral $ _block_height blk
-        , _txSummary_blockHash = unDbHash $ unBlockId $ _tx_block tx
-        , _txSummary_creationTime = _tx_creationTime tx
-        , _txSummary_requestKey = unDbHash $ _tx_requestKey tx
-        , _txSummary_sender = _tx_sender tx
-        , _txSummary_code = _tx_code tx
-        , _txSummary_continuation = unPgJsonb <$> _tx_continuation tx
-        , _txSummary_result = maybe TxFailed (const TxSucceeded) $ _tx_goodResult tx
-        , _txSummary_initialCode = chCode contHist
-        , _txSummary_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
-        }
-
 queryTxsByKey :: LogFunctionIO Text -> Text -> Connection -> IO [TxDetail]
 queryTxsByKey logger rk c =
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
@@ -485,11 +470,11 @@ queryTxsByPactId :: LogFunctionIO Text -> Text -> Connection -> IO [TxSummary]
 queryTxsByPactId logger pactid c =
   runBeamPostgresDebug (logger Debug . T.pack) c $ do
     r <- runSelectReturningList (queryTxsByPactId' pactid)
-    return $ (`fmap` r) $ \(tx,contHist) -> dbToApiTxSummary (toDbTxSummary tx) contHist
+    return $ (`fmap` r) $ uncurry dbToApiTxSummary
 
-queryTxsByPactId' :: Text -> SqlSelect Postgres (TransactionT Identity, ContinuationHistoryT Identity)
+queryTxsByPactId' :: Text -> SqlSelect Postgres (DbTxSummaryT Identity, ContinuationHistoryT Identity)
 queryTxsByPactId' pactid =
-    select $ orderBy_ statusOrd $ do
+    select $ fmap toDbSummary $ orderBy_ statusOrd $ do
       tx <- all_ (_cddb_transactions database)
       contHist <- joinContinuationHistory (_tx_pactId tx)
       let searchExp = val_ (Just $ DbHash pactid)
@@ -497,6 +482,7 @@ queryTxsByPactId' pactid =
       return (tx,contHist)
   where
     statusOrd (tx,_) = (desc_ (isJust_ (_tx_goodResult tx)), desc_ (_tx_height tx))
+    toDbSummary (tx,ch) = (toDbTxSummary tx, ch)
 
 txHandler
   :: LogFunctionIO Text
