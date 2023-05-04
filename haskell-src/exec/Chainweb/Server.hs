@@ -29,7 +29,6 @@ import           Data.Aeson hiding (Error)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64
 import           Data.ByteString.Lazy (ByteString)
-import           Data.Decimal
 import           Data.Int
 import           Data.IORef
 import qualified Data.Pool as P
@@ -94,18 +93,6 @@ setCors = cors . const . Just $ simpleCorsResourcePolicy
     , corsExposedHeaders = Just ["Chainweb-Next"]
     }
 
-data ServerState = ServerState
-    { _ssCirculatingCoins :: Decimal
-    } deriving (Eq,Show)
-
-ssCirculatingCoins
-    :: Functor f
-    => (Decimal -> f Decimal)
-    -> ServerState -> f ServerState
-ssCirculatingCoins = lens _ssCirculatingCoins setter
-  where
-    setter sc v = sc { _ssCirculatingCoins = v }
-
 type RichlistEndpoint = "richlist.csv" :> Get '[PlainText] Text
 
 type TxEndpoint = "tx" :> QueryParam "requestkey" Text :> Get '[JSON] TxDetail
@@ -152,9 +139,8 @@ apiServerCut env senv cutBS = do
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
   numTxs <- P.withResource pool $ getTransactionCountEstimate logg
-  ssRef <- newIORef $ ServerState circulatingCoins
   logg Info $ fromString $ "Total estimated number of transactions: " <> show numTxs
-  _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
+  _ <- forkIO $ scheduledUpdates env pool (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
   _ <- forkIO $ retryingListener env
   logg Info $ fromString "Starting chainweb-data server"
   throttledPool <- do
@@ -173,8 +159,8 @@ apiServerCut env senv cutBS = do
             :<|> txsHandler logg unThrottledPool
             :<|> accountHandler logg throttledPool req
           )
-            :<|> statsHandler logg unThrottledPool ssRef
-            :<|> coinsHandler ssRef
+            :<|> statsHandler logg unThrottledPool
+            :<|> coinsHandler logg unThrottledPool
           )
           :<|> richlistHandler
   let swaggerServer = swaggerSchemaUIServer Spec.spec
@@ -200,21 +186,18 @@ retryingListener env = do
 scheduledUpdates
   :: Env
   -> P.Pool Connection
-  -> IORef ServerState
   -> Bool
   -> Maybe Int
   -> IO ()
-scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
+scheduledUpdates env pool runFill fillDelay = forever $ do
     threadDelay (60 * 60 * 24 * micros)
 
     now <- getCurrentTime
     logg Info $ fromString $ show now
     logg Info "Recalculating coins in circulation:"
-    height <- getMaxBlockHeight logg pool
-    let circulatingCoins = getCirculatingCoins (fromIntegral $ fromMaybe (error "") height) now
-    logg Info $ fromString $ show circulatingCoins
-    let f ss = (ss & ssCirculatingCoins .~ circulatingCoins, ())
-    atomicModifyIORef' ssRef f
+    height <- P.withResource pool $ getMaxBlockHeight logg
+    let circulatingCoins = height <&> \h -> getCirculatingCoins (fromIntegral h) now
+    foldMap (logg Info . fromString . show) circulatingCoins -- TODO: Maybe we should something more informative here
 
     h <- getHomeDirectory
     richList logg (h </> ".local/share") (ChainwebVersion $ _nodeInfo_chainwebVer $ _env_nodeInfo env)
@@ -236,18 +219,22 @@ richlistHandler = do
     then liftIO $ T.readFile f
     else throwError err404
 
-coinsHandler :: IORef ServerState -> Handler Text
-coinsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
-  where
-    mkStats ss = T.pack $ show $ _ssCirculatingCoins ss
+coinsHandler :: LogFunctionIO Text -> M.Managed Connection -> Handler Text
+coinsHandler logger pool = liftIO $ do
+    now <- getCurrentTime
+    height <- M.with pool $ getMaxBlockHeight logger
+    let circulatingCoins = height <&> \h -> getCirculatingCoins (fromIntegral h) now
+    return $ foldMap (T.pack . show) circulatingCoins
 
-statsHandler :: LogFunctionIO Text -> M.Managed Connection -> IORef ServerState -> Handler ChainwebDataStats
-statsHandler logg pool ssRef = liftIO $ do
+statsHandler :: LogFunctionIO Text -> M.Managed Connection -> Handler ChainwebDataStats
+statsHandler logg pool = liftIO $ do
     estimate <- M.with pool $ getTransactionCountEstimate logg
-    fmap (mkStats estimate) $ readIORef ssRef
+    now <- getCurrentTime
+    height <- M.with pool $ getMaxBlockHeight logg
+    let circulatingCoins = height <&> \h -> getCirculatingCoins (fromIntegral h) now
+    return $ mkStats estimate (realToFrac <$> circulatingCoins)
   where
-    mkStats transactionCount ss = ChainwebDataStats (fmap fromIntegral transactionCount)
-                                   (Just $ realToFrac $ _ssCirculatingCoins ss)
+    mkStats transactionCount coins = ChainwebDataStats (fmap fromIntegral transactionCount) coins
 
 serverHeaderHandler :: Env -> PowHeader -> IO ()
 serverHeaderHandler env ph@(PowHeader h _) = do
@@ -417,9 +404,8 @@ toApiTxDetail tx contHist blk evs = TxDetail
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
 
-getMaxBlockHeight :: LogFunctionIO Text -> P.Pool Connection -> IO (Maybe BlockHeight)
-getMaxBlockHeight logger pool =
-  P.withResource pool $ \c ->
+getMaxBlockHeight :: LogFunctionIO Text -> Connection -> IO (Maybe BlockHeight)
+getMaxBlockHeight logger c =
     runBeamPostgresDebug (logger Debug . T.pack) c $ 
       fmap f $ runSelectReturningOne $ select $ do
         blk <- all_ (_cddb_blocks database)
