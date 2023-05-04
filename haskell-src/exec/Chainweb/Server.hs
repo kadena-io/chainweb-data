@@ -224,7 +224,7 @@ coinsHandler logger pool = liftIO $ do
     now <- getCurrentTime
     height <- M.with pool $ getMaxBlockHeight logger
     let circulatingCoins = height <&> \h -> getCirculatingCoins (fromIntegral h) now
-    return $ foldMap (T.pack . show) circulatingCoins
+    foldMap (pure . T.pack . show) circulatingCoins
 
 statsHandler :: LogFunctionIO Text -> M.Managed Connection -> Handler ChainwebDataStats
 statsHandler logg pool = liftIO $ do
