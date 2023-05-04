@@ -331,14 +331,15 @@ searchTxs
   -> Maybe Limit
   -> Maybe Offset
   -> Maybe Text
+  -> Maybe Text
   -> Maybe BlockHeight -- ^ minimum block height
   -> Maybe BlockHeight -- ^ maximum block height
   -> Maybe NextToken
   -> Handler (NextHeaders [TxSummary])
-searchTxs _ _ _ _ _ Nothing _ _ _ = throw404 "You must specify a search string"
-searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight mbNext = do
+searchTxs _ _ _ _ _ Nothing Nothing _ _ _ = throw404 "You must specify a search string"
+searchTxs logger pool req givenMbLim mbOffset (Just search) Nothing minheight maxheight mbNext = do
   liftIO $ logger Info $ fromString $ printf
-    "Transaction search from %s: %s" (show $ remoteHost req) (T.unpack search)
+    "Transaction search from %s: Search string: %s" (show $ remoteHost req) (T.unpack search)
   continuation <- mkContinuation readTxToken mbOffset mbNext
 
   isBounded <- isBoundedStrategyM req
@@ -360,6 +361,17 @@ searchTxs logger pool req givenMbLim mbOffset (Just search) minheight maxheight 
         resultLimit
       return $ maybe noHeader (addHeader . mkTxToken) mbCont $
         results <&> \(txwh,_) -> dbToApiTxSummary (txwhSummary txwh) (txwhContHistory txwh)
+searchTxs logger pool req givenMbLim _mbOffset Nothing (Just pactid) _minheight _maxheight _mbNext = liftIO $ do
+  logger Info $ fromString $ printf
+    "Transaction search from %s: PactId string: %s" (show $ remoteHost req) (T.unpack pactid)
+
+  let actualLimit = case givenMbLim of
+        Nothing -> Limit 50
+        Just (Limit l) -> Limit $ min 50 l
+
+  M.with pool (fmap noHeader . queryTxsByPactId logger actualLimit pactid . fst)
+searchTxs _logger _pool _req _givenMbLim _mbOffset (Just _search) (Just _pactId) _minheight _maxheight _mbNext =
+  throw400 "You should only specify a pactid or a search string, not both!"
 
 throw404 :: MonadError ServerError m => ByteString -> m a
 throw404 msg = throwError $ err404 { errBody = msg }
@@ -431,6 +443,25 @@ queryTxsByKey logger rk c =
        guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
        return ev
     return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
+
+queryTxsByPactId :: LogFunctionIO Text -> Limit -> Text -> Connection -> IO [TxSummary]
+queryTxsByPactId logger limit pactid c =
+  runBeamPostgresDebug (logger Debug . T.pack) c $ do
+    r <- runSelectReturningList (queryTxsByPactId' limit pactid)
+    return $ (`fmap` r) $ uncurry dbToApiTxSummary
+
+queryTxsByPactId' :: Limit -> Text -> SqlSelect Postgres (DbTxSummaryT Identity, ContinuationHistoryT Identity)
+queryTxsByPactId' (Limit limit) pactid =
+    select $ fmap toDbSummary $ onLimit $ orderBy_ statusOrd $ do
+      tx <- all_ (_cddb_transactions database)
+      contHist <- joinContinuationHistory (_tx_pactId tx)
+      let searchExp = val_ (Just $ DbHash pactid)
+      guard_' (_tx_pactId tx ==?. searchExp)
+      return (tx,contHist)
+  where
+    statusOrd (tx,_) = (desc_ (isJust_ (_tx_goodResult tx)), desc_ (_tx_height tx))
+    toDbSummary (tx,ch) = (toDbTxSummary tx, ch)
+    onLimit = limit_ limit
 
 txHandler
   :: LogFunctionIO Text

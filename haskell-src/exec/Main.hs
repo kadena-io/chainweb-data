@@ -90,8 +90,11 @@ main = do
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
                       Server serverEnv -> apiServer env serverEnv
+        CheckSchema pgc _ -> withCWDPool pgc $ \pool -> do
+          P.withResource pool $ checkTables logg True
+
   where
-    opts = info ((richListP <|> migrateOnlyP <|> envP) <**> helper)
+    opts = info ((richListP <|> migrateOnlyP <|> checkSchemaP <|> envP) <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
     config level = defaultLoggerConfig
       & loggerConfigThreshold .~ level
@@ -100,6 +103,7 @@ main = do
       Args _ _ _ _ level _ _ -> level
       RichListArgs _ level _ -> level
       MigrateOnly _ level _ -> level
+      CheckSchema _ level -> level
 
 migrationFiles :: [(FilePath, BS.ByteString)]
 migrationFiles = $(embedDir "db-schema/migrations")
@@ -141,12 +145,8 @@ runMigrations pool logg migAction mbMigFolder = do
 
   Mg.runMigrations migAction steps pool logg
 
-  P.withResource pool $ \conn -> do
-    let isFatalDiffs = case migAction of
-          RunMigrations -> True
-          CheckMigrations -> True
-          PrintMigrations -> False
-    checkTables logg isFatalDiffs conn
+  P.withResource pool $ checkTables logg False
+
   logg Info "DB Tables Initialized"
 
 {-

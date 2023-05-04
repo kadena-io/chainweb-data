@@ -175,8 +175,8 @@ checkTables logg fatalDiffs conn = do
       Right [] -> logg Info "The DB schema is compatible with the ORM definition."
       Right _ -> do
         let logLevel = if fatalDiffs then Error else Info
-        logg logLevel "The DB schema is not compatible with the ORM definition."
-        logg logLevel "The following changes are needed:"
+        logg logLevel "Unexpected differences between the ORM definition and the DB schema."
+        logg logLevel "The following changes would align them:"
         showMigration conn
         logg logLevel "These changes are probably due to manual changes to the DB schema, if not please report this as a bug."
         when fatalDiffs $ do
