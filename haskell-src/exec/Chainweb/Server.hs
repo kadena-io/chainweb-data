@@ -639,7 +639,6 @@ getTransactionCountEstimate logger c = do
     query_ c "SELECT reltuples::bigint AS estimate FROM pg_class WHERE relname='transactions'"
       >>= \case
         [Only (estimate :: Int64)] -> do
-          logger Info $ "Transaction count estimate: " <> T.pack (show estimate)
           return $ Just estimate
         _ -> do
           logger Error "Could not get transaction count estimate"
