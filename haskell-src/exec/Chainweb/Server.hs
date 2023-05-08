@@ -21,7 +21,7 @@ import           Chainweb.Api.Hash
 import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Error
-import           Control.Exception (bracket_)
+import           Control.Exception (bracket_, throwIO)
 import           Control.Monad.Except
 import qualified Control.Monad.Managed as M
 import           Control.Retry
@@ -29,6 +29,7 @@ import           Data.Aeson hiding (Error)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64
 import           Data.ByteString.Lazy (ByteString)
+import           Data.Decimal
 import           Data.Int
 import           Data.IORef
 import qualified Data.Pool as P
@@ -138,8 +139,6 @@ apiServerCut env senv cutBS = do
   let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  numTxs <- P.withResource pool $ getTransactionCountEstimate logg
-  logg Info $ fromString $ "Total estimated number of transactions: " <> show numTxs
   _ <- forkIO $ scheduledUpdates env pool (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
   _ <- forkIO $ retryingListener env
   logg Info $ fromString "Starting chainweb-data server"
@@ -219,22 +218,21 @@ richlistHandler = do
     then liftIO $ T.readFile f
     else throwError err404
 
+getCirculatingCoinsDb :: LogFunctionIO Text -> M.Managed Connection -> Handler Decimal
+getCirculatingCoinsDb logger pool = liftIO (M.with pool $ getMaxBlockHeight logger) >>= \case
+    Nothing -> throw404 "Server database is empty"
+    Just height -> do
+      now <- liftIO $ getCurrentTime
+      pure $ getCirculatingCoins (fromIntegral height) now
+
 coinsHandler :: LogFunctionIO Text -> M.Managed Connection -> Handler Text
-coinsHandler logger pool = liftIO $ do
-    now <- getCurrentTime
-    height <- M.with pool $ getMaxBlockHeight logger
-    let circulatingCoins = height <&> \h -> getCirculatingCoins (fromIntegral h) now
-    foldMap (pure . T.pack . show) circulatingCoins
+coinsHandler logger pool = getCirculatingCoinsDb logger pool <&> T.pack . show
 
 statsHandler :: LogFunctionIO Text -> M.Managed Connection -> Handler ChainwebDataStats
-statsHandler logg pool = liftIO $ do
-    estimate <- M.with pool $ getTransactionCountEstimate logg
-    now <- getCurrentTime
-    height <- M.with pool $ getMaxBlockHeight logg
-    let circulatingCoins = height <&> \h -> getCirculatingCoins (fromIntegral h) now
-    return $ mkStats estimate (realToFrac <$> circulatingCoins)
-  where
-    mkStats transactionCount coins = ChainwebDataStats (fmap fromIntegral transactionCount) coins
+statsHandler logg pool = do
+    estimate <- liftIO $ M.with pool $ getTransactionCountEstimate
+    circulatingCoins <- getCirculatingCoinsDb logg pool
+    return $ ChainwebDataStats (Just $ fromIntegral estimate) (Just $ realToFrac circulatingCoins)
 
 serverHeaderHandler :: Env -> PowHeader -> IO ()
 serverHeaderHandler env ph@(PowHeader h _) = do
@@ -634,15 +632,14 @@ recentTxsHandler logger pool = liftIO $ do
           return $ (toDbTxSummary tx, contHist)
       return $ uncurry dbToApiTxSummary <$> res
 
-getTransactionCountEstimate :: LogFunctionIO Text -> Connection -> IO (Maybe Int64)
-getTransactionCountEstimate logger c = do
-    query_ c "SELECT reltuples::bigint AS estimate FROM pg_class WHERE relname='transactions'"
+getTransactionCountEstimate :: Connection -> IO Int64
+getTransactionCountEstimate c =
+    query_ c stmt
       >>= \case
-        [Only (estimate :: Int64)] -> do
-          return $ Just estimate
-        _ -> do
-          logger Error "Could not get transaction count estimate"
-          return Nothing
+        [Only (estimate :: Int64)] -> return estimate
+        _ -> throwIO $ userError "Could not get transaction count estimate"
+  where
+    stmt = "SELECT reltuples::bigint AS estimate FROM pg_class WHERE relname='transactions'"
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v
