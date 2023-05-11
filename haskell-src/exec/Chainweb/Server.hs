@@ -15,9 +15,7 @@
 module Chainweb.Server where
 
 ------------------------------------------------------------------------------
-import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.ChainId
-import           Chainweb.Api.Hash
 import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Error
@@ -34,14 +32,12 @@ import           Data.Int
 import           Data.IORef
 import qualified Data.Pool as P
 import           Data.Proxy
-import qualified Data.Sequence as S
 import           Data.String
 import           Data.String.Conv (toS)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Data.Time
-import           Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
@@ -61,7 +57,6 @@ import           System.FilePath
 import           System.Logger.Types hiding (logg)
 import           Text.Printf
 ------------------------------------------------------------------------------
-import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.StringEncoded (StringEncoded(..))
 import           Chainweb.Coins
@@ -72,7 +67,6 @@ import           Chainweb.Gaps
 import           Chainweb.Listen
 import           Chainweb.Lookups
 import           Chainweb.RichList
-import           ChainwebData.Types
 import           ChainwebData.Api
 import           ChainwebData.TransferDetail
 import           ChainwebData.EventDetail
@@ -181,7 +175,7 @@ retryingListener env = do
         return True
   retrying policy check $ \_ -> do
     logg Info "Starting node listener"
-    listenWithHandler env $ serverHeaderHandler env
+    listenWithHandler env $ processNewHeader True env
 
 scheduledUpdates
   :: Env
@@ -234,35 +228,6 @@ statsHandler logg pool = do
     estimate <- liftIO $ M.with pool $ getTransactionCountEstimate logg
     circulatingCoins <- getCirculatingCoinsDb logg pool
     return $ ChainwebDataStats (Just $ fromIntegral estimate) (Just $ realToFrac circulatingCoins)
-
-serverHeaderHandler :: Env -> PowHeader -> IO ()
-serverHeaderHandler env ph@(PowHeader h _) = do
-  let pool = _env_dbConnPool env
-  let ni = _env_nodeInfo env
-  let chain = _blockHeader_chainId h
-  let height = _blockHeader_height h
-  let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
-  let logg = _env_logger env
-  payloadWithOutputs env pair >>= \case
-    Left e -> do
-      logg Error $ fromString $ printf "Couldn't fetch parent for: %s"
-        (hashB64U $ _blockHeader_hash h)
-      logg Info $ fromString $ show e
-    Right pl -> do
-      let hash = _blockHeader_hash h
-          tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
-          ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
-
-      let msg = printf "Got new header on chain %d height %d" (unChainId chain) height
-          addendum = if S.length ts == 0
-                       then ""
-                       else printf " with %d transactions" (S.length ts)
-
-      logg Debug (fromString $ msg <> addendum)
-      mapM_ (logg Debug . fromString . show) tos
-
-      insertNewHeader (_nodeInfo_chainwebVer ni) pool ph pl
-
 
 instance BeamSqlBackendIsString Postgres (Maybe Text)
 instance BeamSqlBackendIsString Postgres (Maybe String)
