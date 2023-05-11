@@ -47,6 +47,7 @@ import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
 import           Database.PostgreSQL.Simple (Only(..), query_)
+import           Database.PostgreSQL.Simple.Types (Query(..))
 import qualified Database.PostgreSQL.Simple.Transaction as PG
 import           Control.Lens
 import           Network.Wai
@@ -230,7 +231,7 @@ coinsHandler logger pool = getCirculatingCoinsDb logger pool <&> T.pack . show
 
 statsHandler :: LogFunctionIO Text -> M.Managed Connection -> Handler ChainwebDataStats
 statsHandler logg pool = do
-    estimate <- liftIO $ M.with pool $ getTransactionCountEstimate
+    estimate <- liftIO $ M.with pool $ getTransactionCountEstimate logg
     circulatingCoins <- getCirculatingCoinsDb logg pool
     return $ ChainwebDataStats (Just $ fromIntegral estimate) (Just $ realToFrac circulatingCoins)
 
@@ -632,8 +633,9 @@ recentTxsHandler logger pool = liftIO $ do
           return $ (toDbTxSummary tx, contHist)
       return $ uncurry dbToApiTxSummary <$> res
 
-getTransactionCountEstimate :: Connection -> IO Int64
-getTransactionCountEstimate c =
+getTransactionCountEstimate :: LogFunctionIO Text -> Connection -> IO Int64
+getTransactionCountEstimate logger c = do
+    logger Debug $ toS $ fromQuery stmt
     query_ c stmt
       >>= \case
         [Only (estimate :: Int64)] -> return estimate
