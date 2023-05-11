@@ -639,7 +639,7 @@ getTransactionCountEstimate c =
         [Only (estimate :: Int64)] -> return estimate
         _ -> throwIO $ userError "Could not get transaction count estimate"
   where
-    stmt = "SELECT reltuples::bigint AS estimate FROM pg_class WHERE relname='transactions'"
+    stmt = "SELECT reltuples::bigint AS estimate FROM pg_class WHERE oid='transactions'::regclass::oid"
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v
