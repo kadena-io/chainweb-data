@@ -78,8 +78,9 @@ processNewHeader logTxSummaries env ph@(PowHeader h _) = do
           msg = printf "Got new header on chain %d height %d" (unChainId chain) height
           addendum = if S.null ts then "" else printf " with %d transactions" (S.length ts)
       when logTxSummaries $ do
-        logg Info $ fromString $ msg <> addendum
-        mapM_ (logg Info . fromString . show) ts
+        logg Debug $ fromString $ msg <> addendum
+        forM_ tos $ \txWithOutput -> 
+          logg Debug $ fromString $ show txWithOutput
       insertNewHeader (_nodeInfo_chainwebVer $ _env_nodeInfo env) (_env_dbConnPool env) ph pl
       logg Info (fromString $ printf "%d" (unChainId chain)) >> hFlush stdout
 
