@@ -81,7 +81,6 @@ processNewHeader logTxSummaries env ph@(PowHeader h _) = do
         logg Info $ fromString $ msg <> addendum
         mapM_ (logg Info . fromString . show) ts
       insertNewHeader (_nodeInfo_chainwebVer $ _env_nodeInfo env) (_env_dbConnPool env) ph pl
-      logg Info (fromString $ printf "%d" (unChainId chain)) >> hFlush stdout
 
 insertNewHeader :: T.Text -> P.Pool Connection -> PowHeader -> BlockPayloadWithOutputs -> IO ()
 insertNewHeader version pool ph pl = do
