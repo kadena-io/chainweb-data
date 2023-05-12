@@ -21,7 +21,7 @@ import           ChainwebData.TxSummary (mkTxSummary)
 import           ChainwebData.Types
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           Control.Exception
-import           Control.Monad (when)
+import           Control.Monad (forM_, when)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Pool as P
 import qualified Data.Sequence as S
@@ -34,7 +34,6 @@ import           Database.Beam.Postgres (Connection)
 import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
-import           System.IO (hFlush, stdout)
 import           System.Logger.Types hiding (logg)
 import           Text.Printf
 
