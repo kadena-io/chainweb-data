@@ -5,8 +5,8 @@
 module Chainweb.Listen
   ( listen
   , listenWithHandler
-  , getOutputsAndInsert
   , insertNewHeader
+  , processNewHeader
   ) where
 
 import           Chainweb.Api.BlockHeader (BlockHeader(..))
@@ -17,11 +17,14 @@ import           Chainweb.Api.NodeInfo
 import           ChainwebData.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
+import           ChainwebData.TxSummary (mkTxSummary)
 import           ChainwebData.Types
 import           ChainwebDb.Types.DbHash (DbHash(..))
 import           Control.Exception
+import           Control.Monad (forM_, when)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Pool as P
+import qualified Data.Sequence as S
 import           Data.String
 import qualified Data.Text as T
 import           Data.Text.Encoding
@@ -31,14 +34,13 @@ import           Database.Beam.Postgres (Connection)
 import           Network.HTTP.Client
 import           Network.Wai.EventSource.Streaming
 import qualified Streaming.Prelude as SP
-import           System.IO (hFlush, stdout)
 import           System.Logger.Types hiding (logg)
 import           Text.Printf
 
 ---
 
 listen :: Env -> IO ()
-listen e = listenWithHandler e (getOutputsAndInsert e)
+listen e = listenWithHandler e (processNewHeader False e)
 
 -- | This function does not do any exception handling because it is used in
 -- multiple contexts.  When running via the 'listen' command we want it to fail
@@ -57,8 +59,8 @@ listenWithHandler env handler = handle onError $
     onError :: SomeException -> IO ()
     onError e = _env_logger env Error $ "listenWithHandler caught exception: " <> T.pack (show e)
 
-getOutputsAndInsert :: Env -> PowHeader -> IO ()
-getOutputsAndInsert env ph@(PowHeader h _) = do
+processNewHeader :: Bool -> Env -> PowHeader -> IO ()
+processNewHeader logTxSummaries env ph@(PowHeader h _) = do
   let !pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
       logg = _env_logger env
   payloadWithOutputs env pair >>= \case
@@ -67,8 +69,18 @@ getOutputsAndInsert env ph@(PowHeader h _) = do
              (hashB64U $ _blockHeader_hash h)
       logg Info $ fromString $ show e
     Right pl -> do
+      let chain = _blockHeader_chainId h
+          height = _blockHeader_height h
+          hash = _blockHeader_hash h
+          tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
+          ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
+          msg = printf "Got new header on chain %d height %d" (unChainId chain) height
+          addendum = if S.null ts then "" else printf " with %d transactions" (S.length ts)
+      when logTxSummaries $ do
+        logg Debug $ fromString $ msg <> addendum
+        forM_ tos $ \txWithOutput -> 
+          logg Debug $ fromString $ show txWithOutput
       insertNewHeader (_nodeInfo_chainwebVer $ _env_nodeInfo env) (_env_dbConnPool env) ph pl
-      logg Info (fromString $ printf "%d" (unChainId $ _blockHeader_chainId h)) >> hFlush stdout
 
 insertNewHeader :: T.Text -> P.Pool Connection -> PowHeader -> BlockPayloadWithOutputs -> IO ()
 insertNewHeader version pool ph pl = do

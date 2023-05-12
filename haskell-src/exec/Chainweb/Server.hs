@@ -15,14 +15,11 @@
 module Chainweb.Server where
 
 ------------------------------------------------------------------------------
-import           Chainweb.Api.BlockHeader (BlockHeader(..))
 import           Chainweb.Api.ChainId
-import           Chainweb.Api.Hash
 import           Chainweb.Api.NodeInfo
-import           Control.Applicative
 import           Control.Concurrent
 import           Control.Error
-import           Control.Exception (bracket_)
+import           Control.Exception (bracket_, throwIO)
 import           Control.Monad.Except
 import qualified Control.Monad.Managed as M
 import           Control.Retry
@@ -35,18 +32,18 @@ import           Data.Int
 import           Data.IORef
 import qualified Data.Pool as P
 import           Data.Proxy
-import qualified Data.Sequence as S
 import           Data.String
 import           Data.String.Conv (toS)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Data.Time
-import           Data.Tuple.Strict (T2(..))
 import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Postgres
+import           Database.PostgreSQL.Simple (Only(..), query_)
+import           Database.PostgreSQL.Simple.Types (Query(..))
 import qualified Database.PostgreSQL.Simple.Transaction as PG
 import           Control.Lens
 import           Network.Wai
@@ -60,7 +57,6 @@ import           System.FilePath
 import           System.Logger.Types hiding (logg)
 import           Text.Printf
 ------------------------------------------------------------------------------
-import           Chainweb.Api.BlockPayloadWithOutputs
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.StringEncoded (StringEncoded(..))
 import           Chainweb.Coins
@@ -71,7 +67,6 @@ import           Chainweb.Gaps
 import           Chainweb.Listen
 import           Chainweb.Lookups
 import           Chainweb.RichList
-import           ChainwebData.Types
 import           ChainwebData.Api
 import           ChainwebData.TransferDetail
 import           ChainwebData.EventDetail
@@ -93,36 +88,6 @@ setCors = cors . const . Just $ simpleCorsResourcePolicy
     { corsRequestHeaders = simpleHeaders
     , corsExposedHeaders = Just ["Chainweb-Next"]
     }
-
-data ServerState = ServerState
-    { _ssHighestBlockHeight :: BlockHeight
-    , _ssTransactionCount :: Maybe Int64
-    , _ssCirculatingCoins :: Decimal
-    } deriving (Eq,Show)
-
-ssHighestBlockHeight
-    :: Functor f
-    => (BlockHeight -> f BlockHeight)
-    -> ServerState -> f ServerState
-ssHighestBlockHeight = lens _ssHighestBlockHeight setter
-  where
-    setter sc v = sc { _ssHighestBlockHeight = v }
-
-ssTransactionCount
-    :: Functor f
-    => (Maybe Int64 -> f (Maybe Int64))
-    -> ServerState -> f ServerState
-ssTransactionCount = lens _ssTransactionCount setter
-  where
-    setter sc v = sc { _ssTransactionCount = v }
-
-ssCirculatingCoins
-    :: Functor f
-    => (Decimal -> f Decimal)
-    -> ServerState -> f ServerState
-ssCirculatingCoins = lens _ssCirculatingCoins setter
-  where
-    setter sc v = sc { _ssCirculatingCoins = v }
 
 type RichlistEndpoint = "richlist.csv" :> Get '[PlainText] Text
 
@@ -169,11 +134,8 @@ apiServerCut env senv cutBS = do
   let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  numTxs <- getTransactionCount logg pool
-  ssRef <- newIORef $ ServerState 0 numTxs circulatingCoins
-  logg Info $ fromString $ "Total number of transactions: " <> show numTxs
-  _ <- forkIO $ scheduledUpdates env pool ssRef (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
-  _ <- forkIO $ retryingListener env ssRef
+  _ <- forkIO $ scheduledUpdates env pool (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
+  _ <- forkIO $ retryingListener env
   logg Info $ fromString "Starting chainweb-data server"
   throttledPool <- do
     loadedSrc <- mkLoadedSource $ M.managed $ P.withResource pool
@@ -191,8 +153,8 @@ apiServerCut env senv cutBS = do
             :<|> txsHandler logg unThrottledPool
             :<|> accountHandler logg throttledPool req
           )
-            :<|> statsHandler ssRef
-            :<|> coinsHandler ssRef
+            :<|> statsHandler logg unThrottledPool
+            :<|> coinsHandler logg unThrottledPool
           )
           :<|> richlistHandler
   let swaggerServer = swaggerSchemaUIServer Spec.spec
@@ -202,8 +164,8 @@ apiServerCut env senv cutBS = do
       then serve (Proxy @ApiWithSwaggerUI) (serverApp req :<|> swaggerServer) req f
       else serve (Proxy @ApiWithNoSwaggerUI) (serverApp req :<|> noSwaggerServer) req f
 
-retryingListener :: Env -> IORef ServerState -> IO ()
-retryingListener env ssRef = do
+retryingListener :: Env -> IO ()
+retryingListener env = do
   let logg = _env_logger env
       delay = 10_000_000
       policy = constantDelay delay
@@ -213,31 +175,23 @@ retryingListener env ssRef = do
         return True
   retrying policy check $ \_ -> do
     logg Info "Starting node listener"
-    listenWithHandler env $ serverHeaderHandler env ssRef
+    listenWithHandler env $ processNewHeader True env
 
 scheduledUpdates
   :: Env
   -> P.Pool Connection
-  -> IORef ServerState
   -> Bool
   -> Maybe Int
   -> IO ()
-scheduledUpdates env pool ssRef runFill fillDelay = forever $ do
+scheduledUpdates env pool runFill fillDelay = forever $ do
     threadDelay (60 * 60 * 24 * micros)
 
     now <- getCurrentTime
     logg Info $ fromString $ show now
     logg Info "Recalculating coins in circulation:"
-    height <- _ssHighestBlockHeight <$> readIORef ssRef
-    let circulatingCoins = getCirculatingCoins (fromIntegral height) now
-    logg Info $ fromString $ show circulatingCoins
-    let f ss = (ss & ssCirculatingCoins .~ circulatingCoins, ())
-    atomicModifyIORef' ssRef f
-
-    numTxs <- getTransactionCount logg pool
-    logg Info $ fromString $ "Updated number of transactions: " <> show numTxs
-    let g ss = (ss & ssTransactionCount %~ (numTxs <|>), ())
-    atomicModifyIORef' ssRef g
+    height <- P.withResource pool $ getMaxBlockHeight logg
+    let circulatingCoins = height <&> \h -> getCirculatingCoins (fromIntegral h) now
+    foldMap (logg Info . fromString . show) circulatingCoins -- TODO: Maybe we should something more informative here
 
     h <- getHomeDirectory
     richList logg (h </> ".local/share") (ChainwebVersion $ _nodeInfo_chainwebVer $ _env_nodeInfo env)
@@ -259,49 +213,21 @@ richlistHandler = do
     then liftIO $ T.readFile f
     else throwError err404
 
-coinsHandler :: IORef ServerState -> Handler Text
-coinsHandler ssRef = liftIO $ fmap mkStats $ readIORef ssRef
-  where
-    mkStats ss = T.pack $ show $ _ssCirculatingCoins ss
+getCirculatingCoinsDb :: LogFunctionIO Text -> M.Managed Connection -> Handler Decimal
+getCirculatingCoinsDb logger pool = liftIO (M.with pool $ getMaxBlockHeight logger) >>= \case
+    Nothing -> throw404 "Server database is empty"
+    Just height -> do
+      now <- liftIO $ getCurrentTime
+      pure $ getCirculatingCoins (fromIntegral height) now
 
-statsHandler :: IORef ServerState -> Handler ChainwebDataStats
-statsHandler ssRef = liftIO $ do
-    fmap mkStats $ readIORef ssRef
-  where
-    mkStats ss = ChainwebDataStats (fromIntegral <$> _ssTransactionCount ss)
-                                   (Just $ realToFrac $ _ssCirculatingCoins ss)
+coinsHandler :: LogFunctionIO Text -> M.Managed Connection -> Handler Text
+coinsHandler logger pool = getCirculatingCoinsDb logger pool <&> T.pack . show
 
-serverHeaderHandler :: Env -> IORef ServerState -> PowHeader -> IO ()
-serverHeaderHandler env ssRef ph@(PowHeader h _) = do
-  let pool = _env_dbConnPool env
-  let ni = _env_nodeInfo env
-  let chain = _blockHeader_chainId h
-  let height = _blockHeader_height h
-  let pair = T2 (_blockHeader_chainId h) (hashToDbHash $ _blockHeader_payloadHash h)
-  let logg = _env_logger env
-  payloadWithOutputs env pair >>= \case
-    Left e -> do
-      logg Error $ fromString $ printf "Couldn't fetch parent for: %s"
-        (hashB64U $ _blockHeader_hash h)
-      logg Info $ fromString $ show e
-    Right pl -> do
-      let hash = _blockHeader_hash h
-          tos = _blockPayloadWithOutputs_transactionsWithOutputs pl
-          ts = S.fromList $ map (\(t,tout) -> mkTxSummary chain height hash t tout) tos
-          f ss = (ss & ssHighestBlockHeight %~ max height
-                     & (ssTransactionCount . _Just) +~ (fromIntegral $ S.length ts), ())
-
-      let msg = printf "Got new header on chain %d height %d" (unChainId chain) height
-          addendum = if S.length ts == 0
-                       then ""
-                       else printf " with %d transactions" (S.length ts)
-
-      logg Debug (fromString $ msg <> addendum)
-      mapM_ (logg Debug . fromString . show) tos
-
-      atomicModifyIORef' ssRef f
-      insertNewHeader (_nodeInfo_chainwebVer ni) pool ph pl
-
+statsHandler :: LogFunctionIO Text -> M.Managed Connection -> Handler ChainwebDataStats
+statsHandler logg pool = do
+    estimate <- liftIO $ M.with pool $ getTransactionCountEstimate logg
+    circulatingCoins <- getCirculatingCoinsDb logg pool
+    return $ ChainwebDataStats (Just $ fromIntegral estimate) (Just $ realToFrac circulatingCoins)
 
 instance BeamSqlBackendIsString Postgres (Maybe Text)
 instance BeamSqlBackendIsString Postgres (Maybe String)
@@ -453,6 +379,18 @@ toApiTxDetail tx contHist blk evs = TxDetail
     unMaybeValue = maybe Null unPgJsonb
     toTxEvent ev =
       TxEvent (_ev_qualName ev) (unPgJsonb $ _ev_params ev)
+
+getMaxBlockHeight :: LogFunctionIO Text -> Connection -> IO (Maybe BlockHeight)
+getMaxBlockHeight logger c =
+    runBeamPostgresDebug (logger Debug . T.pack) c $ 
+      fmap f $ runSelectReturningOne $ select $ do
+        blk <- all_ (_cddb_blocks database)
+        return $ max_ (_block_height blk)
+  where
+    f :: Maybe (Maybe Int64) -> Maybe BlockHeight
+    f = \case
+       Just (Just h) -> Just $ fromIntegral h
+       _ -> Nothing
 
 queryTxsByKey :: LogFunctionIO Text -> Text -> Connection -> IO [TxDetail]
 queryTxsByKey logger rk c =
@@ -660,11 +598,15 @@ recentTxsHandler logger pool = liftIO $ do
           return $ (toDbTxSummary tx, contHist)
       return $ uncurry dbToApiTxSummary <$> res
 
-getTransactionCount :: LogFunctionIO Text -> P.Pool Connection -> IO (Maybe Int64)
-getTransactionCount logger pool = do
-    P.withResource pool $ \c -> do
-      runBeamPostgresDebug (logger Debug . T.pack) c $ runSelectReturningOne $ select $
-        aggregate_ (\_ -> as_ @Int64 countAll_) (all_ (_cddb_transactions database))
+getTransactionCountEstimate :: LogFunctionIO Text -> Connection -> IO Int64
+getTransactionCountEstimate logger c = do
+    logger Debug $ toS $ fromQuery stmt
+    query_ c stmt
+      >>= \case
+        [Only (estimate :: Int64)] -> return estimate
+        _ -> throwIO $ userError "Could not get transaction count estimate"
+  where
+    stmt = "SELECT reltuples::bigint AS estimate FROM pg_class WHERE oid='transactions'::regclass::oid"
 
 unPgJsonb :: PgJSONB a -> a
 unPgJsonb (PgJSONB v) = v
