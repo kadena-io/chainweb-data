@@ -8,6 +8,15 @@ module ChainwebData.Env
   , MigrationsFolder
   , chainStartHeights
   , ServerEnv(..)
+  , _Full
+  , _HTTP
+  , _ETL
+  , HTTPEnv (..)
+  , httpEnv_port
+  , httpEnv_serveSwaggerUi
+  , ETLEnv (..)
+  , etlEnv_runFill
+  , etlEnv_fillDelay
   , Connect(..), withPoolInit, withPool, withCWDPool
   , Scheme(..)
   , toServantScheme
@@ -34,6 +43,7 @@ import           Chainweb.Api.NodeInfo
 import           ChainwebDb.Migration
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Lens
 import           Control.Monad (void)
 import           Data.ByteString (ByteString)
 import           Data.Char (toLower)
@@ -224,12 +234,47 @@ data FillArgs = FillArgs
   { _fillArgs_delayMicros :: Maybe Int
   } deriving (Eq, Ord, Show)
 
-data ServerEnv = ServerEnv
-  { _serverEnv_port :: Int
-  , _serverEnv_runFill :: Bool
-  , _serverEnv_fillDelay :: Maybe Int
-  , _serverEnv_serveSwaggerUi :: Bool
-  } deriving (Eq,Ord,Show)
+data ServerEnv = Full FullEnv | HTTP HTTPEnv | ETL ETLEnv
+  deriving (Eq,Ord,Show)
+
+type FullEnv = (HTTPEnv, ETLEnv)
+
+_Full :: Prism' ServerEnv FullEnv
+_Full = prism' Full $ \case
+  Full x -> Just x
+  _ -> Nothing
+
+_HTTP :: Prism' ServerEnv HTTPEnv
+_HTTP = prism' HTTP $ \case
+  HTTP x -> Just x
+  _ -> Nothing
+
+_ETL :: Prism' ServerEnv ETLEnv
+_ETL = prism' ETL $ \case
+  ETL x -> Just x
+  _ -> Nothing
+
+data HTTPEnv = HTTPEnv
+ { _httpEnv_port :: Int
+ , _httpEnv_serveSwaggerUi :: Bool
+ } deriving (Eq,Ord,Show)
+
+httpEnv_port :: Lens' HTTPEnv Int
+httpEnv_port = lens _httpEnv_port $ \x y -> x { _httpEnv_port = y }
+
+httpEnv_serveSwaggerUi :: Lens' HTTPEnv Bool
+httpEnv_serveSwaggerUi = lens _httpEnv_serveSwaggerUi $ \x y -> x { _httpEnv_serveSwaggerUi = y }
+
+data ETLEnv = ETLEnv
+ { _etlEnv_runFill :: Bool
+ , _etlEnv_fillDelay :: Maybe Int
+ } deriving (Eq,Ord,Show)
+
+etlEnv_runFill :: Lens' ETLEnv Bool
+etlEnv_runFill = lens _etlEnv_runFill $ \x y -> x { _etlEnv_runFill = y }
+
+etlEnv_fillDelay :: Lens' ETLEnv (Maybe Int)
+etlEnv_fillDelay = lens _etlEnv_fillDelay $ \x y -> x { _etlEnv_fillDelay = y }
 
 envP :: Parser Args
 envP = Args
@@ -347,12 +392,31 @@ singleP = Single
   <*> option auto (long "height" <> metavar "INT")
 
 serverP :: Parser ServerEnv
-serverP = ServerEnv
+serverP = fullP <|> httpP <|> etlP
+
+fullP :: Parser ServerEnv
+fullP = toServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
   <*> delayP
   -- The OpenAPI spec is currently rudimentary and not official so we're hiding this option
   <*> flag False True (long "serve-swagger-ui" <> internal)
+  where
+    toServerEnv port runFill delay serveSwaggerUi = Full (HTTPEnv port  serveSwaggerUi, ETLEnv runFill delay)
+
+httpP :: Parser ServerEnv
+httpP = toServerEnv
+  <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
+  <*> flag False True (long "serve-swagger-ui" <> internal)
+  where
+    toServerEnv port serveSwaggerUi = HTTP (HTTPEnv port serveSwaggerUi)
+
+etlP :: Parser ServerEnv
+etlP = toServerEnv
+  <$> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
+  <*> delayP
+  where
+    toServerEnv runFill delay = ETL (ETLEnv runFill delay)
 
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")

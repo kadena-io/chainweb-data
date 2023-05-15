@@ -17,6 +17,7 @@ module Chainweb.Server where
 ------------------------------------------------------------------------------
 import           Chainweb.Api.ChainId
 import           Chainweb.Api.NodeInfo
+import           Control.Applicative ((<|>))
 import           Control.Concurrent
 import           Control.Error
 import           Control.Exception (bracket_, throwIO)
@@ -134,35 +135,47 @@ apiServerCut env senv cutBS = do
   let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  _ <- forkIO $ scheduledUpdates env pool (_serverEnv_runFill senv) (_serverEnv_fillDelay senv)
-  _ <- forkIO $ retryingListener env
-  logg Info $ fromString "Starting chainweb-data server"
-  throttledPool <- do
-    loadedSrc <- mkLoadedSource $ M.managed $ P.withResource pool
-    return $ do
-      loadedRes <- loadedSrc
-      load <- M.liftIO (lrLoadRef loadedRes)
-      return (lrResource loadedRes, throttlingFactor load)
+  let mrunFill = senv ^? _Full . _2 . etlEnv_runFill <|> senv ^? _ETL . etlEnv_runFill
+  let mfillDelay = senv ^? _Full . _2 . etlEnv_fillDelay <|> senv ^? _ETL . etlEnv_fillDelay
+  case (,) <$> mrunFill <*> mfillDelay  of
+    Just (runFill, fillDelay) -> do
+      _ <- forkIO $ scheduledUpdates env pool runFill fillDelay
+      _ <- forkIO $ retryingListener env
+      return ()
+    Nothing -> return ()
+  let mport = senv ^? _Full . _1 . httpEnv_port <|> senv ^? _HTTP . httpEnv_port
+  let mserveSwaggerUi = senv ^? _Full . _1 . httpEnv_serveSwaggerUi <|> senv ^? _HTTP . httpEnv_serveSwaggerUi
+  case (,) <$> mport <*> mserveSwaggerUi of
+    Just (port, serveSwaggerUi) -> do
+      logg Info $ fromString "Starting chainweb-data server"
+      throttledPool <- do
+        loadedSrc <- mkLoadedSource $ M.managed $ P.withResource pool
+        return $ do
+          loadedRes <- loadedSrc
+          load <- M.liftIO (lrLoadRef loadedRes)
+          return (lrResource loadedRes, throttlingFactor load)
 
-  let unThrottledPool = fst <$> throttledPool
-  let serverApp req =
-        ( ( recentTxsHandler logg unThrottledPool
-            :<|> searchTxs logg throttledPool req
-            :<|> evHandler logg throttledPool req
-            :<|> txHandler logg unThrottledPool
-            :<|> txsHandler logg unThrottledPool
-            :<|> accountHandler logg throttledPool req
-          )
-            :<|> statsHandler logg unThrottledPool
-            :<|> coinsHandler logg unThrottledPool
-          )
-          :<|> richlistHandler
-  let swaggerServer = swaggerSchemaUIServer Spec.spec
-      noSwaggerServer = throw404 "Swagger UI server is not enabled on this instance"
-  Network.Wai.Handler.Warp.run (_serverEnv_port senv) $ setCors $ \req f ->
-    if _serverEnv_serveSwaggerUi senv
-      then serve (Proxy @ApiWithSwaggerUI) (serverApp req :<|> swaggerServer) req f
-      else serve (Proxy @ApiWithNoSwaggerUI) (serverApp req :<|> noSwaggerServer) req f
+      let unThrottledPool = fst <$> throttledPool
+      let serverApp req =
+            ( ( recentTxsHandler logg unThrottledPool
+                :<|> searchTxs logg throttledPool req
+                :<|> evHandler logg throttledPool req
+                :<|> txHandler logg unThrottledPool
+                :<|> txsHandler logg unThrottledPool
+                :<|> accountHandler logg throttledPool req
+              )
+                :<|> statsHandler logg unThrottledPool
+                :<|> coinsHandler logg unThrottledPool
+              )
+              :<|> richlistHandler
+      let swaggerServer = swaggerSchemaUIServer Spec.spec
+          noSwaggerServer = throw404 "Swagger UI server is not enabled on this instance"
+
+      Network.Wai.Handler.Warp.run port $ setCors $ \req f ->
+       if serveSwaggerUi
+         then serve (Proxy @ApiWithSwaggerUI) (serverApp req :<|> swaggerServer) req f
+         else serve (Proxy @ApiWithNoSwaggerUI) (serverApp req :<|> noSwaggerServer) req f
+    Nothing -> return ()
 
 retryingListener :: Env -> IO ()
 retryingListener env = do
