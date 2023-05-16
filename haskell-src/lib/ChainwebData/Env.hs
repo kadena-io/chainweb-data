@@ -392,10 +392,7 @@ singleP = Single
   <*> option auto (long "height" <> metavar "INT")
 
 serverP :: Parser ServerEnv
-serverP = fullP <|> httpP <|> etlP
-
-fullP :: Parser ServerEnv
-fullP = toServerEnv
+serverP = toServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
   <*> delayP
@@ -451,6 +448,10 @@ commands = hsubparser
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
   <> command "server" (info (Server <$> serverP)
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
+  <> command "etl" (info (Server <$> etlP)
+       (progDesc "ETL Worker - Fills in missing blocks and listens for new ones"))
+  <> command "http" (info (Server <$> httpP)
+       (progDesc "HTTP Worker - Serves the chainweb-data REST API"))
   <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
        (progDesc "Event Worker - Fills missing events"))
   <> command "backfill-transfers" (info (BackFillTransfers <$> flag False True (long "disable-indexes" <> help "Delete indexes on transfers table") <*> bfArgsP)
