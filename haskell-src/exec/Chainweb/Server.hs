@@ -135,18 +135,16 @@ apiServerCut env senv cutBS = do
   let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  let mrunFill = senv ^? _Full . _2 . etlEnv_runFill <|> senv ^? _ETL . etlEnv_runFill
-  let mfillDelay = senv ^? _Full . _2 . etlEnv_fillDelay <|> senv ^? _ETL . etlEnv_fillDelay
-  case (,) <$> mrunFill <*> mfillDelay  of
-    Just (runFill, fillDelay) -> do
+  let mETL = senv ^? _Full . _2 <|> senv ^? _ETL 
+  case mETL  of
+    Just (ETLEnv runFill fillDelay) -> do
       _ <- forkIO $ scheduledUpdates env pool runFill fillDelay
       _ <- forkIO $ retryingListener env
       return ()
     Nothing -> return ()
-  let mport = senv ^? _Full . _1 . httpEnv_port <|> senv ^? _HTTP . httpEnv_port
-  let mserveSwaggerUi = senv ^? _Full . _1 . httpEnv_serveSwaggerUi <|> senv ^? _HTTP . httpEnv_serveSwaggerUi
-  case (,) <$> mport <*> mserveSwaggerUi of
-    Just (port, serveSwaggerUi) -> do
+  let mHTTP = senv ^? _Full . _1 <|> senv ^? _HTTP
+  case mHTTP of
+    Just (HTTPEnv port serveSwaggerUi) -> do
       logg Info $ fromString "Starting chainweb-data server"
       throttledPool <- do
         loadedSrc <- mkLoadedSource $ M.managed $ P.withResource pool
