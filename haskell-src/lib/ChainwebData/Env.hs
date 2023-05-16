@@ -7,7 +7,7 @@ module ChainwebData.Env
   , Env(..)
   , MigrationsFolder
   , chainStartHeights
-  , ServerEnv(..)
+  , WorkerEnv(..)
   , _Full
   , _HTTP
   , _ETL
@@ -216,7 +216,7 @@ readNodeDbPath = eitherReader $ \case
   s -> Right $ NodeDbPath $ Just s
 
 data Command
-    = Server ServerEnv
+    = Worker WorkerEnv
     | Listen
     | Backfill BackfillArgs
     | Fill FillArgs
@@ -234,22 +234,22 @@ data FillArgs = FillArgs
   { _fillArgs_delayMicros :: Maybe Int
   } deriving (Eq, Ord, Show)
 
-data ServerEnv = Full FullEnv | HTTP HTTPEnv | ETL ETLEnv
+data WorkerEnv = Full FullEnv | HTTP HTTPEnv | ETL ETLEnv
   deriving (Eq,Ord,Show)
 
 type FullEnv = (HTTPEnv, ETLEnv)
 
-_Full :: Prism' ServerEnv FullEnv
+_Full :: Prism' WorkerEnv FullEnv
 _Full = prism' Full $ \case
   Full x -> Just x
   _ -> Nothing
 
-_HTTP :: Prism' ServerEnv HTTPEnv
+_HTTP :: Prism' WorkerEnv HTTPEnv
 _HTTP = prism' HTTP $ \case
   HTTP x -> Just x
   _ -> Nothing
 
-_ETL :: Prism' ServerEnv ETLEnv
+_ETL :: Prism' WorkerEnv ETLEnv
 _ETL = prism' ETL $ \case
   ETL x -> Just x
   _ -> Nothing
@@ -391,29 +391,29 @@ singleP = Single
   <$> (ChainId <$> option auto (long "chain" <> metavar "INT"))
   <*> option auto (long "height" <> metavar "INT")
 
-serverP :: Parser ServerEnv
-serverP = toServerEnv
+serverP :: Parser WorkerEnv
+serverP = toWorkerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
   <*> delayP
   -- The OpenAPI spec is currently rudimentary and not official so we're hiding this option
   <*> flag False True (long "serve-swagger-ui" <> internal)
   where
-    toServerEnv port runFill delay serveSwaggerUi = Full (HTTPEnv port  serveSwaggerUi, ETLEnv runFill delay)
+    toWorkerEnv port runFill delay serveSwaggerUi = Full (HTTPEnv port  serveSwaggerUi, ETLEnv runFill delay)
 
-httpP :: Parser ServerEnv
-httpP = toServerEnv
+httpP :: Parser WorkerEnv
+httpP = toWorkerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> flag False True (long "serve-swagger-ui" <> internal)
   where
-    toServerEnv port serveSwaggerUi = HTTP (HTTPEnv port serveSwaggerUi)
+    toWorkerEnv port serveSwaggerUi = HTTP (HTTPEnv port serveSwaggerUi)
 
-etlP :: Parser ServerEnv
-etlP = toServerEnv
+etlP :: Parser WorkerEnv
+etlP = toWorkerEnv
   <$> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
   <*> delayP
   where
-    toServerEnv runFill delay = ETL (ETLEnv runFill delay)
+    toWorkerEnv runFill delay = ETL (ETLEnv runFill delay)
 
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
@@ -446,11 +446,11 @@ commands = hsubparser
        (progDesc "Gaps Worker - Fills in missing blocks lost during backfill or listen (DEPRECATED)"))
   <> command "single" (info singleP
        (progDesc "Single Worker - Lookup and write the blocks at a given chain/height"))
-  <> command "server" (info (Server <$> serverP)
+  <> command "server" (info (Worker <$> serverP)
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
-  <> command "etl" (info (Server <$> etlP)
+  <> command "etl" (info (Worker <$> etlP)
        (progDesc "ETL Worker - Fills in missing blocks and listens for new ones"))
-  <> command "http" (info (Server <$> httpP)
+  <> command "http" (info (Worker <$> httpP)
        (progDesc "HTTP Worker - Serves the chainweb-data REST API"))
   <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
        (progDesc "Event Worker - Fills missing events"))

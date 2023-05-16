@@ -89,7 +89,7 @@ main = do
                       Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
-                      Server serverEnv -> apiServer env serverEnv
+                      Worker workerEnv -> apiServer env workerEnv
         CheckSchema pgc _ -> withCWDPool pgc $ \pool -> do
           P.withResource pool $ checkTables logg True
 

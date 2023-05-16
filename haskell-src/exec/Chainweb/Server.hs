@@ -106,15 +106,15 @@ type ApiWithNoSwaggerUI
      = TheApi
   :<|> "cwd-spec" :> Get '[PlainText] Text -- Respond with 404
 
-apiServer :: Env -> ServerEnv -> IO ()
-apiServer env senv = do
+apiServer :: Env -> WorkerEnv -> IO ()
+apiServer env wenv = do
   ecut <- queryCut env
   let logg = _env_logger env
   case ecut of
     Left e -> do
        logg Error "Error querying cut"
        logg Info $ fromString $ show e
-    Right cutBS -> apiServerCut env senv cutBS
+    Right cutBS -> apiServerCut env wenv cutBS
 
 type ConnectionWithThrottling = (Connection, Double)
 
@@ -127,22 +127,22 @@ throttlingFactor load = if loadPerCap <= 1 then 1 else 1 / loadPerCap where
   -- without any slowdown
   loadPerCap = fromInteger load / 3
 
-apiServerCut :: Env -> ServerEnv -> ByteString -> IO ()
-apiServerCut env senv cutBS = do
+apiServerCut :: Env -> WorkerEnv -> ByteString -> IO ()
+apiServerCut env wenv cutBS = do
   let curHeight = cutMaxHeight cutBS
       logg = _env_logger env
   t <- getCurrentTime
   let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  let mETL = senv ^? _Full . _2 <|> senv ^? _ETL 
+  let mETL = wenv ^? _Full . _2 <|> wenv ^? _ETL 
   case mETL  of
     Just (ETLEnv runFill fillDelay) -> do
       _ <- forkIO $ scheduledUpdates env pool runFill fillDelay
       _ <- forkIO $ retryingListener env
       return ()
     Nothing -> return ()
-  let mHTTP = senv ^? _Full . _1 <|> senv ^? _HTTP
+  let mHTTP = wenv ^? _Full . _1 <|> wenv ^? _HTTP
   case mHTTP of
     Just (HTTPEnv port serveSwaggerUi) -> do
       logg Info $ fromString "Starting chainweb-data server"
