@@ -17,7 +17,6 @@ module Chainweb.Server where
 ------------------------------------------------------------------------------
 import           Chainweb.Api.ChainId
 import           Chainweb.Api.NodeInfo
-import           Control.Applicative ((<|>))
 import           Control.Concurrent
 import           Control.Error
 import           Control.Exception (bracket_, throwIO)
@@ -106,15 +105,15 @@ type ApiWithNoSwaggerUI
      = TheApi
   :<|> "cwd-spec" :> Get '[PlainText] Text -- Respond with 404
 
-apiServer :: Env -> WorkerEnv -> IO ()
-apiServer env wenv = do
+apiServer :: Env -> HTTPEnv -> IO ()
+apiServer env henv = do
   ecut <- queryCut env
   let logg = _env_logger env
   case ecut of
     Left e -> do
        logg Error "Error querying cut"
        logg Info $ fromString $ show e
-    Right cutBS -> apiServerCut env wenv cutBS
+    Right cutBS -> apiServerCut env henv cutBS
 
 type ConnectionWithThrottling = (Connection, Double)
 
@@ -127,53 +126,42 @@ throttlingFactor load = if loadPerCap <= 1 then 1 else 1 / loadPerCap where
   -- without any slowdown
   loadPerCap = fromInteger load / 3
 
-apiServerCut :: Env -> WorkerEnv -> ByteString -> IO ()
-apiServerCut env wenv cutBS = do
+apiServerCut :: Env -> HTTPEnv -> ByteString -> IO ()
+apiServerCut env (HTTPEnv port serveSwaggerUi) cutBS = do
   let curHeight = cutMaxHeight cutBS
       logg = _env_logger env
   t <- getCurrentTime
   let circulatingCoins = getCirculatingCoins (fromIntegral curHeight) t
   logg Info $ fromString $ "Total coins in circulation: " <> show circulatingCoins
   let pool = _env_dbConnPool env
-  let mETL = wenv ^? _Full . _2 <|> wenv ^? _ETL 
-  case mETL  of
-    Just (ETLEnv runFill fillDelay) -> do
-      _ <- forkIO $ scheduledUpdates env pool runFill fillDelay
-      _ <- forkIO $ retryingListener env
-      return ()
-    Nothing -> return ()
-  let mHTTP = wenv ^? _Full . _1 <|> wenv ^? _HTTP
-  case mHTTP of
-    Just (HTTPEnv port serveSwaggerUi) -> do
-      logg Info $ fromString "Starting chainweb-data server"
-      throttledPool <- do
-        loadedSrc <- mkLoadedSource $ M.managed $ P.withResource pool
-        return $ do
-          loadedRes <- loadedSrc
-          load <- M.liftIO (lrLoadRef loadedRes)
-          return (lrResource loadedRes, throttlingFactor load)
+  logg Info $ fromString "Starting chainweb-data server"
+  throttledPool <- do
+    loadedSrc <- mkLoadedSource $ M.managed $ P.withResource pool
+    return $ do
+      loadedRes <- loadedSrc
+      load <- M.liftIO (lrLoadRef loadedRes)
+      return (lrResource loadedRes, throttlingFactor load)
 
-      let unThrottledPool = fst <$> throttledPool
-      let serverApp req =
-            ( ( recentTxsHandler logg unThrottledPool
-                :<|> searchTxs logg throttledPool req
-                :<|> evHandler logg throttledPool req
-                :<|> txHandler logg unThrottledPool
-                :<|> txsHandler logg unThrottledPool
-                :<|> accountHandler logg throttledPool req
-              )
-                :<|> statsHandler logg unThrottledPool
-                :<|> coinsHandler logg unThrottledPool
-              )
-              :<|> richlistHandler
-      let swaggerServer = swaggerSchemaUIServer Spec.spec
-          noSwaggerServer = throw404 "Swagger UI server is not enabled on this instance"
+  let unThrottledPool = fst <$> throttledPool
+  let serverApp req =
+        ( ( recentTxsHandler logg unThrottledPool
+            :<|> searchTxs logg throttledPool req
+            :<|> evHandler logg throttledPool req
+            :<|> txHandler logg unThrottledPool
+            :<|> txsHandler logg unThrottledPool
+            :<|> accountHandler logg throttledPool req
+          )
+            :<|> statsHandler logg unThrottledPool
+            :<|> coinsHandler logg unThrottledPool
+          )
+          :<|> richlistHandler
+  let swaggerServer = swaggerSchemaUIServer Spec.spec
+      noSwaggerServer = throw404 "Swagger UI server is not enabled on this instance"
 
-      Network.Wai.Handler.Warp.run port $ setCors $ \req f ->
-       if serveSwaggerUi
-         then serve (Proxy @ApiWithSwaggerUI) (serverApp req :<|> swaggerServer) req f
-         else serve (Proxy @ApiWithNoSwaggerUI) (serverApp req :<|> noSwaggerServer) req f
-    Nothing -> return ()
+  Network.Wai.Handler.Warp.run port $ setCors $ \req f ->
+   if serveSwaggerUi
+     then serve (Proxy @ApiWithSwaggerUI) (serverApp req :<|> swaggerServer) req f
+     else serve (Proxy @ApiWithNoSwaggerUI) (serverApp req :<|> noSwaggerServer) req f
 
 retryingListener :: Env -> IO ()
 retryingListener env = do

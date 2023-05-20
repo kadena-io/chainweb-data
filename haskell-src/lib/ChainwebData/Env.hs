@@ -8,15 +8,10 @@ module ChainwebData.Env
   , MigrationsFolder
   , chainStartHeights
   , WorkerEnv(..)
-  , _Full
-  , _HTTP
-  , _ETL
   , HTTPEnv (..)
-  , httpEnv_port
-  , httpEnv_serveSwaggerUi
   , ETLEnv (..)
-  , etlEnv_runFill
-  , etlEnv_fillDelay
+  , getHTTPEnv
+  , getETLEnv
   , Connect(..), withPoolInit, withPool, withCWDPool
   , Scheme(..)
   , toServantScheme
@@ -43,7 +38,6 @@ import           Chainweb.Api.NodeInfo
 import           ChainwebDb.Migration
 import           Control.Concurrent
 import           Control.Exception
-import           Control.Lens
 import           Control.Monad (void)
 import           Data.ByteString (ByteString)
 import           Data.Char (toLower)
@@ -239,19 +233,16 @@ data WorkerEnv = Full FullEnv | HTTP HTTPEnv | ETL ETLEnv
 
 type FullEnv = (HTTPEnv, ETLEnv)
 
-_Full :: Prism' WorkerEnv FullEnv
-_Full = prism' Full $ \case
-  Full x -> Just x
+getHTTPEnv :: WorkerEnv -> Maybe HTTPEnv
+getHTTPEnv = \case
+  HTTP env -> Just env
+  Full (env,_) -> Just env
   _ -> Nothing
 
-_HTTP :: Prism' WorkerEnv HTTPEnv
-_HTTP = prism' HTTP $ \case
-  HTTP x -> Just x
-  _ -> Nothing
-
-_ETL :: Prism' WorkerEnv ETLEnv
-_ETL = prism' ETL $ \case
-  ETL x -> Just x
+getETLEnv :: WorkerEnv -> Maybe ETLEnv
+getETLEnv = \case
+  ETL env -> Just env
+  Full (_,env) -> Just env
   _ -> Nothing
 
 data HTTPEnv = HTTPEnv
@@ -259,22 +250,10 @@ data HTTPEnv = HTTPEnv
  , _httpEnv_serveSwaggerUi :: Bool
  } deriving (Eq,Ord,Show)
 
-httpEnv_port :: Lens' HTTPEnv Int
-httpEnv_port = lens _httpEnv_port $ \x y -> x { _httpEnv_port = y }
-
-httpEnv_serveSwaggerUi :: Lens' HTTPEnv Bool
-httpEnv_serveSwaggerUi = lens _httpEnv_serveSwaggerUi $ \x y -> x { _httpEnv_serveSwaggerUi = y }
-
 data ETLEnv = ETLEnv
  { _etlEnv_runFill :: Bool
  , _etlEnv_fillDelay :: Maybe Int
  } deriving (Eq,Ord,Show)
-
-etlEnv_runFill :: Lens' ETLEnv Bool
-etlEnv_runFill = lens _etlEnv_runFill $ \x y -> x { _etlEnv_runFill = y }
-
-etlEnv_fillDelay :: Lens' ETLEnv (Maybe Int)
-etlEnv_fillDelay = lens _etlEnv_fillDelay $ \x y -> x { _etlEnv_fillDelay = y }
 
 envP :: Parser Args
 envP = Args

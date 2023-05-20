@@ -22,10 +22,11 @@ import           Chainweb.Gaps
 import           Chainweb.Listen (listen)
 import           Chainweb.Lookups (getNodeInfo)
 import           Chainweb.RichList (richList)
-import           Chainweb.Server (apiServer)
+import           Chainweb.Server (apiServer, scheduledUpdates, retryingListener)
 import           Chainweb.Single (single)
+import           Control.Concurrent (forkIO)
 import           Control.Lens
-import           Control.Monad (void)
+import           Control.Monad (forM_, void)
 import           Data.Bifunctor
 import qualified Data.ByteString as BS
 import           Data.FileEmbed
@@ -89,7 +90,13 @@ main = do
                       Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
-                      Worker workerEnv -> apiServer env workerEnv
+                      Worker workerEnv -> do
+                        forM_ (getETLEnv workerEnv) $ \(ETLEnv runFill fillDelay) -> do
+                            logg Info $ "Starting scheduled updates with delay " <> fromString (show fillDelay)
+                            _ <- forkIO $ scheduledUpdates env pool runFill fillDelay
+                            logg Info "Starting retrying listener"
+                            forkIO $ retryingListener env
+                        forM_ (getHTTPEnv workerEnv) $ apiServer env
         CheckSchema pgc _ -> withCWDPool pgc $ \pool -> do
           P.withResource pool $ checkTables logg True
 
