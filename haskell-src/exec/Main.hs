@@ -26,7 +26,7 @@ import           Chainweb.Server (apiServer, scheduledUpdates, retryingListener)
 import           Chainweb.Single (single)
 import           Control.Concurrent (forkIO)
 import           Control.Lens
-import           Control.Monad (forM_, void)
+import           Control.Monad (forM_, when, void)
 import           Data.Bifunctor
 import qualified Data.ByteString as BS
 import           Data.FileEmbed
@@ -92,10 +92,9 @@ main = do
                       FillEvents as et -> fillEvents env as et
                       Worker workerEnv -> do
                         forM_ (getETLEnv workerEnv) $ \(ETLEnv runFill fillDelay) -> do
-                            logg Info $ "Starting scheduled updates with delay " <> fromString (show fillDelay)
-                            _ <- forkIO $ scheduledUpdates env pool runFill fillDelay
+                            void $ forkIO $ scheduledUpdates env pool runFill fillDelay
                             logg Info "Starting retrying listener"
-                            forkIO $ retryingListener env
+                            void $ forkIO $ retryingListener env
                         forM_ (getHTTPEnv workerEnv) $ apiServer env
         CheckSchema pgc _ -> withCWDPool pgc $ \pool -> do
           P.withResource pool $ checkTables logg True
