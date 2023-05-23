@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.2.0 (2023-05-23)
+
+This release completes the transition from `beam-automigrate` to the new incremental migration scripts (See Issue #101). If you're upgrading from a version earlier than 2.1.X, you'll first have to run CW-D v2.1.1 to migrate your database to a state that's compatible with the new script based migrations.
+
+Note that after this version, the `transactionCount` field of the `/stats` endpoint becomes an estimate rather than an exact count. This change allowed us to decouple the ETL process from the HTTP server and fixed a long-standing resource accumulation issue.
+
+* Remove the mutable server state and decouple the ETL from the HTTP server (#148) 
+* Enable searching by `pactid` in the `/txs/search` endpoint (#143)
+* Include continuation transaction rows in the `/txs/search` resullt if their original transaction satisfies the search criteria (#66)
+* Extend the `/txs/account` endpoint response with cross-chain information in the case of cross-chain transfers (#137, #138) 
+* Add `minheight`, `maxheight` query parameters to all transaction search enpoints (`/txs/{events,account,search}`) (#135)
+* Add support for Nix flakes (#132, #133, #134, #136)
+* Simplify the handling of the recentTxs (#140)
+* Update maintainers list (#131)
+
 ## 2.1.1 (2023-01-23)
 
 This is a quick release after 2.1.0 for fixing an oversight in the new `/txs/accounts` endpoint.
