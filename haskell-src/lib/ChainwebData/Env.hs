@@ -384,13 +384,6 @@ serverP = toServerEnv
       False -> Full (HTTPEnv port  serveSwaggerUi, ETLEnv runFill delay)
       True -> HTTP (HTTPEnv port serveSwaggerUi)
 
-httpP :: Parser ServerEnv
-httpP = toServerEnv
-  <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
-  <*> flag False True (long "serve-swagger-ui" <> internal)
-  where
-    toServerEnv port serveSwaggerUi = HTTP (HTTPEnv port serveSwaggerUi)
-
 etlP :: Parser (Maybe ETLEnv)
 etlP = optional $ toETLEnv
   <$> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
