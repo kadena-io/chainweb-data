@@ -12,7 +12,6 @@ module ChainwebData.Env
   , ETLEnv (..)
   , getHTTPEnv
   , getETLEnv
-  , httpP
   , Connect(..), withPoolInit, withPool, withCWDPool
   , Scheme(..)
   , toServantScheme
