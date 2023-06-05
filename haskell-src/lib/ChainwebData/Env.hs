@@ -226,6 +226,7 @@ data BackfillArgs = BackfillArgs
 
 data FillArgs = FillArgs
   { _fillArgs_delayMicros :: Maybe Int
+  , _fillArgs_fillErrorLog :: Maybe FilePath
   } deriving (Eq, Ord, Show)
 
 data ServerEnv = Full FullEnv | HTTP HTTPEnv | ETL ETLEnv
@@ -394,6 +395,9 @@ etlP = optional $ toETLEnv
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
 
+logFile :: String -> Parser (Maybe FilePath)
+logFile message = optional $ strOption (long message <> metavar "LOG_FILE" <> help "File to log to")
+
 bfArgsP :: Parser BackfillArgs
 bfArgsP = BackfillArgs
   <$> delayP
@@ -402,6 +406,7 @@ bfArgsP = BackfillArgs
 fillArgsP :: Parser FillArgs
 fillArgsP = FillArgs
   <$> delayP
+  <*> logFile "fill-error-log"
 
 data EventType = CoinbaseAndTx | OnlyTx
   deriving (Eq,Ord,Show,Read,Enum,Bounded)
