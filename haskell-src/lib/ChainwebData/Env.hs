@@ -8,6 +8,10 @@ module ChainwebData.Env
   , MigrationsFolder
   , chainStartHeights
   , ServerEnv(..)
+  , HTTPEnv (..)
+  , ETLEnv (..)
+  , getHTTPEnv
+  , getETLEnv
   , Connect(..), withPoolInit, withPool, withCWDPool
   , Scheme(..)
   , toServantScheme
@@ -207,7 +211,7 @@ readNodeDbPath = eitherReader $ \case
 
 data Command
     = Server ServerEnv
-    | Listen
+    | Listen (Maybe ETLEnv)
     | Backfill BackfillArgs
     | Fill FillArgs
     | Single ChainId BlockHeight
@@ -224,12 +228,32 @@ data FillArgs = FillArgs
   { _fillArgs_delayMicros :: Maybe Int
   } deriving (Eq, Ord, Show)
 
-data ServerEnv = ServerEnv
-  { _serverEnv_port :: Int
-  , _serverEnv_runFill :: Bool
-  , _serverEnv_fillDelay :: Maybe Int
-  , _serverEnv_serveSwaggerUi :: Bool
-  } deriving (Eq,Ord,Show)
+data ServerEnv = Full FullEnv | HTTP HTTPEnv | ETL ETLEnv
+  deriving (Eq,Ord,Show)
+
+type FullEnv = (HTTPEnv, ETLEnv)
+
+getHTTPEnv :: ServerEnv -> Maybe HTTPEnv
+getHTTPEnv = \case
+  HTTP env -> Just env
+  Full (env,_) -> Just env
+  _ -> Nothing
+
+getETLEnv :: ServerEnv -> Maybe ETLEnv
+getETLEnv = \case
+  ETL env -> Just env
+  Full (_,env) -> Just env
+  _ -> Nothing
+
+data HTTPEnv = HTTPEnv
+ { _httpEnv_port :: Int
+ , _httpEnv_serveSwaggerUi :: Bool
+ } deriving (Eq,Ord,Show)
+
+data ETLEnv = ETLEnv
+ { _etlEnv_runFill :: Bool
+ , _etlEnv_fillDelay :: Maybe Int
+ } deriving (Eq,Ord,Show)
 
 envP :: Parser Args
 envP = Args
@@ -347,12 +371,25 @@ singleP = Single
   <*> option auto (long "height" <> metavar "INT")
 
 serverP :: Parser ServerEnv
-serverP = ServerEnv
+serverP = toServerEnv
   <$> option auto (long "port" <> metavar "INT" <> help "Port the server will listen on")
   <*> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
   <*> delayP
   -- The OpenAPI spec is currently rudimentary and not official so we're hiding this option
   <*> flag False True (long "serve-swagger-ui" <> internal)
+  <*> flag False True (long "no-listen" <> help "Disable ETL")
+  where
+    toServerEnv port runFill delay serveSwaggerUi = \case
+      False -> Full (HTTPEnv port  serveSwaggerUi, ETLEnv runFill delay)
+      True -> HTTP (HTTPEnv port serveSwaggerUi)
+
+etlP :: Parser (Maybe ETLEnv)
+etlP = optional $ toETLEnv
+  <$> flag False True (long "run-fill" <> short 'f' <> help "Run fill operation once a day to fill gaps")
+  <*> delayP
+  where
+    toETLEnv :: Bool -> Maybe Int -> ETLEnv
+    toETLEnv runFill delay = ETLEnv runFill delay
 
 delayP :: Parser (Maybe Int)
 delayP = optional $ option auto (long "delay" <> metavar "DELAY_MICROS" <> help  "Number of microseconds to delay between queries to the node")
@@ -375,7 +412,7 @@ eventTypeP =
 
 commands :: Parser Command
 commands = hsubparser
-  (  command "listen" (info (pure Listen)
+  (  command "listen" (info (Listen <$> etlP)
        (progDesc "Node Listener - Waits for new blocks and adds them to work queue"))
   <> command "backfill" (info (Backfill <$> bfArgsP)
        (progDesc "Backfill Worker - Backfills blocks from before DB was started (DEPRECATED)"))

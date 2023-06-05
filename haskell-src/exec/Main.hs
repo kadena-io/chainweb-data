@@ -22,10 +22,11 @@ import           Chainweb.Gaps
 import           Chainweb.Listen (listen)
 import           Chainweb.Lookups (getNodeInfo)
 import           Chainweb.RichList (richList)
-import           Chainweb.Server (apiServer)
+import           Chainweb.Server (apiServer, scheduledUpdates, retryingListener)
 import           Chainweb.Single (single)
+import           Control.Concurrent (forkIO)
 import           Control.Lens
-import           Control.Monad (void)
+import           Control.Monad (forM_, void)
 import           Data.Bifunctor
 import qualified Data.ByteString as BS
 import           Data.FileEmbed
@@ -83,13 +84,24 @@ main = do
                   Just cids -> do
                     let !env = Env m pool us u ni cids logg
                     case c of
-                      Listen -> listen env
+                      Listen etlenv ->
+                          case etlenv of
+                            Just (ETLEnv runFill fillDelay) -> do
+                              void $ forkIO $ scheduledUpdates env pool runFill fillDelay
+                              logg Info "Starting retrying listener"
+                              void $ forkIO $ retryingListener env
+                            Nothing -> listen env
                       Backfill as -> backfill env as
                       BackFillTransfers indexP as -> backfillTransfersCut env indexP as
                       Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et
-                      Server serverEnv -> apiServer env serverEnv
+                      Server serverEnv -> do
+                        forM_ (getETLEnv serverEnv) $ \(ETLEnv runFill fillDelay) -> do
+                            void $ forkIO $ scheduledUpdates env pool runFill fillDelay
+                            logg Info "Starting retrying listener"
+                            void $ forkIO $ retryingListener env
+                        forM_ (getHTTPEnv serverEnv) $ apiServer env
         CheckSchema pgc _ -> withCWDPool pgc $ \pool -> do
           P.withResource pool $ checkTables logg True
 
