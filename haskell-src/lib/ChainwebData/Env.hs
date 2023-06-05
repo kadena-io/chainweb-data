@@ -377,7 +377,7 @@ serverP = toServerEnv
   <*> delayP
   -- The OpenAPI spec is currently rudimentary and not official so we're hiding this option
   <*> flag False True (long "serve-swagger-ui" <> internal)
-  <*> flag False True (long "no-etl" <> help "Disable ETL")
+  <*> flag False True (long "no-listen" <> help "Disable ETL")
   where
     toServerEnv port runFill delay serveSwaggerUi = \case
       False -> Full (HTTPEnv port  serveSwaggerUi, ETLEnv runFill delay)
