@@ -198,7 +198,7 @@ scheduledUpdates env pool runFill fillDelay = forever $ do
 
     when runFill $ do
       logg Info "Filling missing blocks"
-      gaps env (FillArgs fillDelay)
+      gaps env (FillArgs fillDelay Nothing) -- TODO: This shouldn't be Nothing
       logg Info "Fill finished"
   where
     micros = 1000000

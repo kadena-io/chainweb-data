@@ -44,6 +44,7 @@ import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 import           System.Logger hiding (logg)
+import qualified System.Logger as S
 ---
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
@@ -82,34 +83,64 @@ writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ d
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
-batchWrites :: P.Pool Connection -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
-batchWrites pool bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
+batchWrites :: P.Pool Connection -> Maybe FilePath -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
+batchWrites pool errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
+
     runBeamPostgres c $ do
       -- Write the Blocks if unique
-      runInsert
+      blocksReturned <- runInsert
         $ insert (_cddb_blocks database) (insertValues bs)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       -- Write Pub Key many-to-many relationships if unique --
-      runInsert
-        $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
+
+      forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+        S.logg Debug $ fromString $ printf "Blocks returned: %s" $ show blocksReturned
+        S.logg Debug $ fromString $ printf "Blocks inserted: %d" $ length bs
+
+      let mks = concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss
+
+      minerKeysReturned <- runInsert
+        $ insert (_cddb_minerkeys database) (insertValues mks)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+
+      forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+        S.logg Debug $ fromString $ printf "Miner Keys returned: %s" $ show minerKeysReturned
+        S.logg Debug $ fromString $ printf "Miner Keys inserted: %d" $ length mks
 
     withSavepoint c $ do
       runBeamPostgres c $ do
         -- Write the TXs if unique
-        runInsert
+        txsReturned <- runInsert
           $ insert (_cddb_transactions database) (insertValues $ concat tss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-        runInsert
+        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ fromString $ printf "Transactions returned: %s" $ show txsReturned
+          S.logg Debug $ fromString $ printf "Transactions inserted: %d" $ length $ concat tss
+
+        evsReturned <- runInsert
           $ insert (_cddb_events database) (insertValues $ concat ess)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-        runInsert
+
+        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ fromString $ printf "Events returned: %s" $ show evsReturned
+          S.logg Debug $ fromString $ printf "Events inserted: %d" $ length $ concat ess
+
+        signersReturned <- runInsert
           $ insert (_cddb_signers database) (insertValues $ concat sss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-        runInsert
+
+        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ fromString $ printf "Signers returned: %s" $ show signersReturned
+          S.logg Debug $ fromString $ printf "Signers inserted: %d" $ length $ concat sss
+
+        transfersReturned <- runInsert
           $ insert (_cddb_transfers database) (insertValues $ concat tfs)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+
+        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ fromString $ printf "Transfers returned: %s" $ show transfersReturned
+          S.logg Debug $ fromString $ printf "Transfers inserted: %d" $ length $ concat tfs
 
 
 asPow :: BlockHeader -> PowHeader
@@ -143,14 +174,18 @@ writeBlock env pool count bh = do
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
 
-writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [BlockHeader] -> IO ()
-writeBlocks env pool count bhs = do
+writeBlocks :: Env -> P.Pool Connection -> Maybe FilePath -> IORef Int -> [BlockHeader] -> IO ()
+writeBlocks env pool errorLogFile count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs')) id) >>= \case
-        Left e -> do
-          logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
-          logger Error $ fromString $ show e
+        Left e -> case errorLogFile of
+            Just fp -> withFileLogger fp Error $ do
+              S.logg Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain) -- TODO: display batch request parameters
+              S.logg Error $ fromString $ show e
+            Nothing -> do
+              logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
+              logger Error $ fromString $ show e
         Right pls' -> do
           let !pls = M.fromList pls'
               !ms = _blockPayloadWithOutputs_minerData <$> pls
@@ -166,7 +201,7 @@ writeBlocks env pool count bhs = do
               err = printf "writeBlocks failed because we don't know how to work this version %s" version
           withEventsMinHeight version err $ \evMinHeight -> do
               let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
-              batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
+              batchWrites pool errorLogFile (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
               atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 
