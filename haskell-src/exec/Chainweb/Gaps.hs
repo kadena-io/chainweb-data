@@ -25,7 +25,8 @@ import           Data.String
 import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import           System.Logger
+import           System.Logger hiding (logg)
+import qualified System.Logger as S
 import           System.Exit (exitFailure)
 import           Text.Printf
 
@@ -35,9 +36,9 @@ gaps env args = do
   ecut <- queryCut env
   case ecut of
     Left e -> do
-      let logg' = _env_logger env
-      logg' Error "Error querying cut"
-      logg' Info $ fromString $ show e
+      let logg = _env_logger env
+      logg Error "Error querying cut"
+      logg Info $ fromString $ show e
     Right cutBS -> gapsCut env args cutBS
 
 gapsCut :: Env -> FillArgs -> ByteString -> IO ()
@@ -46,8 +47,8 @@ gapsCut env args cutBS = do
   getBlockGaps env minHeights >>= \gapsByChain ->
     if null gapsByChain
       then do
-        logg' Info $ fromString $ printf "No gaps detected."
-        logg' Info $ fromString $ printf "Either the database is empty or there are truly no gaps!"
+        logg Info $ fromString $ printf "No gaps detected."
+        logg Info $ fromString $ printf "Either the database is empty or there are truly no gaps!"
       else do
         count <- newIORef 0
         let gapSize (a,b) = case compare a b of
@@ -56,23 +57,23 @@ gapsCut env args cutBS = do
             isGap = (> 0) . gapSize
             total = sum $ fmap (sum . map (bool 0 1 . isGap)) gapsByChain :: Int
             totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain
-        logg' Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
-        logg' Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
+        logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
+        logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
         let doChain (cid, gs) = do
               let ranges = concatMap (createRanges cid) gs
-              mapM_ (f logg' count cid) ranges
+              mapM_ (f logg count cid) ranges
         let gapFiller = do
-              race_ (progress logg' count totalNumBlocks)
+              race_ (progress logg count totalNumBlocks)
                     (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
               final <- readIORef count
-              logg' Info $ fromString $ printf "Filled in %d missing blocks." final
+              logg Info $ fromString $ printf "Filled in %d missing blocks." final
         gapFiller
   where
     pool = _env_dbConnPool env
     delay =  _fillArgs_delayMicros args
     errorLogFile = _fillArgs_fillErrorLog args
     gi = mkGenesisInfo $ _env_nodeInfo env
-    logg' = _env_logger env
+    logg = _env_logger env
     createRanges cid (low, high)
       | low == high = []
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
@@ -85,7 +86,7 @@ gapsCut env args cutBS = do
         Left e -> case errorLogFile of
           Nothing -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
           Just fp -> withFileLogger fp Error $
-            logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
+            S.logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
         Right hs -> writeBlocks env pool errorLogFile count hs
       maybe mempty threadDelay delay
@@ -104,12 +105,12 @@ getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
         pure res
     let minHeights = M.intersectionWith maybeAppendGenesis existingMinHeights
           $ fmap toInt64 $ M.mapKeys toInt64 genesisInfo
-    unless (M.null minHeights) (liftIO $ logg' Debug $ fromString $ "minHeight: " <> show minHeights)
+    unless (M.null minHeights) (liftIO $ logg Debug $ fromString $ "minHeight: " <> show minHeights)
     pure $ if M.null foundGaps
       then M.mapMaybe (fmap pure) minHeights
       else M.intersectionWith addStart minHeights foundGaps
   where
-    logg' level = _env_logger env level . fromString
+    logg level = _env_logger env level . fromString
     genesisInfo = getGenesisInfo $ mkGenesisInfo $ _env_nodeInfo env
     toInt64 a = fromIntegral a :: Int64
     maybeAppendGenesis mMin genesisheight =
@@ -137,10 +138,10 @@ getAndVerifyMinHeights env cutBS = do
   let curHeight = fromIntegral $ cutMaxHeight cutBS
       count = length minHeights
       cids = atBlockHeight curHeight $ _env_chainsAtHeight env
-      logg' = _env_logger env
+      logg = _env_logger env
   when (count /= length cids) $ do
-    logg' Error $ fromString $ printf "%d chains have, but we expected %d." count (length cids)
-    logg' Error $ fromString $ printf "Please run 'listen' or 'server' first, and ensure that a block has been received on each chain."
-    logg' Error $ fromString $ printf "That should take about a minute, after which you can rerun this command."
+    logg Error $ fromString $ printf "%d chains have, but we expected %d." count (length cids)
+    logg Error $ fromString $ printf "Please run 'listen' or 'server' first, and ensure that a block has been received on each chain."
+    logg Error $ fromString $ printf "That should take about a minute, after which you can rerun this command."
     exitFailure
   return minHeights
