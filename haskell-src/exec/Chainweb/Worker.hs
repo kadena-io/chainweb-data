@@ -83,8 +83,8 @@ writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ d
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
-batchWrites :: P.Pool Connection -> Maybe FilePath -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
-batchWrites pool errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
+batchWrites :: P.Pool Connection -> (ChainId, Int, Int) -> Maybe FilePath -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
+batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
 
     runBeamPostgres c $ do
       -- Write the Blocks if unique
@@ -94,6 +94,7 @@ batchWrites pool errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c 
       -- Write Pub Key many-to-many relationships if unique --
 
       forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+        S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
         S.logg Debug $ fromString $ printf "Blocks returned: %s" $ show blocksReturned
         S.logg Debug $ fromString $ printf "Blocks inserted: %d" $ length bs
 
@@ -104,6 +105,7 @@ batchWrites pool errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c 
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
       forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+        S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
         S.logg Debug $ fromString $ printf "Miner Keys returned: %s" $ show minerKeysReturned
         S.logg Debug $ fromString $ printf "Miner Keys inserted: %d" $ length mks
 
@@ -115,6 +117,7 @@ batchWrites pool errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c 
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
         forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
           S.logg Debug $ fromString $ printf "Transactions returned: %s" $ show txsReturned
           S.logg Debug $ fromString $ printf "Transactions inserted: %d" $ length $ concat tss
 
@@ -123,6 +126,7 @@ batchWrites pool errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c 
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
         forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
           S.logg Debug $ fromString $ printf "Events returned: %s" $ show evsReturned
           S.logg Debug $ fromString $ printf "Events inserted: %d" $ length $ concat ess
 
@@ -131,6 +135,7 @@ batchWrites pool errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c 
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
         forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
           S.logg Debug $ fromString $ printf "Signers returned: %s" $ show signersReturned
           S.logg Debug $ fromString $ printf "Signers inserted: %d" $ length $ concat sss
 
@@ -139,6 +144,7 @@ batchWrites pool errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c 
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
         forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
           S.logg Debug $ fromString $ printf "Transfers returned: %s" $ show transfersReturned
           S.logg Debug $ fromString $ printf "Transfers inserted: %d" $ length $ concat tfs
 
@@ -176,7 +182,7 @@ writeBlock env pool count bh = do
 
 writeBlocks :: Env -> P.Pool Connection -> Maybe FilePath -> IORef Int -> [BlockHeader] -> IO ()
 writeBlocks env pool errorLogFile count bhs = do
-    iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
+    iforM_ blocksByChainId $ \chain (Sum numWrites, bhs', Min minBH, Max maxBH) -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs')) id) >>= \case
         Left e -> case errorLogFile of
@@ -199,9 +205,10 @@ writeBlocks env pool errorLogFile count bhs = do
               !sss = M.intersectionWith (\pl _ -> concat $ mkTransactionSigners . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
               err = printf "writeBlocks failed because we don't know how to work this version %s" version
+              chunkRange = (chain, minBH, maxBH)
           withEventsMinHeight version err $ \evMinHeight -> do
               let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
-              batchWrites pool errorLogFile (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
+              batchWrites pool chunkRange errorLogFile (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
               atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 
@@ -212,7 +219,7 @@ writeBlocks env pool errorLogFile count bhs = do
     blocksByChainId =
       M.fromListWith mappend
         $ bhs
-        <&> \bh -> (_blockHeader_chainId bh, (Sum (1 :: Int), [bh]))
+        <&> \bh -> (_blockHeader_chainId bh, (Sum (1 :: Int), [bh], Min (_blockHeader_height bh), Max (_blockHeader_height bh)))
 
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
