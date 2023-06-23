@@ -184,8 +184,9 @@ writeBlocks :: Env -> P.Pool Connection -> Maybe FilePath -> IORef Int -> [Block
 writeBlocks env pool errorLogFile count bhs = do
     iforM_ blocksByChainId $ \chain (Sum numWrites, bhs', Min minBH, Max maxBH) -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
+      let appendChain c file = file <> "-" <> show c
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs')) id) >>= \case
-        Left e -> case errorLogFile of
+        Left e -> case appendChain chain <$> errorLogFile of
             Just fp -> withFileLogger fp Error $ do
               S.logg Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain) -- TODO: display batch request parameters
               S.logg Error $ fromString $ show e
