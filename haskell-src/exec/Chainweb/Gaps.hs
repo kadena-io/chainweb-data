@@ -14,6 +14,7 @@ import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           Control.Concurrent
 import           Control.Concurrent.Async
+import           Control.Exception (catch, SomeException(..))
 import           Control.Monad
 import           Control.Scheduler
 import           Data.Bool
@@ -85,7 +86,14 @@ gapsCut env args cutBS = do
     f :: LogFunctionIO Text -> IORef Int -> IORef (M.Map Int64 [(Int64,Int64)]) -> Int64 -> (Low, High) -> IO ()
     f logger count gapsMap cid (l@(Low ll), h@(High hh)) = do
       let range = (ChainId (fromIntegral cid), l, h)
-      headersBetween env range >>= \case
+      let onCatch (e :: SomeException) = case errorLogFile of
+            Nothing -> do
+              logger Error $ fromString $ printf "Caught exception from headersBetween for range %s: %s" (show range) (show e)
+              pure $ Right []
+            Just fp -> withFileLogger fp Error $ do
+              S.logg Error $ fromString $ printf "Caught exception from headersBetween for range %s: %s" (show range) (show e)
+              pure $ Right []
+      (headersBetween env range `catch` onCatch) >>= \case
         Left e -> case errorLogFile of
           Nothing -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
           Just fp -> withFileLogger fp Error $
