@@ -23,7 +23,7 @@ import           Data.IORef
 import           Data.Int
 import qualified Data.Map.Strict as M
 import           Data.String
-import           Data.Text (Text)
+import           Data.Text (unpack, Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           System.Logger hiding (logg)
@@ -103,6 +103,39 @@ gapsCut env args cutBS = do
           writeBlocks env pool errorLogFile count hs
           atomicModifyIORef' gapsMap $ \gs -> (M.adjust (filter (\(a,b) -> a /= fromIntegral ll && b /= fromIntegral hh)) cid gs, ())
       maybe mempty threadDelay delay
+
+
+testEnv :: IO Env
+testEnv = do
+  manager <- undefined
+  dbConnPool <- undefined
+  let serviceUrlScheme = undefined
+  let p2pUrl = undefined
+  let nodeInfo = undefined
+  let chainsAtHeight = undefined
+  let logger _ txt = putStrLn $ unpack txt
+  return Env 
+    { 
+      _env_httpManager = manager
+    , _env_dbConnPool = dbConnPool
+    , _env_serviceUrlScheme = serviceUrlScheme
+    , _env_p2pUrl = p2pUrl
+    , _env_nodeInfo = nodeInfo
+    , _env_chainsAtHeight = chainsAtHeight
+    , _env_logger = logger
+    }
+
+_test_headersBetween :: IO ()
+_test_headersBetween = do
+  env <- testEnv
+  let ranges = rangeToDescGroupsOf blockHeaderRequestSize (Low 0) (High 100)
+      toRange c (Low l, High h) = (c, Low l, High h)
+      onCatch (e :: SomeException) = do
+        putStrLn $ "Caught exception from headersBetween: " <> show e
+        pure $ Right []
+  forM_ ranges $ \range -> (headersBetween env (toRange (ChainId 0) range) `catch` onCatch) >>= \case
+    Left e -> putStrLn $ "Error: " <> show e
+    Right hs -> putStrLn $ "Got " <> show (length hs) <> " headers"
 
 getBlockGaps :: Env -> M.Map Int64 (Maybe Int64) -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
