@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Chainweb.Gaps ( gaps ) where
+module Chainweb.Gaps ( gaps, _test_headersBetween ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
@@ -23,9 +23,10 @@ import           Data.IORef
 import           Data.Int
 import qualified Data.Map.Strict as M
 import           Data.String
-import           Data.Text (unpack, Text)
+import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
+import           Network.HTTP.Client
 import           System.Logger hiding (logg)
 import qualified System.Logger as S
 import           System.Exit (exitFailure)
@@ -104,38 +105,41 @@ gapsCut env args cutBS = do
           atomicModifyIORef' gapsMap $ \gs -> (M.adjust (filter (\(a,b) -> a /= fromIntegral ll && b /= fromIntegral hh)) cid gs, ())
       maybe mempty threadDelay delay
 
-
-testEnv :: IO Env
-testEnv = do
-  manager <- undefined
-  dbConnPool <- undefined
-  let serviceUrlScheme = undefined
-  let p2pUrl = undefined
-  let nodeInfo = undefined
-  let chainsAtHeight = undefined
-  let logger _ txt = putStrLn $ unpack txt
-  return Env 
-    { 
-      _env_httpManager = manager
-    , _env_dbConnPool = dbConnPool
-    , _env_serviceUrlScheme = serviceUrlScheme
-    , _env_p2pUrl = p2pUrl
-    , _env_nodeInfo = nodeInfo
-    , _env_chainsAtHeight = chainsAtHeight
-    , _env_logger = logger
-    }
-
 _test_headersBetween :: IO ()
 _test_headersBetween = do
-  env <- testEnv
-  let ranges = rangeToDescGroupsOf blockHeaderRequestSize (Low 0) (High 100)
-      toRange c (Low l, High h) = (c, Low l, High h)
-      onCatch (e :: SomeException) = do
-        putStrLn $ "Caught exception from headersBetween: " <> show e
-        pure $ Right []
-  forM_ ranges $ \range -> (headersBetween env (toRange (ChainId 0) range) `catch` onCatch) >>= \case
-    Left e -> putStrLn $ "Error: " <> show e
-    Right hs -> putStrLn $ "Got " <> show (length hs) <> " headers"
+    env <- testEnv
+    let ranges = rangeToDescGroupsOf blockHeaderRequestSize (Low 0) (High 100)
+        toRange c (Low l, High h) = (c, Low l, High h)
+        onCatch (e :: SomeException) = do
+          putStrLn $ "Caught exception from headersBetween: " <> show e
+          pure $ Right []
+    forM_ (take 1 ranges) $ \range -> (headersBetween env (toRange (ChainId 0) range) `catch` onCatch) >>= \case
+      Left e -> putStrLn $ "Error: " <> show e
+      Right hs -> putStrLn $ "Got " <> show (length hs) <> " headers"
+  where
+    testEnv :: IO Env
+    testEnv = do
+      manager <- newManager defaultManagerSettings
+      -- let p2pUrl = Url "18.206.81.105" 443
+      let p2pUrl = Url "localhost" 443
+      let nodeInfo = NodeInfo
+            {
+                _nodeInfo_chainwebVer = "mainnet01"
+              , _nodeInfo_apiVer = undefined
+              , _nodeInfo_chains = undefined
+              , _nodeInfo_numChains = undefined
+              , _nodeInfo_graphs = Nothing
+            }
+      return Env
+        {
+          _env_httpManager = manager
+        , _env_dbConnPool = undefined
+        , _env_serviceUrlScheme = undefined
+        , _env_p2pUrl = p2pUrl
+        , _env_nodeInfo = nodeInfo
+        , _env_chainsAtHeight = undefined
+        , _env_logger = undefined
+        }
 
 getBlockGaps :: Env -> M.Map Int64 (Maybe Int64) -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
