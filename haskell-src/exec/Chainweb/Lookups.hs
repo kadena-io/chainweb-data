@@ -114,7 +114,7 @@ headersBetween env (cid, Low low, High up) = do
   pure $ (^.. key "items" . values . _String . to f . _Just) . responseBody <$> eresp
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
-    url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> query
+    url = showUrlScheme (_env_serviceUrlScheme env) <> query
     query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
       (T.unpack v) (unChainId cid) low up
     encoding = [("accept", "application/json")]

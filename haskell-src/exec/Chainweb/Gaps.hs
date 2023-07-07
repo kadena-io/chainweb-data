@@ -1,10 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Chainweb.Gaps ( gaps, _test_headersBetween ) where
+module Chainweb.Gaps ( gaps, _test_headersBetween_and_payloadBatch ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
+import           Chainweb.Api.BlockHeader
 import           ChainwebDb.Database
 import           ChainwebData.Env
 import           Chainweb.Lookups
@@ -26,7 +27,9 @@ import           Data.String
 import           Data.Text (Text)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
+import           Network.Connection (TLSSettings(TLSSettingsSimple))
 import           Network.HTTP.Client
+import           Network.HTTP.Client.TLS
 import           System.Logger hiding (logg)
 import qualified System.Logger as S
 import           System.Exit (exitFailure)
@@ -105,24 +108,31 @@ gapsCut env args cutBS = do
           atomicModifyIORef' gapsMap $ \gs -> (M.adjust (filter (\(a,b) -> a /= fromIntegral ll && b /= fromIntegral hh)) cid gs, ())
       maybe mempty threadDelay delay
 
-_test_headersBetween :: IO ()
-_test_headersBetween = do
+_test_headersBetween_and_payloadBatch :: IO ()
+_test_headersBetween_and_payloadBatch = do
     env <- testEnv
-    let ranges = rangeToDescGroupsOf blockHeaderRequestSize (Low 0) (High 100)
+    let ranges = rangeToDescGroupsOf blockHeaderRequestSize (Low 3817591) (High 3819591)
         toRange c (Low l, High h) = (c, Low l, High h)
         onCatch (e :: SomeException) = do
           putStrLn $ "Caught exception from headersBetween: " <> show e
           pure $ Right []
     forM_ (take 1 ranges) $ \range -> (headersBetween env (toRange (ChainId 0) range) `catch` onCatch) >>= \case
       Left e -> putStrLn $ "Error: " <> show e
-      Right hs -> putStrLn $ "Got " <> show (length hs) <> " headers"
+      Right hs -> do
+        putStrLn $ "Got " <> show (length hs) <> " headers"
+        let makeMap = M.fromList . map (\bh -> (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh))
+        payloadWithOutputsBatch env (ChainId 0) (makeMap hs) id >>= \case
+          Left e -> putStrLn $ "Error: " <> show e
+          Right pls -> do
+            putStrLn $ "Got " <> show (length pls) <> " payloads"
   where
     testEnv :: IO Env
     testEnv = do
-      manager <- newManager defaultManagerSettings
-      -- let p2pUrl = Url "18.206.81.105" 443
-      let p2pUrl = Url "localhost" 443
-      let nodeInfo = NodeInfo
+      manager <- newManager $ mkManagerSettings (TLSSettingsSimple True False False) Nothing
+      let urlHost_ = "18.206.81.105"
+          serviceUrlScheme = UrlScheme Https $ Url urlHost_ 1848
+          p2pUrl = Url urlHost_ 443
+          nodeInfo = NodeInfo
             {
                 _nodeInfo_chainwebVer = "mainnet01"
               , _nodeInfo_apiVer = undefined
@@ -130,11 +140,11 @@ _test_headersBetween = do
               , _nodeInfo_numChains = undefined
               , _nodeInfo_graphs = Nothing
             }
-      return Env
+      return Env -- these undefined fields are not used in the `headersBetween` function
         {
           _env_httpManager = manager
         , _env_dbConnPool = undefined
-        , _env_serviceUrlScheme = undefined
+        , _env_serviceUrlScheme = serviceUrlScheme
         , _env_p2pUrl = p2pUrl
         , _env_nodeInfo = nodeInfo
         , _env_chainsAtHeight = undefined
