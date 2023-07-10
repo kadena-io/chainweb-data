@@ -111,6 +111,7 @@ gapsCut env args cutBS = do
 _test_headersBetween_and_payloadBatch :: IO ()
 _test_headersBetween_and_payloadBatch = do
     env <- testEnv
+    queryCut env >>= print
     let ranges = rangeToDescGroupsOf blockHeaderRequestSize (Low 3817591) (High 3819591)
         toRange c (Low l, High h) = (c, Low l, High h)
         onCatch (e :: SomeException) = do
@@ -129,8 +130,8 @@ _test_headersBetween_and_payloadBatch = do
     testEnv :: IO Env
     testEnv = do
       manager <- newManager $ mkManagerSettings (TLSSettingsSimple True False False) Nothing
-      let urlHost_ = "18.206.81.105"
-          serviceUrlScheme = UrlScheme Https $ Url urlHost_ 1848
+      let urlHost_ = "localhost"
+          serviceUrlScheme = UrlScheme Http $ Url urlHost_ 1848
           p2pUrl = Url urlHost_ 443
           nodeInfo = NodeInfo
             {

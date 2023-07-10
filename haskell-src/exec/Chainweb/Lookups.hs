@@ -141,7 +141,7 @@ payloadWithOutputsBatch env (ChainId cid) m _f = do
     pure res
   where
     rest = T.pack $ "\nHashes: ( " ++ (L.intercalate " " $ M.elems (show . hashB64U . _f <$> m)) ++ " )"
-    url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
+    url = showUrlScheme (_env_serviceUrlScheme env) <> T.unpack query
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
     encoding = [("content-type", "application/json")]
