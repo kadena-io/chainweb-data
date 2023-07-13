@@ -152,6 +152,48 @@ _test_headersBetween_and_payloadBatch = do
         , _env_logger = undefined
         }
 
+_test_getBlockGaps :: IO ()
+_test_getBlockGaps = withHandleBackend defaultHandleBackendConfig $ \backend ->
+  withLogger defaultLoggerConfig backend $ \logger -> do
+    let l = loggerFunIO logger
+    manager <- newManager $ mkManagerSettings (TLSSettingsSimple True False False) Nothing
+    let serviceUrlScheme = UrlScheme Http $ Url "localhost" 1848
+    getNodeInfo manager serviceUrlScheme >>= \case
+      Left _err -> l Error "Error getting node info"
+      Right ni -> do
+        let pgc = PGInfo $ ConnectInfo
+              {
+                connectHost = "localhost"
+              , connectPort = 5432
+              , connectUser = "ubuntu"
+              , connectPassword = "somethingsecret"
+              , connectDatabase = "chainweb-data"
+              }
+
+        withCWDPool pgc $ \pool -> do
+          env <- getEnv ni l manager pool
+          let fromRight = either (error "fromRight: hit left") id
+          cutBS <- fromRight <$> queryCut env
+          minHeights <- getAndVerifyMinHeights env cutBS
+          gapsByChain <- getBlockGaps env minHeights
+          print gapsByChain
+  where
+    second f (a,b) = (a, f b)
+    fromMaybe b = \case
+      Just a -> a
+      Nothing -> b
+    getEnv ni lr m pool =
+      return Env
+        {
+          _env_httpManager = m
+        , _env_dbConnPool = pool
+        , _env_serviceUrlScheme = UrlScheme Http $ Url "localhost" 1848
+        , _env_p2pUrl = Url "localhost" 443
+        , _env_nodeInfo = ni
+        , _env_chainsAtHeight = fromMaybe (error "chainsAtMinHeight missing") $ map (second (map (ChainId . fst))) <$> (_nodeInfo_graphs ni)
+        , _env_logger = lr
+        }
+
 getBlockGaps :: Env -> M.Map Int64 (Maybe Int64) -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
     let toMap = M.fromListWith (<>) . map (\(cid,a,b) -> (cid,[(a,b)]))
@@ -177,8 +219,8 @@ getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
     maybeAppendGenesis mMin genesisheight =
       case mMin of
         Just min' -> case compare genesisheight min' of
-          GT -> Nothing
-          _ -> Just (genesisheight, min')
+          LT <- Just (genesisheight, min')
+          _ -> Nothing
         Nothing -> Nothing
     addStart mr xs = case mr of
         Nothing -> xs
