@@ -56,7 +56,6 @@ gapsCut env args cutBS = do
         logg Info $ fromString $ printf "Either the database is empty or there are truly no gaps!"
       else do
         count <- newIORef 0
-        gapsMap <- newIORef gapsByChain
         let gapSize (a,b) = case compare a b of
               LT -> b - a - 1
               _ -> 0
@@ -67,14 +66,12 @@ gapsCut env args cutBS = do
         logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
         let doChain (cid, gs) = do
               let ranges = concatMap (createRanges cid) gs
-              mapM_ (f logg count gapsMap cid) ranges
+              mapM_ (f logg count cid) ranges
         let gapFiller = do
               race_ (progress logg count totalNumBlocks)
                     (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
               final <- readIORef count
-              unFilledGaps <- readIORef gapsMap
               logg Info $ fromString $ printf "Filled in %d missing blocks. Missed this many %d" final (total - final)
-              logg Info $ fromString $ printf "Unfilled gaps: %s" (show unFilledGaps)
         gapFiller
   where
     pool = _env_dbConnPool env
@@ -87,8 +84,8 @@ gapsCut env args cutBS = do
       | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
       | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
 
-    f :: LogFunctionIO Text -> IORef Int -> IORef (M.Map Int64 [(Int64,Int64)]) -> Int64 -> (Low, High) -> IO ()
-    f logger count gapsMap cid (l@(Low ll), h@(High hh)) = do
+    f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Low, High) -> IO ()
+    f logger count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
       let onCatch (e :: SomeException) = case errorLogFile of
             Nothing -> do
@@ -103,9 +100,7 @@ gapsCut env args cutBS = do
           Just fp -> withFileLogger fp Error $
             S.logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> do
-          writeBlocks env pool errorLogFile count hs
-          atomicModifyIORef' gapsMap $ \gs -> (M.adjust (filter (\(a,b) -> a /= fromIntegral ll && b /= fromIntegral hh)) cid gs, ())
+        Right hs -> writeBlocks env pool errorLogFile count hs
       maybe mempty threadDelay delay
 
 _test_headersBetween_and_payloadBatch :: IO ()
@@ -219,7 +214,7 @@ getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
     maybeAppendGenesis mMin genesisheight =
       case mMin of
         Just min' -> case compare genesisheight min' of
-          LT <- Just (genesisheight, min')
+          LT -> Just (genesisheight, min')
           _ -> Nothing
         Nothing -> Nothing
     addStart mr xs = case mr of
