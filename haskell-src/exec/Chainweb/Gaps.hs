@@ -147,8 +147,14 @@ _test_headersBetween_and_payloadBatch = do
         , _env_logger = undefined
         }
 
-_test_getBlockGaps :: IO ()
-_test_getBlockGaps = withHandleBackend defaultHandleBackendConfig $ \backend ->
+_test_getBlockGaps 
+  :: String -- host
+  -> String -- port
+  -> String -- user
+  -> String -- password
+  -> String -- db name
+  -> IO ()
+_test_getBlockGaps dbHost dbPort dbUser password dbName = withHandleBackend defaultHandleBackendConfig $ \backend ->
   withLogger defaultLoggerConfig backend $ \logger -> do
     let l = loggerFunIO logger
     manager <- newManager $ mkManagerSettings (TLSSettingsSimple True False False) Nothing
@@ -158,11 +164,11 @@ _test_getBlockGaps = withHandleBackend defaultHandleBackendConfig $ \backend ->
       Right ni -> do
         let pgc = PGInfo $ ConnectInfo
               {
-                connectHost = "localhost"
-              , connectPort = 5432
-              , connectUser = "ubuntu"
-              , connectPassword = "somethingsecret"
-              , connectDatabase = "chainweb-data"
+                connectHost = dbHost
+              , connectPort = dbPort
+              , connectUser = dbUser
+              , connectPassword = password
+              , connectDatabase = dbName
               }
 
         withCWDPool pgc $ \pool -> do
