@@ -24,6 +24,7 @@ import           Control.Monad.Except
 import qualified Control.Monad.Managed as M
 import           Control.Retry
 import           Data.Aeson hiding (Error)
+import qualified Data.Aeson as A
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64
 import           Data.ByteString.Lazy (ByteString)
@@ -59,6 +60,7 @@ import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.StringEncoded (StringEncoded(..))
+import qualified Chainweb.Api.Signer as Api
 import           Chainweb.Coins
 import           ChainwebDb.Database
 import           ChainwebDb.Queries
@@ -77,6 +79,7 @@ import           ChainwebData.TxSummary
 import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.Common
 import           ChainwebDb.Types.DbHash
+import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transfer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Event
@@ -342,8 +345,14 @@ throw404 msg = throwError $ err404 { errBody = msg }
 throw400 :: MonadError ServerError m => ByteString -> m a
 throw400 msg = throwError $ err400 { errBody = msg }
 
-toApiTxDetail :: Transaction -> ContinuationHistory -> Block -> [Event] -> TxDetail
-toApiTxDetail tx contHist blk evs = TxDetail
+toApiTxDetail ::
+  Transaction ->
+  ContinuationHistory ->
+  Block ->
+  [Event] ->
+  [Api.Signer] ->
+  TxDetail
+toApiTxDetail tx contHist blk evs signers = TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx
         , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
         , _txDetail_gasPrice = _tx_gasPrice tx
@@ -373,6 +382,7 @@ toApiTxDetail tx contHist blk evs = TxDetail
         , _txDetail_events = map toTxEvent evs
         , _txDetail_initialCode = chCode contHist
         , _txDetail_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
+        , _txDetail_signers = signers
         }
   where
     unMaybeValue = maybe Null unPgJsonb
@@ -381,7 +391,7 @@ toApiTxDetail tx contHist blk evs = TxDetail
 
 getMaxBlockHeight :: LogFunctionIO Text -> Connection -> IO (Maybe BlockHeight)
 getMaxBlockHeight logger c =
-    runBeamPostgresDebug (logger Debug . T.pack) c $ 
+    runBeamPostgresDebug (logger Debug . T.pack) c $
       fmap f $ runSelectReturningOne $ select $ do
         blk <- all_ (_cddb_blocks database)
         return $ max_ (_block_height blk)
@@ -405,7 +415,23 @@ queryTxsByKey logger rk c =
        ev <- all_ (_cddb_events database)
        guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
        return ev
-    return $ (`fmap` r) $ \(tx,contHist, blk) -> toApiTxDetail tx contHist blk evs
+    dbSigners <- runSelectReturningList $ select $ do
+       signer <- all_ (_cddb_signers database)
+       guard_ (_signer_requestkey signer ==. val_ (DbHash rk))
+       return signer
+    signers <- forM dbSigners $ \s -> do
+      caps <- forM (unPgJsonb $ _signer_caps s) $ \capJson -> case fromJSON capJson of
+        A.Success a -> return a
+        A.Error e -> liftIO $ throwIO $ userError $ "Failed to parse signer capabilities: " <> e
+      return $ Api.Signer
+        { Api._signer_addr = _signer_addr s
+        , Api._signer_scheme = _signer_scheme s
+        , Api._signer_pubKey = _signer_pubkey s
+        , Api._signer_capList = caps
+        }
+
+    return $ (`fmap` r) $ \(tx,contHist, blk) ->
+      toApiTxDetail tx contHist blk evs signers
 
 queryTxsByPactId :: LogFunctionIO Text -> Limit -> Text -> Connection -> IO [TxSummary]
 queryTxsByPactId logger limit pactid c =
