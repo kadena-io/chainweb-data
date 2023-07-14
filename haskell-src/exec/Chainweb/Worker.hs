@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -83,8 +84,26 @@ writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ d
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
-batchWrites :: P.Pool Connection -> (ChainId, Int, Int) -> Maybe FilePath -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
+batchWrites
+  :: P.Pool Connection
+  -> (ChainId, Int, Int)
+  -> Maybe FilePath
+  -> [Block]
+  -> [[T.Text]]
+  -> [[Transaction]]
+  -> [[Event]]
+  -> [[Signer]]
+  -> [[Transfer]]
+  -> IO ()
 batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
+
+    let
+      logInsertStats :: String -> () -> Int -> IO ()
+      logInsertStats entityName inserted attempted =
+        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
+          S.logg Debug $ fromString $ printf "%s inserted: %s" entityName (show inserted)
+          S.logg Debug $ fromString $ printf "%s attempted: %d" entityName attempted
 
     runBeamPostgres c $ do
       -- Write the Blocks if unique
@@ -93,13 +112,7 @@ batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResourc
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       -- Write Pub Key many-to-many relationships if unique --
 
-      let 
-        logInsertStats entityName inserted attempted = 
-          forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
-            S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
-            S.logg Debug $ fromString $ printf "%s inserted: %s" entityName (show inserted)
-            S.logg Debug $ fromString $ printf "%s attempted: %d" entityName attempted
-      logInsertStats "Blocks" blocksReturned (length bs)
+      liftIO $ logInsertStats "Blocks" blocksReturned (length bs)
 
       let mks = concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss
 
@@ -107,10 +120,7 @@ batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResourc
         $ insert (_cddb_minerkeys database) (insertValues mks)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-      forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
-        S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
-        S.logg Debug $ fromString $ printf "Miner Keys returned: %s" $ show minerKeysReturned
-        S.logg Debug $ fromString $ printf "Miner Keys inserted: %d" $ length mks
+      liftIO $ logInsertStats "Miner Keys" minerKeysReturned (length mks)
 
     withSavepoint c $ do
       runBeamPostgres c $ do
@@ -119,37 +129,25 @@ batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResourc
           $ insert (_cddb_transactions database) (insertValues $ concat tss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
-          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
-          S.logg Debug $ fromString $ printf "Transactions returned: %s" $ show txsReturned
-          S.logg Debug $ fromString $ printf "Transactions inserted: %d" $ length $ concat tss
+        liftIO $ logInsertStats "Transactions" txsReturned (length $ concat tss)
 
         evsReturned <- runInsert
           $ insert (_cddb_events database) (insertValues $ concat ess)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
-          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
-          S.logg Debug $ fromString $ printf "Events returned: %s" $ show evsReturned
-          S.logg Debug $ fromString $ printf "Events inserted: %d" $ length $ concat ess
+        liftIO $ logInsertStats "Events" evsReturned (length $ concat ess)
 
         signersReturned <- runInsert
           $ insert (_cddb_signers database) (insertValues $ concat sss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
-          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
-          S.logg Debug $ fromString $ printf "Signers returned: %s" $ show signersReturned
-          S.logg Debug $ fromString $ printf "Signers inserted: %d" $ length $ concat sss
+        liftIO $ logInsertStats "Signers" signersReturned (length $ concat sss)
 
         transfersReturned <- runInsert
           $ insert (_cddb_transfers database) (insertValues $ concat tfs)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
-          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
-          S.logg Debug $ fromString $ printf "Transfers returned: %s" $ show transfersReturned
-          S.logg Debug $ fromString $ printf "Transfers inserted: %d" $ length $ concat tfs
+        liftIO $ logInsertStats "Transfers" transfersReturned (length $ concat tfs)
 
 
 asPow :: BlockHeader -> PowHeader

@@ -25,6 +25,7 @@ import           Data.Int
 import qualified Data.Map.Strict as M
 import           Data.String
 import           Data.Text (Text)
+import           Data.Word (Word16)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Network.Connection (TLSSettings(TLSSettingsSimple))
@@ -149,7 +150,7 @@ _test_headersBetween_and_payloadBatch = do
 
 _test_getBlockGaps 
   :: String -- host
-  -> String -- port
+  -> Word16 -- port
   -> String -- user
   -> String -- password
   -> String -- db name
