@@ -415,7 +415,7 @@ queryTxsByKey logger rk c =
        ev <- all_ (_cddb_events database)
        guard_ (_ev_requestkey ev ==. val_ (RKCB_RequestKey $ DbHash rk))
        return ev
-    dbSigners <- runSelectReturningList $ select $ do
+    dbSigners <- runSelectReturningList $ select $ orderBy_ (asc_ . _signer_idx) $ do
        signer <- all_ (_cddb_signers database)
        guard_ (_signer_requestkey signer ==. val_ (DbHash rk))
        return signer
