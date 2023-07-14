@@ -93,10 +93,13 @@ batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResourc
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       -- Write Pub Key many-to-many relationships if unique --
 
-      forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
-        S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
-        S.logg Debug $ fromString $ printf "Blocks returned: %s" $ show blocksReturned
-        S.logg Debug $ fromString $ printf "Blocks inserted: %d" $ length bs
+      let 
+        logInsertStats entityName inserted attempted = 
+          forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
+            S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
+            S.logg Debug $ fromString $ printf "%s inserted: %s" entityName (show inserted)
+            S.logg Debug $ fromString $ printf "%s attempted: %d" entityName attempted
+      logInsertStats "Blocks" blocksReturned (length bs)
 
       let mks = concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss
 
