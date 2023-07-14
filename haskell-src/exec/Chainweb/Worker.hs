@@ -42,6 +42,7 @@ import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
+import qualified Database.Beam.Postgres.Conduit as BPC (runInsert)
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 import           System.Logger hiding (logg)
@@ -98,7 +99,7 @@ batchWrites
 batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
 
     let
-      logInsertStats :: String -> () -> Int -> IO ()
+      logInsertStats :: String -> Int64 -> Int -> IO ()
       logInsertStats entityName inserted attempted =
         forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
           S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
@@ -107,7 +108,7 @@ batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResourc
 
     runBeamPostgres c $ do
       -- Write the Blocks if unique
-      blocksReturned <- runInsert
+      blocksReturned <- BPC.runInsert c
         $ insert (_cddb_blocks database) (insertValues bs)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       -- Write Pub Key many-to-many relationships if unique --
@@ -116,7 +117,7 @@ batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResourc
 
       let mks = concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss
 
-      minerKeysReturned <- runInsert
+      minerKeysReturned <- BPC.runInsert c
         $ insert (_cddb_minerkeys database) (insertValues mks)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
@@ -125,25 +126,25 @@ batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResourc
     withSavepoint c $ do
       runBeamPostgres c $ do
         -- Write the TXs if unique
-        txsReturned <- runInsert
+        txsReturned <- BPC.runInsert c
           $ insert (_cddb_transactions database) (insertValues $ concat tss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
         liftIO $ logInsertStats "Transactions" txsReturned (length $ concat tss)
 
-        evsReturned <- runInsert
+        evsReturned <- BPC.runInsert c
           $ insert (_cddb_events database) (insertValues $ concat ess)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
         liftIO $ logInsertStats "Events" evsReturned (length $ concat ess)
 
-        signersReturned <- runInsert
+        signersReturned <- BPC.runInsert c
           $ insert (_cddb_signers database) (insertValues $ concat sss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
         liftIO $ logInsertStats "Signers" signersReturned (length $ concat sss)
 
-        transfersReturned <- runInsert
+        transfersReturned <- BPC.runInsert c
           $ insert (_cddb_transfers database) (insertValues $ concat tfs)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
