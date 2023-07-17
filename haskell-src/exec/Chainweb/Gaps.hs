@@ -72,9 +72,9 @@ gapsCut env args cutBS = do
               race_ (progress logg count totalNumBlocks)
                     (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
               final <- readIORef count
-              logg Info $ fromString 
+              logg Info $ fromString
                 $ printf "Filled in %d missing blocks" final
-               ++ guard (totalNumBlocks > final) (printf ", %d fewer than detected gaps"  (totalNumBlocks - final))
+               ++ if (totalNumBlocks > final) then (printf ", %d fewer than detected gaps"  (totalNumBlocks - final)) else mempty
         gapFiller
   where
     pool = _env_dbConnPool env
@@ -150,7 +150,7 @@ _test_headersBetween_and_payloadBatch = do
         , _env_logger = undefined
         }
 
-_test_getBlockGaps 
+_test_getBlockGaps
   :: String -- host
   -> Word16 -- port
   -> String -- user
