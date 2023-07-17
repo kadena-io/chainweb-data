@@ -79,7 +79,6 @@ gapsCut env args cutBS = do
   where
     pool = _env_dbConnPool env
     delay =  _fillArgs_delayMicros args
-    errorLogFile = _fillArgs_fillErrorLog args
     gi = mkGenesisInfo $ _env_nodeInfo env
     logg = _env_logger env
     createRanges cid (low, high)
@@ -90,20 +89,14 @@ gapsCut env args cutBS = do
     f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Low, High) -> IO ()
     f logger count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
-      let onCatch (e :: SomeException) = case errorLogFile of
-            Nothing -> do
-              logger Error $ fromString $ printf "Caught exception from headersBetween for range %s: %s" (show range) (show e)
-              pure $ Right []
-            Just fp -> withFileLogger fp Error $ do
-              S.logg Error $ fromString $ printf "Caught exception from headersBetween for range %s: %s" (show range) (show e)
+      let onCatch (e :: SomeException) = do
+              logger Error $
+                  fromString $ printf "Caught exception from headersBetween for range %s: %s" (show range) (show e)
               pure $ Right []
       (headersBetween env range `catch` onCatch) >>= \case
-        Left e -> case errorLogFile of
-          Nothing -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
-          Just fp -> withFileLogger fp Error $
-            S.logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
+        Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> writeBlocks env pool errorLogFile count hs
+        Right hs -> writeBlocks env pool count hs
       maybe mempty threadDelay delay
 
 _test_headersBetween_and_payloadBatch :: IO ()

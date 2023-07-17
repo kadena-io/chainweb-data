@@ -42,11 +42,9 @@ import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
-import qualified Database.Beam.Postgres.Conduit as BPC (runInsert)
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
 import           System.Logger hiding (logg)
-import qualified System.Logger as S
 ---
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
@@ -87,8 +85,6 @@ writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ d
 
 batchWrites
   :: P.Pool Connection
-  -> (ChainId, Int, Int)
-  -> Maybe FilePath
   -> [Block]
   -> [[T.Text]]
   -> [[Transaction]]
@@ -96,59 +92,39 @@ batchWrites
   -> [[Signer]]
   -> [[Transfer]]
   -> IO ()
-batchWrites pool _chunkRange errorLogFile bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
-
-    let
-      logInsertStats :: String -> Int64 -> Int -> IO ()
-      logInsertStats entityName inserted attempted =
-        forM_ errorLogFile $ \fp -> withFileLogger fp Debug $ do
-          S.logg Debug $ "Over range: " <> fromString (show _chunkRange)
-          S.logg Debug $ fromString $ printf "%s inserted: %s" entityName (show inserted)
-          S.logg Debug $ fromString $ printf "%s attempted: %d" entityName attempted
+batchWrites pool bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
 
     runBeamPostgres c $ do
       -- Write the Blocks if unique
-      blocksReturned <- BPC.runInsert c
+      runInsert
         $ insert (_cddb_blocks database) (insertValues bs)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       -- Write Pub Key many-to-many relationships if unique --
 
-      liftIO $ logInsertStats "Blocks" blocksReturned (length bs)
-
       let mks = concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss
 
-      minerKeysReturned <- BPC.runInsert c
+      runInsert
         $ insert (_cddb_minerkeys database) (insertValues mks)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-
-      liftIO $ logInsertStats "Miner Keys" minerKeysReturned (length mks)
 
     withSavepoint c $ do
       runBeamPostgres c $ do
         -- Write the TXs if unique
-        txsReturned <- BPC.runInsert c
+        runInsert
           $ insert (_cddb_transactions database) (insertValues $ concat tss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-        liftIO $ logInsertStats "Transactions" txsReturned (length $ concat tss)
-
-        evsReturned <- BPC.runInsert c
+        runInsert
           $ insert (_cddb_events database) (insertValues $ concat ess)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-        liftIO $ logInsertStats "Events" evsReturned (length $ concat ess)
-
-        signersReturned <- BPC.runInsert c
+        runInsert
           $ insert (_cddb_signers database) (insertValues $ concat sss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
-        liftIO $ logInsertStats "Signers" signersReturned (length $ concat sss)
-
-        transfersReturned <- BPC.runInsert c
+        runInsert
           $ insert (_cddb_transfers database) (insertValues $ concat tfs)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-
-        liftIO $ logInsertStats "Transfers" transfersReturned (length $ concat tfs)
 
 
 asPow :: BlockHeader -> PowHeader
@@ -182,17 +158,12 @@ writeBlock env pool count bh = do
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
 
-writeBlocks :: Env -> P.Pool Connection -> Maybe FilePath -> IORef Int -> [BlockHeader] -> IO ()
-writeBlocks env pool errorLogFile count bhs = do
-    iforM_ blocksByChainId $ \chain (Sum numWrites, bhs', Min minBH, Max maxBH) -> do
+writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [BlockHeader] -> IO ()
+writeBlocks env pool count bhs = do
+    iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
-      let appendChain c file = file <> "-" <> show c
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs')) id) >>= \case
-        Left e -> case appendChain chain <$> errorLogFile of
-            Just fp -> withFileLogger fp Error $ do
-              S.logg Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain) -- TODO: display batch request parameters
-              S.logg Error $ fromString $ show e
-            Nothing -> do
+        Left e -> do
               logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
               logger Error $ fromString $ show e
         Right pls' -> do
@@ -208,10 +179,9 @@ writeBlocks env pool errorLogFile count bhs = do
               !sss = M.intersectionWith (\pl _ -> concat $ mkTransactionSigners . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')
               !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
               err = printf "writeBlocks failed because we don't know how to work this version %s" version
-              chunkRange = (chain, minBH, maxBH)
           withEventsMinHeight version err $ \evMinHeight -> do
               let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
-              batchWrites pool chunkRange (appendChain chain <$> errorLogFile) (M.elems bs) 
+              batchWrites pool (M.elems bs)
                 (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
               atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
@@ -223,7 +193,7 @@ writeBlocks env pool errorLogFile count bhs = do
     blocksByChainId =
       M.fromListWith mappend
         $ bhs
-        <&> \bh -> (_blockHeader_chainId bh, (Sum (1 :: Int), [bh], Min (_blockHeader_height bh), Max (_blockHeader_height bh)))
+        <&> \bh -> (_blockHeader_chainId bh, (Sum (1 :: Int), [bh]))
 
     policy :: RetryPolicyM IO
     policy = exponentialBackoff 250_000 <> limitRetries 3
