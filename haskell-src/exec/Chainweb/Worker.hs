@@ -164,8 +164,8 @@ writeBlocks env pool count bhs = do
       let ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
       retrying policy check (const $ payloadWithOutputsBatch env chain (M.fromList (ff <$> bhs')) id) >>= \case
         Left e -> do
-              logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
-              logger Error $ fromString $ show e
+          logger Error $ fromString $ printf "Couldn't fetch payload batch for chain: %d" (unChainId chain)
+          logger Error $ fromString $ show e
         Right pls' -> do
           let !pls = M.fromList pls'
               !ms = _blockPayloadWithOutputs_minerData <$> pls
