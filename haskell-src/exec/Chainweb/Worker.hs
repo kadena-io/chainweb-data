@@ -181,8 +181,7 @@ writeBlocks env pool count bhs = do
               err = printf "writeBlocks failed because we don't know how to work this version %s" version
           withEventsMinHeight version err $ \evMinHeight -> do
               let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
-              batchWrites pool (M.elems bs)
-                (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
+              batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
               atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 
