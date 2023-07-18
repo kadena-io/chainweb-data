@@ -1,10 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Chainweb.Gaps ( gaps ) where
+module Chainweb.Gaps ( gaps, _test_headersBetween_and_payloadBatch ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
+import           Chainweb.Api.BlockHeader
 import           ChainwebDb.Database
 import           ChainwebData.Env
 import           Chainweb.Lookups
@@ -14,6 +15,7 @@ import           ChainwebData.Genesis
 import           ChainwebData.Types
 import           Control.Concurrent
 import           Control.Concurrent.Async
+import           Control.Exception (catch, SomeException(..))
 import           Control.Monad
 import           Control.Scheduler
 import           Data.Bool
@@ -23,9 +25,14 @@ import           Data.Int
 import qualified Data.Map.Strict as M
 import           Data.String
 import           Data.Text (Text)
+import           Data.Word (Word16)
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
+import           Network.Connection (TLSSettings(TLSSettingsSimple))
+import           Network.HTTP.Client
+import           Network.HTTP.Client.TLS
 import           System.Logger hiding (logg)
+import qualified System.Logger as S
 import           System.Exit (exitFailure)
 import           Text.Printf
 
@@ -65,7 +72,9 @@ gapsCut env args cutBS = do
               race_ (progress logg count totalNumBlocks)
                     (traverseConcurrently_ Par' doChain (M.toList gapsByChain))
               final <- readIORef count
-              logg Info $ fromString $ printf "Filled in %d missing blocks." final
+              logg Info $ fromString
+                $ printf "Filled in %d missing blocks" final
+               ++ if (totalNumBlocks > final) then (printf ", %d fewer than detected gaps"  (totalNumBlocks - final)) else mempty
         gapFiller
   where
     pool = _env_dbConnPool env
@@ -80,11 +89,107 @@ gapsCut env args cutBS = do
     f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Low, High) -> IO ()
     f logger count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
-      headersBetween env range >>= \case
+      let onCatch (e :: SomeException) = do
+              logger Error $
+                  fromString $ printf "Caught exception from headersBetween for range %s: %s" (show range) (show e)
+              pure $ Right []
+      (headersBetween env range `catch` onCatch) >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
         Right hs -> writeBlocks env pool count hs
       maybe mempty threadDelay delay
+
+_test_headersBetween_and_payloadBatch :: IO ()
+_test_headersBetween_and_payloadBatch = do
+    env <- testEnv
+    queryCut env >>= print
+    let ranges = rangeToDescGroupsOf blockHeaderRequestSize (Low 3817591) (High 3819591)
+        toRange c (Low l, High h) = (c, Low l, High h)
+        onCatch (e :: SomeException) = do
+          putStrLn $ "Caught exception from headersBetween: " <> show e
+          pure $ Right []
+    forM_ (take 1 ranges) $ \range -> (headersBetween env (toRange (ChainId 0) range) `catch` onCatch) >>= \case
+      Left e -> putStrLn $ "Error: " <> show e
+      Right hs -> do
+        putStrLn $ "Got " <> show (length hs) <> " headers"
+        let makeMap = M.fromList . map (\bh -> (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh))
+        payloadWithOutputsBatch env (ChainId 0) (makeMap hs) id >>= \case
+          Left e -> putStrLn $ "Error: " <> show e
+          Right pls -> do
+            putStrLn $ "Got " <> show (length pls) <> " payloads"
+  where
+    testEnv :: IO Env
+    testEnv = do
+      manager <- newManager $ mkManagerSettings (TLSSettingsSimple True False False) Nothing
+      let urlHost_ = "localhost"
+          serviceUrlScheme = UrlScheme Http $ Url urlHost_ 1848
+          p2pUrl = Url urlHost_ 443
+          nodeInfo = NodeInfo
+            {
+                _nodeInfo_chainwebVer = "mainnet01"
+              , _nodeInfo_apiVer = undefined
+              , _nodeInfo_chains = undefined
+              , _nodeInfo_numChains = undefined
+              , _nodeInfo_graphs = Nothing
+            }
+      return Env -- these undefined fields are not used in the `headersBetween` function
+        {
+          _env_httpManager = manager
+        , _env_dbConnPool = undefined
+        , _env_serviceUrlScheme = serviceUrlScheme
+        , _env_p2pUrl = p2pUrl
+        , _env_nodeInfo = nodeInfo
+        , _env_chainsAtHeight = undefined
+        , _env_logger = undefined
+        }
+
+_test_getBlockGaps
+  :: String -- host
+  -> Word16 -- port
+  -> String -- user
+  -> String -- password
+  -> String -- db name
+  -> IO ()
+_test_getBlockGaps dbHost dbPort dbUser password dbName = withHandleBackend defaultHandleBackendConfig $ \backend ->
+  withLogger defaultLoggerConfig backend $ \logger -> do
+    let l = loggerFunIO logger
+    manager <- newManager $ mkManagerSettings (TLSSettingsSimple True False False) Nothing
+    let serviceUrlScheme = UrlScheme Http $ Url "localhost" 1848
+    getNodeInfo manager serviceUrlScheme >>= \case
+      Left _err -> l Error "Error getting node info"
+      Right ni -> do
+        let pgc = PGInfo $ ConnectInfo
+              {
+                connectHost = dbHost
+              , connectPort = dbPort
+              , connectUser = dbUser
+              , connectPassword = password
+              , connectDatabase = dbName
+              }
+
+        withCWDPool pgc $ \pool -> do
+          env <- getEnv ni l manager pool
+          let fromRight = either (error "fromRight: hit left") id
+          cutBS <- fromRight <$> queryCut env
+          minHeights <- getAndVerifyMinHeights env cutBS
+          gapsByChain <- getBlockGaps env minHeights
+          print gapsByChain
+  where
+    second f (a,b) = (a, f b)
+    fromMaybe b = \case
+      Just a -> a
+      Nothing -> b
+    getEnv ni lr m pool =
+      return Env
+        {
+          _env_httpManager = m
+        , _env_dbConnPool = pool
+        , _env_serviceUrlScheme = UrlScheme Http $ Url "localhost" 1848
+        , _env_p2pUrl = Url "localhost" 443
+        , _env_nodeInfo = ni
+        , _env_chainsAtHeight = fromMaybe (error "chainsAtMinHeight missing") $ map (second (map (ChainId . fst))) <$> (_nodeInfo_graphs ni)
+        , _env_logger = lr
+        }
 
 getBlockGaps :: Env -> M.Map Int64 (Maybe Int64) -> IO (M.Map Int64 [(Int64,Int64)])
 getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
@@ -111,8 +216,8 @@ getBlockGaps env existingMinHeights = withDbDebug env Debug $ do
     maybeAppendGenesis mMin genesisheight =
       case mMin of
         Just min' -> case compare genesisheight min' of
-          GT -> Nothing
-          _ -> Just (genesisheight, min')
+          LT -> Just (genesisheight, min')
+          _ -> Nothing
         Nothing -> Nothing
     addStart mr xs = case mr of
         Nothing -> xs

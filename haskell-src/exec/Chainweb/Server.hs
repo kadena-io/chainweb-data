@@ -381,7 +381,7 @@ toApiTxDetail tx contHist blk evs = TxDetail
 
 getMaxBlockHeight :: LogFunctionIO Text -> Connection -> IO (Maybe BlockHeight)
 getMaxBlockHeight logger c =
-    runBeamPostgresDebug (logger Debug . T.pack) c $ 
+    runBeamPostgresDebug (logger Debug . T.pack) c $
       fmap f $ runSelectReturningOne $ select $ do
         blk <- all_ (_cddb_blocks database)
         return $ max_ (_block_height blk)

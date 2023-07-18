@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -82,16 +83,28 @@ writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ d
         --   (unDbHash $ _block_hash b)
         --   (map (const '.') ts)
 
-batchWrites :: P.Pool Connection -> [Block] -> [[T.Text]] -> [[Transaction]] -> [[Event]] -> [[Signer]] -> [[Transfer]] -> IO ()
+batchWrites
+  :: P.Pool Connection
+  -> [Block]
+  -> [[T.Text]]
+  -> [[Transaction]]
+  -> [[Event]]
+  -> [[Signer]]
+  -> [[Transfer]]
+  -> IO ()
 batchWrites pool bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
+
     runBeamPostgres c $ do
       -- Write the Blocks if unique
       runInsert
         $ insert (_cddb_blocks database) (insertValues bs)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
       -- Write Pub Key many-to-many relationships if unique --
+
+      let mks = concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss
+
       runInsert
-        $ insert (_cddb_minerkeys database) (insertValues $ concat $ zipWith (\b ks -> map (MinerKey (pk b)) ks) bs kss)
+        $ insert (_cddb_minerkeys database) (insertValues mks)
         $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
     withSavepoint c $ do
@@ -104,9 +117,11 @@ batchWrites pool bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransa
         runInsert
           $ insert (_cddb_events database) (insertValues $ concat ess)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+
         runInsert
           $ insert (_cddb_signers database) (insertValues $ concat sss)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+
         runInsert
           $ insert (_cddb_transfers database) (insertValues $ concat tfs)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
