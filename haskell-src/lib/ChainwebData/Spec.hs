@@ -8,6 +8,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 
 module ChainwebData.Spec where
 
@@ -15,6 +16,7 @@ module ChainwebData.Spec where
 import Control.Lens
 import ChainwebData.Api
 
+import qualified Data.Text as T
 import Data.Proxy
 
 import Data.OpenApi.ParamSchema
@@ -22,6 +24,7 @@ import Data.OpenApi.Schema
 import Servant.OpenApi
 import ChainwebData.Pagination
 import Chainweb.Api.ChainId
+import Chainweb.Api.Signer
 import ChainwebData.TxSummary
 import Data.OpenApi
 
@@ -70,6 +73,32 @@ instance ToSchema TransferDetail where
 instance ToSchema ChainwebDataStats where
   declareNamedSchema = genericDeclareNamedSchema
     defaultSchemaOptions{ fieldLabelModifier = drop 5 }
+
+instance ToSchema Signer where
+  declareNamedSchema _ = do
+    textSchema <- declareSchemaRef (Proxy :: Proxy T.Text)
+    sigCapabilitySchema <- declareSchemaRef (Proxy :: Proxy [SigCapability])
+    return $ NamedSchema (Just "Signer") $ mempty
+      & type_ ?~ OpenApiObject
+      & properties
+        .~ [ ("addr", textSchema)
+           , ("scheme", textSchema)
+           , ("pubKey", textSchema)
+           , ("clist", sigCapabilitySchema)
+           ]
+      & required .~ ["pubKey", "clist"]
+
+instance ToSchema SigCapability where
+  declareNamedSchema _ = do
+    textSchema <- declareSchemaRef (Proxy :: Proxy T.Text)
+    valueSchema <- declareSchemaRef (Proxy :: Proxy [A.Value])
+    return $ NamedSchema (Just "SigCapability") $ mempty
+      & type_ ?~ OpenApiObject
+      & properties
+        .~ [ ("name", textSchema)
+           , ("args", valueSchema)
+           ]
+      & required .~ ["name", "args"]
 
 instance ToSchema (StringEncoded Scientific) where
   declareNamedSchema _ = pure $ NamedSchema (Just "StringEncodedNumber") $ mempty
