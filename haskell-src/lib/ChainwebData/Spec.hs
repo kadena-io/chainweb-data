@@ -24,6 +24,7 @@ import Data.OpenApi.Schema
 import Servant.OpenApi
 import ChainwebData.Pagination
 import Chainweb.Api.ChainId
+import Chainweb.Api.Sig
 import Chainweb.Api.Signer
 import ChainwebData.TxSummary
 import Data.OpenApi
@@ -99,6 +100,14 @@ instance ToSchema SigCapability where
            , ("args", valueSchema)
            ]
       & required .~ ["name", "args"]
+
+instance ToSchema Sig where
+  declareNamedSchema _ = do
+    textSchema <- declareSchemaRef (Proxy :: Proxy T.Text)
+    return $ NamedSchema (Just "Sig") $ mempty
+      & type_ ?~ OpenApiObject
+      & properties .~ [ ("sig", textSchema) ]
+      & required .~ ["sig"]
 
 instance ToSchema (StringEncoded Scientific) where
   declareNamedSchema _ = pure $ NamedSchema (Just "StringEncodedNumber") $ mempty
