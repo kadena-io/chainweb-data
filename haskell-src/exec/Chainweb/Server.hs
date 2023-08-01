@@ -60,6 +60,7 @@ import           Text.Printf
 ------------------------------------------------------------------------------
 import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.StringEncoded (StringEncoded(..))
+import qualified Chainweb.Api.Sig as Api
 import qualified Chainweb.Api.Signer as Api
 import           Chainweb.Coins
 import           ChainwebDb.Database
@@ -351,8 +352,9 @@ toApiTxDetail ::
   Block ->
   [Event] ->
   [Api.Signer] ->
+  [Api.Sig] ->
   TxDetail
-toApiTxDetail tx contHist blk evs signers = TxDetail
+toApiTxDetail tx contHist blk evs signers sigs = TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx
         , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
         , _txDetail_gasPrice = _tx_gasPrice tx
@@ -383,6 +385,7 @@ toApiTxDetail tx contHist blk evs signers = TxDetail
         , _txDetail_initialCode = chCode contHist
         , _txDetail_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
         , _txDetail_signers = signers
+        , _txDetail_sigs = sigs
         }
   where
     unMaybeValue = maybe Null unPgJsonb
@@ -429,9 +432,10 @@ queryTxsByKey logger rk c =
         , Api._signer_pubKey = _signer_pubkey s
         , Api._signer_capList = caps
         }
+    let sigs = Api.Sig . unSignature . _signer_sig <$> dbSigners
 
     return $ (`fmap` r) $ \(tx,contHist, blk) ->
-      toApiTxDetail tx contHist blk evs signers
+      toApiTxDetail tx contHist blk evs signers sigs
 
 queryTxsByPactId :: LogFunctionIO Text -> Limit -> Text -> Connection -> IO [TxSummary]
 queryTxsByPactId logger limit pactid c =
