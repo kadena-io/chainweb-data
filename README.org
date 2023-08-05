@@ -150,6 +150,8 @@ Additionally, it can serve an OpenAPI v3 spec of the API when the hidden
 with the API. This feature, however, is kept unofficial for now due to
 its rudimentary documentation.
 
+By specifying the optional `--no-listen` argument, the server can be made read-only,
+allowing multiple servers to serve from the same database.
 
 **** Endpoints
 
