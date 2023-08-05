@@ -117,14 +117,11 @@ You can find an example node config in this repository in
 [node-config-for-chainweb-data.yaml](node-config-for-chainweb-data.yaml).
 
 ** How to run chainweb-data
-   
+
 When running chainweb-data for the first time you should run ~chainweb-data
 server -m~ (with the necessary DB and node options of course). This will create
 the database and start filling the database with blocks. Wait a couple minutes,
-then hit Ctrl-c to stop the server process. Next run ~chainweb-data fill
---disable-indexes~ (again with the necessary options). If you want to leave the
-server running while you run ~fill~, you should not use ~--disable-indexes~.
-This will take longer but will allow the server to stay running. After the
+then run ~chainweb-data fill~ (again with the necessary options). After the
 ~fill~ operation finishes, you can run ~server~ again with the ~-f~ option and it
 will automatically run fill once a day to populate the DB with missing blocks.
 
