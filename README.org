@@ -36,7 +36,7 @@ can easily determine mining statistics and confirm transaction contents.
 on a cloud machine (e.g. Amazon EC2), we recommend that you run the postgres
 instance on an instance attached storage unit.
 
-* Building 
+* Building
 
 ~chainweb-data~ can be built with either ~cabal~, ~stack~, or
 [[https://nixos.org/download.html][Nix]].  Building with ~nix~ is the most
@@ -91,7 +91,7 @@ chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbstring="host
 
 ~chainweb-data~ syncs its data from a running ~chainweb-node~. The node's
 P2P address is specified with the ~--p2p-host~ command. The node's
-Service address is specified with the ~--service-host~ command.  
+Service address is specified with the ~--service-host~ command.
 If custom ports are used, you can specify them with ~--service-port~ and ~--p2p-port~
 
 #+begin_example
