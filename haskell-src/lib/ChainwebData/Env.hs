@@ -216,7 +216,7 @@ data Command
     | Fill FillArgs
     | Single ChainId BlockHeight
     | FillEvents BackfillArgs EventType
-    | BackFillTransfers Bool BackfillArgs
+    | BackFillTransfers BackfillArgs
     deriving (Show)
 
 data BackfillArgs = BackfillArgs
@@ -410,6 +410,10 @@ eventTypeP :: Parser EventType
 eventTypeP =
   flag CoinbaseAndTx OnlyTx (long "only-tx" <> help "Only fill missing events associated with transactions")
 
+-- The --disable-indexes flag is unused, but we keep it around for backwards compatibility
+legacyDisableIndexesP :: Parser Bool
+legacyDisableIndexesP = flag False True (long "disable-indexes" <> internal)
+
 commands :: Parser Command
 commands = hsubparser
   (  command "listen" (info (Listen <$> etlP)
@@ -426,7 +430,7 @@ commands = hsubparser
        (progDesc "Serve the chainweb-data REST API (also does listen)"))
   <> command "fill-events" (info (FillEvents <$> bfArgsP <*> eventTypeP)
        (progDesc "Event Worker - Fills missing events"))
-  <> command "backfill-transfers" (info (BackFillTransfers <$> flag False True (long "disable-indexes" <> help "Delete indexes on transfers table") <*> bfArgsP)
+  <> command "backfill-transfers" (info (BackFillTransfers <$> bfArgsP <* legacyDisableIndexesP)
        (progDesc "Backfill transfer table entries"))
   )
 

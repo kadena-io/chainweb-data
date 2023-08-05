@@ -92,7 +92,7 @@ main = do
                               void $ forkIO $ retryingListener env
                             Nothing -> listen env
                       Backfill as -> backfill env as
-                      BackFillTransfers indexP as -> backfillTransfersCut env indexP as
+                      BackFillTransfers as -> backfillTransfersCut env as
                       Fill as -> gaps env as
                       Single cid h -> single env cid h
                       FillEvents as et -> fillEvents env as et

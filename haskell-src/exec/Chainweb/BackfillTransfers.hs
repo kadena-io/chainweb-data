@@ -39,8 +39,8 @@ import           System.Logger.Types hiding (logg)
 -- 1. check if transfers table is actually empty. If so, wait until server fills some rows near "top" to start backfill
 -- 2. check if events table has any coinbase gaps. If so,  tell user to fill those gaps
 -- 3. Fill from last known max height on each chain all the way back to events activation height(s)
-backfillTransfersCut :: Env -> Bool -> BackfillArgs -> IO ()
-backfillTransfersCut env _disableIndexesPred args = do
+backfillTransfersCut :: Env -> BackfillArgs -> IO ()
+backfillTransfersCut env args = do
 
     withDb env (runSelectReturningOne $ select $ pure $ exists_ (all_ (_cddb_transfers database) $> as_ @Int32 (val_ 1))) >>= \case
       Just False -> do
