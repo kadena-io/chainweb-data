@@ -149,16 +149,21 @@ few endpoints for doing common queries.
 **** Endpoints
 
 - ~/txs/recent~ gets a list of recent transactions
-- ~/txs/search?search=foo&limit=20&offset=40~ searches for transactions containing the string ~foo~
+- ~/txs/search?search=foo&limit=20&offset=40&minheight=100&maxheight=200~
+  searches for transactions containing the string ~foo~ or the provided transaction pact id,
+  with the additional option to filter results based on block height.
 - ~/txs/tx?requestkey=<request-key>~ gets the details of a transaction with the given request key
-- ~/txs/events?search=foo&limit=20&offset=40~ gets the details of a transaction with the given request key
+- ~/txs/txs?requestkey=<request-key>~ same as txs, but returns a list of transactions,
+  which allows the client to handle multiple appearances due to orphans.
+- ~/txs/events?search=foo&limit=20&offset=40&minheight=100&maxheight=200~ searches for
+  transaction events containing the string ~foo~, and allows for results to be filtered
+  by block height. It also offers pagination with limit and offset parameters.
 - ~/stats~ returns a few stats such as transaction count and coins in circulation
 - ~/coins~ returns just the coins in circulation
-- ~/txs/account/<account-identifier>?token=<token-name>&chainid=<chainid>&fromheight=<blockheight>&limit=<some-limit>&offset=<some-offset>~
-  returns account information given some ~account-identifier~, ~token~ and
-  ~chainid~. The optional parameter ~minheight~ forces the results to only have
-  blockheights larger than than or equal to it. If ~token~ is omitted, the token ~coin~
-  is assumed. If ~chainid~ is omitted, all chains are searched.
+- ~/txs/account/<account-identifier>?token=coin&chainid=12&minheight=100&maxheight=200&limit=20&offset=40~
+  provides transactions related to the specified account identifier.
+  It includes additional options to filter results based on the token name, chain ID,
+  and block height, as well as pagination controls via limit and offset parameters.
 
 For more detailed information, see the API definition [[https://github.com/kadena-io/chainweb-api/blob/master/lib/ChainwebData/Api.hs#L24][here]].
 
