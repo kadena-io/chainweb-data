@@ -116,7 +116,10 @@ withEventsMinHeight version errorMessage action = withVersion version onVersion 
     Just height -> action height
     Nothing -> liftIO $ die errorMessage
   where
+    -- Associate each version with the fork height for Pact4Coin3
     onVersion = \case
       "mainnet01" -> Just 1_722_500
       "testnet04" -> Just 1_261_000
+      "development" -> Just 14
+      "fast-development" -> Just 0
       _ -> Nothing
