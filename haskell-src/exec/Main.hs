@@ -118,10 +118,10 @@ main = do
       CheckSchema _ level -> level
 
 migrationFiles :: [(FilePath, BS.ByteString)]
-migrationFiles = $(embedDir "db-schema/migrations")
+migrationFiles = $(makeRelativeToProject "db-schema/migrations" >>= embedDir)
 
 initSql :: BS.ByteString
-initSql = $(embedFile "db-schema/init.sql")
+initSql = $(makeRelativeToProject "db-schema/init.sql" >>= embedFile)
 
 runMigrations ::
   P.Pool Connection ->
