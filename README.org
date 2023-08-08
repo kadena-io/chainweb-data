@@ -36,7 +36,7 @@ can easily determine mining statistics and confirm transaction contents.
 on a cloud machine (e.g. Amazon EC2), we recommend that you run the postgres
 instance on an instance attached storage unit.
 
-* Building 
+* Building
 
 ~chainweb-data~ can be built with either ~cabal~, ~stack~, or
 [[https://nixos.org/download.html][Nix]].  Building with ~nix~ is the most
@@ -91,7 +91,7 @@ chainweb-data <command> --service-host=<node> --p2p-host=<node> --dbstring="host
 
 ~chainweb-data~ syncs its data from a running ~chainweb-node~. The node's
 P2P address is specified with the ~--p2p-host~ command. The node's
-Service address is specified with the ~--service-host~ command.  
+Service address is specified with the ~--service-host~ command.
 If custom ports are used, you can specify them with ~--service-port~ and ~--p2p-port~
 
 #+begin_example
@@ -117,14 +117,11 @@ You can find an example node config in this repository in
 [node-config-for-chainweb-data.yaml](node-config-for-chainweb-data.yaml).
 
 ** How to run chainweb-data
-   
+
 When running chainweb-data for the first time you should run ~chainweb-data
 server -m~ (with the necessary DB and node options of course). This will create
 the database and start filling the database with blocks. Wait a couple minutes,
-then hit Ctrl-c to stop the server process. Next run ~chainweb-data fill
---disable-indexes~ (again with the necessary options). If you want to leave the
-server running while you run ~fill~, you should not use ~--disable-indexes~.
-This will take longer but will allow the server to stay running. After the
+then run ~chainweb-data fill~ (again with the necessary options). After the
 ~fill~ operation finishes, you can run ~server~ again with the ~-f~ option and it
 will automatically run fill once a day to populate the DB with missing blocks.
 
@@ -146,22 +143,34 @@ As a new block comes in, its chain number is printed as a single digit.
 
 *** server
 
-~server~ is just like ~listen~ but also runs an HTTP server that serves a
+~server~ is just like ~listen~, but also runs an HTTP server that serves a
 few endpoints for doing common queries.
+Additionally, it can serve an OpenAPI v3 spec of the API when the hidden
+`--serve-swagger-ui` option is enabled, offering a basic interface for interacting
+with the API. This feature, however, is kept unofficial for now due to
+its rudimentary documentation.
+
+By specifying the optional `--no-listen` argument, the server can be made read-only,
+allowing multiple servers to serve from the same database.
 
 **** Endpoints
 
 - ~/txs/recent~ gets a list of recent transactions
-- ~/txs/search?search=foo&limit=20&offset=40~ searches for transactions containing the string ~foo~
+- ~/txs/search?search=foo&limit=20&offset=40&minheight=100&maxheight=200~
+  searches for transactions containing the string ~foo~ or the provided transaction pact id,
+  with the additional option to filter results based on block height.
 - ~/txs/tx?requestkey=<request-key>~ gets the details of a transaction with the given request key
-- ~/txs/events?search=foo&limit=20&offset=40~ gets the details of a transaction with the given request key
+- ~/txs/txs?requestkey=<request-key>~ same as txs, but returns a list of transactions,
+  which allows the client to handle multiple appearances due to orphans.
+- ~/txs/events?search=foo&limit=20&offset=40&minheight=100&maxheight=200~ searches for
+  transaction events containing the string ~foo~, and allows for results to be filtered
+  by block height. It also offers pagination with limit and offset parameters.
 - ~/stats~ returns a few stats such as transaction count and coins in circulation
 - ~/coins~ returns just the coins in circulation
-- ~/txs/account/<account-identifier>?token=<token-name>&chainid=<chainid>&fromheight=<blockheight>&limit=<some-limit>&offset=<some-offset>~
-  returns account information given some ~account-identifier~, ~token~ and
-  ~chainid~. The optional parameter ~minheight~ forces the results to only have
-  blockheights larger than than or equal to it. If ~token~ is omitted, the token ~coin~
-  is assumed. If ~chainid~ is omitted, all chains are searched.
+- ~/txs/account/<account-identifier>?token=coin&chainid=12&minheight=100&maxheight=200&limit=20&offset=40~
+  provides transactions related to the specified account identifier.
+  It includes additional options to filter results based on the token name, chain ID,
+  and block height, as well as pagination controls via limit and offset parameters.
 
 For more detailed information, see the API definition [[https://github.com/kadena-io/chainweb-api/blob/master/lib/ChainwebData/Api.hs#L24][here]].
 
@@ -256,3 +265,11 @@ releases. Use the ~fill~ command instead.
 *Note:* Even though you specified a single chain/height pair, you might see it
 report that it filled in more than one block. This is expected, and will occur
 when orphans/forks are present at that height.
+
+*** check-schema
+
+~check-schema~ is used to perform a check of the ORM definitions against the DB schema.
+
+#+begin_example
+  > chainweb-data check-schema --service-host=foo.chainweb.com --p2p-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
+#+end_example
