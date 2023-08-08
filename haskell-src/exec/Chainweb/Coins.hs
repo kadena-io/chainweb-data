@@ -37,11 +37,11 @@ import           Text.Read
 -- | Read in the reward csv via TH for deployment purposes.
 --
 rawMinerRewards :: ByteString
-rawMinerRewards = $(embedFile "data/miner_rewards.csv")
+rawMinerRewards = $(makeRelativeToProject "data/miner_rewards.csv" >>= embedFile)
 {-# NOINLINE rawMinerRewards #-}
 
 rawAllocations :: ByteString
-rawAllocations = $(embedFile "data/token_payments.csv")
+rawAllocations = $(makeRelativeToProject "data/token_payments.csv" >>= embedFile)
 
 allocations :: [AllocationEntry]
 allocations = V.toList $ decodeAllocations rawAllocations
