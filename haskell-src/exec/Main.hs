@@ -67,10 +67,9 @@ main = do
               logg Info $ "Constructing rich list using given db-path: " <> fromString fp
               return fp
           richList logg fp version
-        Args c pgc us u _ ms mbMigFolder -> do
+        Args c pgc us _ ms mbMigFolder -> do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
-          logg Info $ "P2P API: " <> fromString (showUrlScheme (UrlScheme Https u))
           withCWDPool pgc $ \pool -> do
             runMigrations pool logg ms mbMigFolder
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
@@ -82,7 +81,7 @@ main = do
                 case mcids of
                   Nothing -> logg Error "Node did not have graph information" >> exitFailure
                   Just cids -> do
-                    let !env = Env m pool us u ni cids logg
+                    let !env = Env m pool us ni cids logg
                     case c of
                       Listen etlenv ->
                           case etlenv of
@@ -112,7 +111,7 @@ main = do
       & loggerConfigThreshold .~ level
     backendConfig = defaultHandleBackendConfig
     getLevel = \case
-      Args _ _ _ _ level _ _ -> level
+      Args _ _ _ level _ _ -> level
       RichListArgs _ level _ -> level
       MigrateOnly _ level _ -> level
       CheckSchema _ level -> level

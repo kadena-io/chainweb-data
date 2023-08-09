@@ -69,7 +69,7 @@ import           Text.Printf
 type MigrationsFolder = FilePath
 
 data Args
-  = Args Command Connect UrlScheme Url LogLevel MigrationAction (Maybe MigrationsFolder)
+  = Args Command Connect UrlScheme LogLevel MigrationAction (Maybe MigrationsFolder)
     -- ^ arguments for all but the richlist command
   | RichListArgs NodeDbPath LogLevel ChainwebVersion
     -- ^ arguments for the Richlist command
@@ -81,7 +81,6 @@ data Env = Env
   { _env_httpManager :: Manager
   , _env_dbConnPool :: Pool Connection
   , _env_serviceUrlScheme :: UrlScheme
-  , _env_p2pUrl :: Url
   , _env_nodeInfo :: NodeInfo
   , _env_chainsAtHeight :: [(BlockHeight, [ChainId])]
   , _env_logger :: LogFunctionIO Text
@@ -260,10 +259,14 @@ envP = Args
   <$> commands
   <*> connectP
   <*> urlSchemeParser "service" 1848
-  <*> urlParser "p2p" 443
   <*> logLevelParser
   <*> migrationP
   <*> migrationsFolderParser
+  <* ignoredP2pParser
+  where
+    ignoredP2pParser = ()
+      <$ strOption (long "p2p-host" <> internal <> value ("unused" :: String))
+      <* strOption (long "p2p-host" <> internal <> value ("unused" :: String))
 
 migrationsFolderParser :: Parser (Maybe MigrationsFolder)
 migrationsFolderParser = optional $ strOption
