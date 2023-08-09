@@ -262,6 +262,7 @@ envP = Args
   <*> logLevelParser
   <*> migrationP
   <*> migrationsFolderParser
+  -- We keep the p2p options around for backwards compatibility, but they're unused
   <* ignoredP2pParser
   where
     ignoredP2pParser = ()
