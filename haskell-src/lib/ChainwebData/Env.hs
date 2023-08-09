@@ -266,7 +266,7 @@ envP = Args
   where
     ignoredP2pParser = ()
       <$ strOption (long "p2p-host" <> internal <> value ("unused" :: String))
-      <* strOption (long "p2p-host" <> internal <> value ("unused" :: String))
+      <* strOption (long "p2p-port" <> internal <> value ("unused" :: String))
 
 migrationsFolderParser :: Parser (Maybe MigrationsFolder)
 migrationsFolderParser = optional $ strOption
