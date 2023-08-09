@@ -145,11 +145,11 @@ As a new block comes in, its chain number is printed as a single digit.
 ~server~ is just like ~listen~, but also runs an HTTP server that serves a
 few endpoints for doing common queries.
 Additionally, it can serve an OpenAPI v3 spec of the API when the hidden
-`--serve-swagger-ui` option is enabled, offering a basic interface for interacting
+~--serve-swagger-ui~ option is enabled, offering a basic interface for interacting
 with the API. This feature, however, is kept unofficial for now due to
 its rudimentary documentation.
 
-By specifying the optional `--no-listen` argument, the server can be made read-only,
+By specifying the optional ~--no-listen~ argument, the server can be made read-only,
 allowing multiple servers to serve from the same database.
 
 **** Endpoints
