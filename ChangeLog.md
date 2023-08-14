@@ -5,7 +5,7 @@
 * Fix `fill` and `backfill` issues caused by node's P2P API throttling, resulting in partial fills (#151)
 * Decouple `chainweb-data` from the P2P API of `chainweb-node`, using the service endpoint exclusively instead. The `--p2p-{host,post}` CLI arguments are no longer needed, but are still recognized for backwards compatibility (#160)
 * Enable running the HTTP API without the ETL, allowing read-only operation (#149)
-* Attach signer and signature information to `TxDetail` endpoints (`/txs/{tx,txs}`) (#152)
+* Attach signer and signature information to `TxDetail` endpoints (`/txs/{tx,txs}`) (#152,#153,#155)
 * Extend network metadata to allow ETL'ing from (`fast-`)`development` nodes (#158)
 
 ## 2.2.0 (2023-05-23)
