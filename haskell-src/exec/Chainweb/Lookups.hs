@@ -167,7 +167,7 @@ payloadWithOutputs env (T2 cid0 hsh0) = do
   pure res
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
-    url = showUrlScheme (UrlScheme Https $ _env_p2pUrl env) <> T.unpack query
+    url = showUrlScheme (_env_serviceUrlScheme env) <> T.unpack query
     query = "/chainweb/0.0/" <> v <> "/chain/" <> cid <> "/payload/" <> hsh <> "/outputs"
     cid = T.pack $ show cid0
     hsh = unDbHash hsh0
@@ -184,8 +184,8 @@ queryCut :: Env -> IO (Either ApiError ByteString)
 queryCut e = do
   let v = _nodeInfo_chainwebVer $ _env_nodeInfo e
       m = _env_httpManager e
-      u = _env_p2pUrl e
-      url = printf "%s/chainweb/0.0/%s/cut" (showUrlScheme $ UrlScheme Https u) (T.unpack v)
+      u = _env_serviceUrlScheme e
+      url = printf "%s/chainweb/0.0/%s/cut" (showUrlScheme u) (T.unpack v)
   req <- parseRequest url
   res <- handleRequest req m
   pure $ responseBody <$> res
@@ -350,7 +350,7 @@ mkTxEvents :: Int64 -> ChainId -> DbHash BlockHash -> (CW.Transaction,Transactio
 mkTxEvents height cid blk (tx,txo) = zipWith (mkEvent cid height blk (Just rk)) (_toutEvents txo) [0..]
   where
     rk = DbHash $ hashB64U $ CW._transaction_hash tx
-    
+
 
 mkEvent :: ChainId -> Int64 -> DbHash BlockHash -> Maybe (DbHash TxHash) -> Value -> Int64 -> Event
 mkEvent (ChainId chainid) height block requestkey ev idx = Event

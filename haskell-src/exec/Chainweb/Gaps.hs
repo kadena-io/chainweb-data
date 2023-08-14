@@ -32,7 +32,6 @@ import           Network.Connection (TLSSettings(TLSSettingsSimple))
 import           Network.HTTP.Client
 import           Network.HTTP.Client.TLS
 import           System.Logger hiding (logg)
-import qualified System.Logger as S
 import           System.Exit (exitFailure)
 import           Text.Printf
 
@@ -123,7 +122,6 @@ _test_headersBetween_and_payloadBatch = do
       manager <- newManager $ mkManagerSettings (TLSSettingsSimple True False False) Nothing
       let urlHost_ = "localhost"
           serviceUrlScheme = UrlScheme Http $ Url urlHost_ 1848
-          p2pUrl = Url urlHost_ 443
           nodeInfo = NodeInfo
             {
                 _nodeInfo_chainwebVer = "mainnet01"
@@ -137,7 +135,6 @@ _test_headersBetween_and_payloadBatch = do
           _env_httpManager = manager
         , _env_dbConnPool = undefined
         , _env_serviceUrlScheme = serviceUrlScheme
-        , _env_p2pUrl = p2pUrl
         , _env_nodeInfo = nodeInfo
         , _env_chainsAtHeight = undefined
         , _env_logger = undefined
@@ -185,7 +182,6 @@ _test_getBlockGaps dbHost dbPort dbUser password dbName = withHandleBackend defa
           _env_httpManager = m
         , _env_dbConnPool = pool
         , _env_serviceUrlScheme = UrlScheme Http $ Url "localhost" 1848
-        , _env_p2pUrl = Url "localhost" 443
         , _env_nodeInfo = ni
         , _env_chainsAtHeight = fromMaybe (error "chainsAtMinHeight missing") $ map (second (map (ChainId . fst))) <$> (_nodeInfo_graphs ni)
         , _env_logger = lr
