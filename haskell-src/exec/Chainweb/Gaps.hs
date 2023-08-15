@@ -90,11 +90,11 @@ gapsCut env args cutBS = do
       let range = (ChainId (fromIntegral cid), l, h)
       let onCatch (e :: SomeException) = do
               logger Error $
-                  fromString $ printf "Caught exception from headersBetween for range %s: %s" (show range) (show e)
+                  fromString $ printf "Caught exception from blocksBetween for range %s: %s" (show range) (show e)
               pure $ Right []
-      (headersBetween env range `catch` onCatch) >>= \case
+      (blocksBetween env range `catch` onCatch) >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
-        Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
+        Right [] -> logger Error $ fromString $ printf "blocksBetween: %s" $ show range
         Right hs -> writeBlocks env pool count hs
       maybe mempty threadDelay delay
 

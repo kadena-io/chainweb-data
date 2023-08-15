@@ -8,7 +8,8 @@
 
 module Chainweb.Lookups
   ( -- * Endpoints
-    headersBetween
+    blocksBetween
+  , headersBetween
   , payloadWithOutputs
   , payloadWithOutputsBatch
   , getNodeInfo
@@ -101,6 +102,31 @@ handleRequest req mgr = do
 
 --------------------------------------------------------------------------------
 -- Endpoints
+--
+-- | Returns headers in the range [low, high] (inclusive).
+blocksBetween
+  :: Env
+  -> (ChainId, Low, High)
+  -> IO (Either ApiError [(BlockHeader, BlockPayloadWithOutputs)])
+blocksBetween env (cid, Low low, High up) = do
+  req <- parseRequest url
+  eresp <- handleRequest (req { requestHeaders = requestHeaders req <> encoding })
+                     (_env_httpManager env)
+  let
+    fromJSONMaybe val = case fromJSON val of
+      Success a -> Just a
+      Error _ -> Nothing
+    headerAndPayloadWithOutputs o =
+      ( o ^?! key "header" . to fromJSONMaybe . _Just
+      , o ^?! key "payloadWithOutputs" . to fromJSONMaybe . _Just
+      )
+  pure $ (^.. key "items" . values . to headerAndPayloadWithOutputs) . responseBody <$> eresp
+  where
+    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
+    url = showUrlScheme (_env_serviceUrlScheme env) <> query
+    query = printf "/chainweb/0.0/%s/chain/%d/block?minheight=%d&maxheight=%d"
+      (T.unpack v) (unChainId cid) low up
+    encoding = [("accept", "application/json")]
 
 -- | Returns headers in the range [low, high] (inclusive).
 headersBetween

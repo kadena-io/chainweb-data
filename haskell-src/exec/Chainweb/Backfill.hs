@@ -83,9 +83,9 @@ backfillBlocksCut env args cutBS = do
         Just d -> threadDelay d
     f :: IORef Int -> (ChainId, Low, High) -> IO ()
     f count range = do
-      headersBetween env range >>= \case
+      blocksBetween env range >>= \case
         Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
-        Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show range
+        Right [] -> logg Error $ fromString $ printf "blocksBetween: %s" $ show range
         Right hs -> writeBlocks env pool count hs
       delayFunc
 
