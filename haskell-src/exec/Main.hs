@@ -54,8 +54,8 @@ main = do
     withLogger (config (getLevel args)) backend $ \logger -> do
       let logg = loggerFunIO logger
       case args of
-        MigrateOnly pgc _ mbMigFolder -> withPool pgc $ \pool ->
-          runMigrations pool logg RunMigrations mbMigFolder
+        MigrateOnly pgc _ migrations -> withPool pgc $ \pool ->
+          runMigrations pool logg RunMigrations migrations
         RichListArgs (NodeDbPath mfp) _ version -> do
           fp <- case mfp of
             Nothing -> do
@@ -67,11 +67,11 @@ main = do
               logg Info $ "Constructing rich list using given db-path: " <> fromString fp
               return fp
           richList logg fp version
-        Args c pgc us _ ms mbMigFolder -> do
+        Args c pgc us _ ms migrations -> do
           logg Info $ "Using database: " <> fromString (show pgc)
           logg Info $ "Service API: " <> fromString (showUrlScheme us)
           withCWDPool pgc $ \pool -> do
-            runMigrations pool logg ms mbMigFolder
+            runMigrations pool logg ms migrations
             let mgrSettings = mkManagerSettings (TLSSettingsSimple True False False) Nothing
             m <- newManager mgrSettings
             getNodeInfo m us >>= \case
@@ -116,8 +116,8 @@ main = do
       MigrateOnly _ level _ -> level
       CheckSchema _ level -> level
 
-migrationFiles :: [(FilePath, BS.ByteString)]
-migrationFiles = $(makeRelativeToProject "db-schema/migrations" >>= embedDir)
+baseMigrationFiles :: [(FilePath, BS.ByteString)]
+baseMigrationFiles = $(makeRelativeToProject "db-schema/migrations" >>= embedDir)
 
 initSql :: BS.ByteString
 initSql = $(makeRelativeToProject "db-schema/init.sql" >>= embedFile)
@@ -126,9 +126,9 @@ runMigrations ::
   P.Pool Connection ->
   LogFunctionIO Text ->
   Mg.MigrationAction ->
-  Maybe MigrationsFolder ->
+  Migrations ->
   IO ()
-runMigrations pool logg migAction mbMigFolder = do
+runMigrations pool logg migAction migrations = do
 
   P.withResource pool $ \conn -> do
     query_ conn "SELECT to_regclass('blocks') :: text" >>= \case
@@ -148,11 +148,15 @@ runMigrations pool logg migAction mbMigFolder = do
         logg Info "blocks table does not exist, running init.sql to initialize an empty database"
         void $ execute_ conn (PG.Query initSql)
 
-  files <- case mbMigFolder of
+  baseFiles <- case migrationsFolderBase migrations of
     Just migFolder -> getDir migFolder
-    Nothing -> return migrationFiles
+    Nothing -> return baseMigrationFiles
+  extraFiles <- case migrationsFolderExtra migrations of
+    Just migFolder -> getDir migFolder
+    Nothing -> return []
+  let migrationFiles = baseFiles ++ extraFiles
 
-  let steps = map (uncurry Mg.MigrationStep) files
+  let steps = map (uncurry Mg.MigrationStep) migrationFiles
 
   Mg.runMigrations migAction steps pool logg
 
