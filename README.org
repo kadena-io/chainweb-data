@@ -25,6 +25,7 @@
     - [[#single][single]]
     - [[#migrate][migrate]]
     - [[#check-schema][check-schema]]
+  - [[#specializing-the-database-schema][Specializing the Database Schema]]
 
 * Overview
 
@@ -284,3 +285,51 @@ This can be useful for separating the migration step from running the ETL and/or
 #+begin_example
   > chainweb-data check-schema --service-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
 #+end_example
+
+** Specializing the Database Schema
+
+A common use case for ~chainweb-data~ is to primarily run it as an ETL process to
+populate a Postgres database with the blockchain data.  In this case, ~chainweb-data~
+operators often want to run their schema migrations and specialize the schema according
+to their own needs. Obviously, ~chainweb-data~ can not guarantee unimpeded operation
+under arbitrary schema changes, so any node operator that wishes to specialize the
+database takes on the responsibility of ensuring that their extra schema changes
+do not interfere with the operation of ~chainweb-data~ at the time of defining those
+changes and also in the face of schema changes that will be introduced by future
+~chainweb-data~ versions.
+
+That said ~chainweb-data~ does support a structure in order to help with this process.
+Any version of ~chainweb-data~ comes with a set of schema migrations included in the
+binary that are applied by default to the database at migration time. These migrations
+are defined in the ~haskell-src/db-schema/migrations~ directory. It is possible to override
+these migrations by calling ~chainweb-data~ with the optional ~--migrations-folder~ argument.
+However, in order to facilitate the typical use case, which is to add migrations to the
+default set, an ~--extra-migrations-folder~ argument is also provided.
+
+The default migrations that come with ~chainweb-data~ generally have the following file
+name format: ~X.Y.Z.N_NAME.sql~, where ~X.Y.Z~ is the version of ~chainweb-data~ that the
+migration was introduced right after and ~N~ is the migration number. These migrations are executed
+in "dictionary order" if one considers the numeric values of X,Y,Z and N to be the letters.
+The migration procedure will scan the names and the content hashes of the existing migrations
+and expect them to be coherent with the migrations provided via the ~--extra-migrations-folder~
+and ~--migrations-folder~ arguments (or the default migrations included in the binary).
+If the existing migrations are a prefix (i.e. they are in the correct order and have no gaps)
+of the expected migrations, then the remaining migrations will be applied in the same order.
+
+~chainweb-data~ operators can inject their own migrations to be executed at the right time
+by taking advantage of this name-based ordering. For example, version 2.3.0 of ~chainweb-data~
+comes with ~2.2.0.1_...~ and any future version of ~chainweb-data~ will come with migrations
+that are equal to or greater than ~2.3.0.1_...~, therefore, it is guaranteed that any migration
+with the name ~2.3.0.0.N_...~ will be executed after the migrations until version 2.3.0 and
+before any future migrations. Likewise, ~chainweb-data~ operators that run the latest commit
+from the ~master~ branch can also inject their migrations. For example, if the latest commit
+has the last migration named ~2.2.0.1_...~, then their migrations can be named ~2.2.0.1.N_...~.
+It's important to note however, that running ~chainweb-data~ from an unreleased commit of the
+~master~ branch is not supported officially and even though we aim to avoid it, we can change
+new migrations of the ~master~ branch without notice, so you may have to fix your database
+manually by undoing migrations and removing ~schema_migrations~ entries.
+
+~chainweb-data~ operators that specialize their database schema are strongly advised to review
+the incoming migrations whenever they upgrade their ~chainweb-data~ versions. This will allow
+them to detect any potential conflicts and inject new schema migrations at the right order to
+accommodate the incoming changes.
