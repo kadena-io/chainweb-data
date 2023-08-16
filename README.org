@@ -24,6 +24,7 @@
     - [[#gaps][gaps]]
     - [[#single][single]]
     - [[#migrate][migrate]]
+    - [[#check-schema][check-schema]]
 
 * Overview
 
