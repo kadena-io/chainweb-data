@@ -23,6 +23,7 @@
     - [[#backfill-transfers][backfill-transfers]]
     - [[#gaps][gaps]]
     - [[#single][single]]
+    - [[#migrate][migrate]]
 
 * Overview
 
@@ -264,6 +265,16 @@ releases. Use the ~fill~ command instead.
 *Note:* Even though you specified a single chain/height pair, you might see it
 report that it filled in more than one block. This is expected, and will occur
 when orphans/forks are present at that height.
+
+*** migrate
+
+~migrate~ allows you to migrate the database schema to the latest version and exit.
+This can be useful for separating the migration step from running the ETL and/or HTTP service.
+
+#+begin_example
+  > chainweb-data migrate --dbuser=joe --dbname=chainweb-data
+#+end_example
+
 
 *** check-schema
 
