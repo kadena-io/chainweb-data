@@ -288,28 +288,27 @@ This can be useful for separating the migration step from running the ETL and/or
 
 ** Specializing the Database Schema
 
-A common use case for ~chainweb-data~ is to primarily run it as an ETL process to
-populate a Postgres database with the blockchain data.  In this case, ~chainweb-data~
-operators often want to run their schema migrations and specialize the schema according
-to their own needs. Obviously, ~chainweb-data~ can not guarantee unimpeded operation
-under arbitrary schema changes, so any node operator that wishes to specialize the
-database takes on the responsibility of ensuring that their extra schema changes
-do not interfere with the operation of ~chainweb-data~ at the time of defining those
-changes and also in the face of schema changes that will be introduced by future
-~chainweb-data~ versions.
+A common use case for ~chainweb-data~ is to primarily run it as a worker process to
+populate a Postgres database with blockchain data.  In this case, ~chainweb-data~
+operators often want to run their schema migrations and modify the schema according
+to their needs. Obviously, by introducing arbitrary schema changes, we can not guarantee unimpeded operation of ~chainweb-data~.
+Any node operator that wishes to modify the
+database, takes on the responsibility of ensuring that their changes
+do not interfere with the _current_ operation of ~chainweb-data~.
+A node operator is also responsible for considering their changes in the face of _future_ releases of ~chainweb-data~.
 
-That said ~chainweb-data~ does support a structure in order to help with this process.
+~chainweb-data~ provides a way to help with this process.
 Any version of ~chainweb-data~ comes with a set of schema migrations included in the
 binary that are applied by default to the database at migration time. These migrations
 are defined in the ~haskell-src/db-schema/migrations~ directory. It is possible to override
 these migrations by calling ~chainweb-data~ with the optional ~--migrations-folder~ argument.
-However, in order to facilitate the typical use case, which is to add migrations to the
-default set, an ~--extra-migrations-folder~ argument is also provided.
+However, in order to add migrations to the
+default set, an ~--extra-migrations-folder~ argument is provided.
 
-The default migrations that come with ~chainweb-data~ generally have the following file
-name format: ~X.Y.Z.N_NAME.sql~, where ~X.Y.Z~ is the version of ~chainweb-data~ that the
-migration was introduced right after and ~N~ is the migration number. These migrations are executed
-in "dictionary order" if one considers the numeric values of X,Y,Z and N to be the letters.
+The default migrations that come with ~chainweb-data~ have the following file
+name format: ~X.Y.Z.N_NAME.sql~. Here ~X.Y.Z~ is the version of ~chainweb-data~ after which the
+migration was introduced. ~N~ is the migration number. These migrations are executed
+in "alphabetical order" considering X,Y,Z and N to be the elements by which they are sorted.
 The migration procedure will scan the names and the content hashes of the existing migrations
 and expect them to be coherent with the migrations provided via the ~--extra-migrations-folder~
 and ~--migrations-folder~ arguments (or the default migrations included in the binary).
