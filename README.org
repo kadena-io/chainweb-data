@@ -323,12 +323,13 @@ with the name ~2.3.0.0.N_...~ will be executed after the migrations until versio
 before any future migrations. Likewise, ~chainweb-data~ operators that run the latest commit
 from the ~master~ branch can also inject their migrations. For example, if the latest commit
 has the last migration named ~2.2.0.1_...~, then their migrations can be named ~2.2.0.1.N_...~.
-It's important to note however, that running ~chainweb-data~ from an unreleased commit of the
-~master~ branch is not supported officially and even though we aim to avoid it, we can change
+
+It's important to note, that running ~chainweb-data~ from an unreleased commit of the
+~master~ branch is **not officially supported** and even though we aim to avoid it, we can change
 new migrations of the ~master~ branch without notice, so you may have to fix your database
 manually by undoing migrations and removing ~schema_migrations~ entries.
 
 ~chainweb-data~ operators that specialize their database schema are strongly advised to review
-the incoming migrations whenever they upgrade their ~chainweb-data~ versions. This will allow
-them to detect any potential conflicts and inject new schema migrations at the right order to
+the incoming migrations **before** they upgrade their ~chainweb-data~ versions. This will allow
+them to detect any potential conflicts and insert new schema migrations to be executed at the right moment, to
 accommodate the incoming changes.
