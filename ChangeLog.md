@@ -7,6 +7,7 @@
 * Enable running the HTTP API without the ETL, allowing read-only operation (#149)
 * Attach signer and signature information to `TxDetail` endpoints (`/txs/{tx,txs}`) (#152,#153,#155)
 * Extend network metadata to allow ETL'ing from (`fast-`)`development` nodes (#158)
+* Add `--extra-migrations-folder` CLI argument (#163)
 
 ## 2.2.0 (2023-05-23)
 
