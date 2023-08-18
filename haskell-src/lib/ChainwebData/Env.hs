@@ -5,6 +5,7 @@
 module ChainwebData.Env
   ( Args(..)
   , Env(..)
+  , Migrations(..)
   , MigrationsFolder
   , chainStartHeights
   , ServerEnv(..)
@@ -68,12 +69,17 @@ import           Text.Printf
 
 type MigrationsFolder = FilePath
 
+data Migrations = Migrations
+  { migrationsFolderBase :: Maybe MigrationsFolder
+  , migrationsFolderExtra :: Maybe MigrationsFolder
+  } deriving (Show)
+
 data Args
-  = Args Command Connect UrlScheme LogLevel MigrationAction (Maybe MigrationsFolder)
+  = Args Command Connect UrlScheme LogLevel MigrationAction Migrations
     -- ^ arguments for all but the richlist command
   | RichListArgs NodeDbPath LogLevel ChainwebVersion
     -- ^ arguments for the Richlist command
-  | MigrateOnly Connect LogLevel (Maybe MigrationsFolder)
+  | MigrateOnly Connect LogLevel Migrations
   | CheckSchema Connect LogLevel
   deriving (Show)
 
@@ -261,7 +267,7 @@ envP = Args
   <*> urlSchemeParser "service" 1848
   <*> logLevelParser
   <*> migrationP
-  <*> migrationsFolderParser
+  <*> migrationsParser
   -- We keep the p2p options around for backwards compatibility, but they're unused
   <* ignoredP2pParser
   where
@@ -269,12 +275,18 @@ envP = Args
       <$ strOption (long "p2p-host" <> internal <> value ("unused" :: String))
       <* strOption (long "p2p-port" <> internal <> value ("unused" :: String))
 
-migrationsFolderParser :: Parser (Maybe MigrationsFolder)
-migrationsFolderParser = optional $ strOption
-    ( long "migrations-folder"
-   <> metavar "PATH"
-   <> help "Path to the migrations folder"
-    )
+migrationsParser :: Parser Migrations
+migrationsParser = Migrations
+  <$> optional (strOption
+        $ long "migrations-folder"
+       <> metavar "PATH"
+       <> help "Path to the migrations folder"
+      )
+  <*> optional (strOption
+        $ long "extra-migrations-folder"
+       <> metavar "PATH"
+       <> help "Path to extra migrations folder"
+      )
 
 migrationP :: Parser MigrationAction
 migrationP
@@ -303,7 +315,7 @@ migrateOnlyP = hsubparser
     opts = MigrateOnly
       <$> connectP
       <*> logLevelParser
-      <*> migrationsFolderParser
+      <*> migrationsParser
 
 checkSchemaP :: Parser Args
 checkSchemaP = hsubparser
