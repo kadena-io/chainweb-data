@@ -23,6 +23,9 @@
     - [[#backfill-transfers][backfill-transfers]]
     - [[#gaps][gaps]]
     - [[#single][single]]
+    - [[#migrate][migrate]]
+    - [[#check-schema][check-schema]]
+  - [[#specializing-the-database-schema][Specializing the Database Schema]]
 
 * Overview
 
@@ -265,6 +268,16 @@ releases. Use the ~fill~ command instead.
 report that it filled in more than one block. This is expected, and will occur
 when orphans/forks are present at that height.
 
+*** migrate
+
+~migrate~ allows you to migrate the database schema to the latest version and exit.
+This can be useful for separating the migration step from running the ETL and/or HTTP service.
+
+#+begin_example
+  > chainweb-data migrate --dbuser=joe --dbname=chainweb-data
+#+end_example
+
+
 *** check-schema
 
 ~check-schema~ is used to perform a check of the ORM definitions against the DB schema.
@@ -272,3 +285,46 @@ when orphans/forks are present at that height.
 #+begin_example
   > chainweb-data check-schema --service-host=foo.chainweb.com --dbuser=joe --dbname=chainweb-data
 #+end_example
+
+** Specializing the Database Schema
+
+A common use case for ~chainweb-data~ is to primarily run it as a worker process to
+populate a Postgres database with blockchain data.  In this case, ~chainweb-data~
+operators often want to run their schema migrations and modify the schema according
+to their needs. Obviously, by introducing arbitrary schema changes, we can not guarantee unimpeded operation of ~chainweb-data~.
+Any node operator that wishes to modify the
+database, takes on the responsibility of ensuring that their changes
+do not interfere with the _current_ operation of ~chainweb-data~.
+A node operator is also responsible for considering their changes in the face of _future_ releases of ~chainweb-data~.
+
+~chainweb-data~ provides a way to help with this process.
+Any version of ~chainweb-data~ comes with a set of schema migrations included in the
+binary that are applied by default to the database at migration time. These migrations
+are defined in the ~haskell-src/db-schema/migrations~ directory. It is possible to override
+these migrations by calling ~chainweb-data~ with the optional ~--migrations-folder~ argument.
+However, in order to add migrations to the
+default set, an ~--extra-migrations-folder~ argument is provided.
+
+The default migrations that come with ~chainweb-data~ have the following file
+name format: ~X.Y.Z.N_NAME.sql~. Here ~X.Y.Z~ is the version of ~chainweb-data~ after which the
+migration was introduced. ~N~ is the migration number. These migrations are executed
+in "alphabetical order" considering X,Y,Z and N to be the elements by which they are sorted.
+The migration procedure will fetch the already executed migrations from the database and check them against the migrations provided through the ~--extra-migrations-folder~ and the ~--migrations-folder~ arguments.
+If the already executed migrations are a prefix (i.e. they were run in the correct order and have no gaps or extras)
+of the expected migrations, then the rest of the migrations will be executed.
+
+By taking advantage of this alphabetical sorting, ~chainweb-data~ operators can insert custom migrations to be executed at the moment they desire.
+For example, version 2.3.0 of ~chainweb-data~ will have migrations done on top of version 2.2.0, thus having migrations named ~2.2.0.N_...~ (~N>=1~). Creating a custom migration named ~2.3.0.0.N_...~ will guarantee that it'll be executed after the new migrations that come with version 2.3.0 and before the new migrations of future versions, which are guaranteed to have a name greater than ~2.3.0.1_...~. 
+Likewise, ~chainweb-data~ operators that run the latest commit
+from the ~master~ branch can also inject their migrations. For example, if the latest commit
+has the last migration named ~2.2.0.1_...~, then their migrations can be named ~2.2.0.1.N_...~.
+
+It's important to note, that running ~chainweb-data~ from an unreleased commit of the
+~master~ branch is **not officially supported** and even though we aim to avoid it, we can change
+new migrations of the ~master~ branch without notice, so you may have to fix your database
+manually by undoing migrations and removing ~schema_migrations~ entries.
+
+~chainweb-data~ operators that specialize their database schema are strongly advised to review
+the incoming migrations **before** they upgrade their ~chainweb-data~ versions. This will allow
+them to detect any potential conflicts and insert new schema migrations to be executed at the right moment, to
+accommodate the incoming changes.
