@@ -32,5 +32,6 @@
         in  flake // {
           packages.default = executable;
           packages.chainweb-data-docker = defaultNix.dockerImage;
+          nixosModules.default = nix/nixos-module.nix;
         });
 }
