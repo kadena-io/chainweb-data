@@ -29,9 +29,23 @@
           defaultNix = import ./default.nix { inherit pkgs; };
           flake = defaultNix.flake;
           executable = defaultNix.default;
+          # This package depends on other packages at buildtime, but its output does not
+          # depend on them. This way, we don't have to download the entire closure to verify
+          # that those packages build.
+          mkCheck = name: package: pkgs.runCommand ("check-"+name) {} ''
+            echo ${name}: ${package}
+            echo works > $out
+          '';
         in  flake // {
           packages.default = executable;
           packages.chainweb-data-docker = defaultNix.dockerImage;
           nixosModules.default = nix/nixos-module.nix;
+
+          # Built by CI
+          packages.check = pkgs.runCommand "check" {} ''
+            echo ${self.packages.${system}.default}
+            echo ${mkCheck "devShell" flake.devShell}
+            echo works > $out
+          '';
         });
 }
