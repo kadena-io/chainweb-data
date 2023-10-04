@@ -11,8 +11,12 @@ let
     if cfg.dbstring != null then
       "--dbstring ${cfg.dbstring}"
     else if cfg.dbname != null then
+      let
+        passArg = optionalString (cfg.dbpassFile != null)
+          "--dbpass \"$(cat ${cfg.dbpassFile})\"";
+      in
       "--dbname ${cfg.dbname} --dbuser ${cfg.dbuser} --dbhost ${cfg.dbhost} " +
-      "--dbport ${toString cfg.dbport} --dbpass \"$(cat ${cfg.dbpassFile} ))\""
+      "--dbport ${toString cfg.dbport} ${passArg}"
     else if cfg.dbdir != null then
       "--dbdir ${cfg.dbdir}"
     else abort "No chainweb-data database configuration provided"
