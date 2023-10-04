@@ -32,7 +32,7 @@ let
   cwd-with-conn-params = pkgs.writeShellScript "cwd-with-conn-params" ''
     ${cfg.package}/bin/chainweb-data ${dbParams} ${cwnParams} "$@"
   '';
-  chainweb-data-fill = pkgs.writeScript "chainweb-data-fill" ''
+  chainweb-data-fill = pkgs.writeShellScript "chainweb-data-fill" ''
     ${cwd-with-conn-params} fill
   '';
 in
