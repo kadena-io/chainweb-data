@@ -174,7 +174,7 @@ in
       description = "Periodic Chainweb Data Fill";
       wantedBy = [ "timers.target" ];
       timerConfig = {
-        OnCalendar = "hourly";
+        OnCalendar = "daily";
         Persistent = true;
       };
     };
