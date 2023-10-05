@@ -165,6 +165,8 @@ in
       serviceConfig = {
         Type = "oneshot";
         ExecStart = ''
+          # Wait for chainweb-data to receive at least one block per chain
+          sleep 300
           ${chainweb-data-fill}
         '';
         User = "chainweb-data";
