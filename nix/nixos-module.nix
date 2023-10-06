@@ -164,7 +164,7 @@ in
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = ''
+        ExecStart = pkgs.writeShellScript "chainweb-data-fill-exec" ''
           # Wait for chainweb-data to receive at least one block per chain
           sleep 300
           ${chainweb-data-fill}
