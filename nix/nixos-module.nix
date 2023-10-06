@@ -163,7 +163,7 @@ in
       wants = [ "chainweb-data.service" ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
-        Type = "oneshot";
+        Type = "simple";
         ExecStart = pkgs.writeShellScript "chainweb-data-fill-exec" ''
           # Wait for chainweb-data to receive at least one block per chain
           sleep 300
