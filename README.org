@@ -38,6 +38,7 @@ can easily determine mining statistics and confirm transaction contents.
 ~chainweb-data~ requires [[https://www.postgresql.org/][Postgres]]. If you plan to host a chainweb-data instance
 on a cloud machine (e.g. Amazon EC2), we recommend that you run the postgres
 instance on an instance attached storage unit.
+The chainweb-node instance should have good performance to avoid timeouts during fill operations, use ssd storage for the db.
 
 * Building
 
