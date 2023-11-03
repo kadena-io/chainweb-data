@@ -2,8 +2,7 @@
   description = "Data ingestion for Chainweb";
 
   inputs = {
-    nixpkgs.follows = "haskellNix/nixpkgs-unstable";
-    haskellNix.url = "github:input-output-hk/haskell.nix";
+    hs-nix-infra.url = "github:kadena-io/hs-nix-infra";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -16,11 +15,12 @@
     allow-import-from-derivation = "true";
   };
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix }:
+  outputs = { self, hs-nix-infra, flake-utils }:
     flake-utils.lib.eachSystem
       [ "x86_64-linux" "x86_64-darwin"
         "aarch64-linux" "aarch64-darwin" ] (system:
         let
+          inherit (hs-nix-infra) nixpkgs haskellNix;
           pkgs = import nixpkgs {
             inherit system;
             inherit (haskellNix) config;
