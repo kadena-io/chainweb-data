@@ -52,5 +52,9 @@
               echo works > $out
             '';
           };
+          devShell = flake.devShell;
+
+          # Expose the haskellNix project
+          project = defaultNix.project;
         });
 }

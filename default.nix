@@ -29,7 +29,7 @@ let profilingModule = {
       enableLibraryProfiling = enableProfiling;
       enableProfiling = enableProfiling;
     };
-    chainweb-data = pkgs.haskell-nix.project' {
+    project = pkgs.haskell-nix.project' {
 	    src = ./.;
       index-state = "2023-02-01T00:00:00Z";
 	    compiler-nix-name = "ghc8107";
@@ -39,7 +39,7 @@ let profilingModule = {
 	    };
       modules = if enableProfiling then [ profilingModule ] else [];
     };
-    flake = chainweb-data.flake {};
+    flake = project.flake';
     default = flake.packages."chainweb-data:exe:chainweb-data".override (old: {
       inherit dontStrip;
       flags = old.flags // {
@@ -65,5 +65,5 @@ let profilingModule = {
        };
     };
 in {
-  inherit flake default dockerImage;
+  inherit project flake default dockerImage;
 }
