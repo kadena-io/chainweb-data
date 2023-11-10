@@ -37,14 +37,16 @@
             echo works > $out
           '';
         in  flake // {
-          packages.default = executable;
-          packages.chainweb-data-docker = defaultNix.dockerImage;
+          packages = {
+            default = executable;
+            chainweb-data-docker = defaultNix.dockerImage;
 
-          # Built by CI
-          packages.check = pkgs.runCommand "check" {} ''
-            echo ${self.packages.${system}.default}
-            echo ${mkCheck "devShell" flake.devShell}
-            echo works > $out
-          '';
+            # Built by CI
+            check = pkgs.runCommand "check" {} ''
+              echo ${self.packages.${system}.default}
+              echo ${mkCheck "devShell" flake.devShell}
+              echo works > $out
+            '';
+          };
         });
 }
