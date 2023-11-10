@@ -5,7 +5,10 @@ let inputs = (import (
      ) {
        src =  ./.;
      }).defaultNix.inputs;
-    pkgsDef = import inputs.nixpkgs (import inputs.haskellNix {}).nixpkgsArgs;
+    pkgsDef = import hs-nix-infra.nixpkgs {
+      config = hs-nix-infra.haskellNix.config;
+      overlays = [ hs-nix-infra.haskellNix.overlay] ;
+    };
 in
 { pkgs ? pkgsDef
 , dontStrip ? false
@@ -58,7 +61,7 @@ let profilingModule = {
          WorkingDir = "/chainweb-data";
          Volumes = { "/chainweb-data" = {}; };
          Entrypoint = [ "chainweb-data" ];
-       }; 
+       };
     };
 in {
   inherit flake default dockerImage;
