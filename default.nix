@@ -5,6 +5,7 @@ let inputs = (import (
      ) {
        src =  ./.;
      }).defaultNix.inputs;
+    hs-nix-infra = inputs.hs-nix-infra;
     pkgsDef = import hs-nix-infra.nixpkgs {
       config = hs-nix-infra.haskellNix.config;
       overlays = [ hs-nix-infra.haskellNix.overlay] ;
