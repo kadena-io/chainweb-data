@@ -39,6 +39,10 @@
         in  flake // {
           packages = {
             default = executable;
+
+            recursive = hs-nix-infra.lib.runRecursiveBuild system "chainweb-data" {}
+              "ln -s $(nix-build-flake ${self} packages.${system}.default) $out";
+
             chainweb-data-docker = defaultNix.dockerImage;
 
             # Built by CI
