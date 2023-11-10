@@ -36,7 +36,7 @@
             echo ${name}: ${package}
             echo works > $out
           '';
-        in  flake // {
+        in {
           packages = {
             default = executable;
 
