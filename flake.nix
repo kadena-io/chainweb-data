@@ -2,7 +2,7 @@
   description = "Data ingestion for Chainweb";
 
   inputs = {
-    hs-nix-infra.url = "github:kadena-io/hs-nix-infra";
+    hs-nix-infra.url = "github:kadena-io/hs-nix-infra/enis/metadata-experiments";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -40,8 +40,8 @@
           packages = {
             default = executable;
 
-            recursive = hs-nix-infra.lib.runRecursiveBuild system "chainweb-data" {}
-              "ln -s $(nix-build-flake ${self} packages.${system}.default) $out";
+            recursive = with hs-nix-infra.lib.recursive system;
+              wrapRecursiveWithMeta "chainweb-data" "${wrapFlake self}.default";
 
             chainweb-data-docker = defaultNix.dockerImage;
 
