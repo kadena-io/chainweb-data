@@ -40,4 +40,6 @@ jobs:
       run: |
         echo Building the project and its devShell
         nix build .#check --log-lines 500 --show-trace
-        nix build .#recursive --log-lines 500 --show-trace
+
+        echo Build the recursive output
+        nix build .#recursive.allDerivations --log-lines 500 --show-trace
