@@ -32,10 +32,17 @@ let profilingModule = {
     project = pkgs.haskell-nix.cabalProject' {
 	    src = ./.;
 	    compiler-nix-name = "ghc928";
+      cabalProjectFreeze = null;
 	    shell.tools = {
 	      cabal = {};
 	    };
-      modules = if enableProfiling then [ profilingModule ] else [];
+      modules =
+        pkgs.lib.optional enableProfiling profilingModule ++
+        [{
+          packages.pact.components.library.ghcOptions = [ "-Wwarn" ];
+          packages.gargoyle-postgresql-nix.components.library.build-tools = [ pkgs.postgresql ];
+        }];
+
     };
     flake = project.flake';
     default = flake.packages."chainweb-data:exe:chainweb-data".override (old: {

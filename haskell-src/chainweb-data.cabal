@@ -41,7 +41,7 @@ common commons
     , lens
     , lens-aeson
     , postgresql-simple
-    , resource-pool      >= 0.3
+    , resource-pool      >= 0.4
     , safe
     , scientific         >=0.3
     , servant
@@ -135,7 +135,7 @@ executable chainweb-data
     , postgresql-simple
     , postgresql-simple-migration
     , process                  >=1.6
-    , resource-pool      >= 0.3
+    , resource-pool            >= 0.4
     , retry                    >=0.8
     , scheduler                 >=1.4
     , servant-client
@@ -218,7 +218,7 @@ benchmark bench
     , http-client              >=0.6
     , optparse-applicative     >=0.14
     , postgresql-simple
-    , resource-pool      >= 0.3 && <0.4
+    , resource-pool      >= 0.4
     , string-conv
     , text
     , time               >=1.8
