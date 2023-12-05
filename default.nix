@@ -29,10 +29,9 @@ let profilingModule = {
       enableLibraryProfiling = enableProfiling;
       enableProfiling = enableProfiling;
     };
-    project = pkgs.haskell-nix.project' {
+    project = pkgs.haskell-nix.cabalProject' {
 	    src = ./.;
 	    compiler-nix-name = "ghc928";
-      projectFileName = "cabal.project";
 	    shell.tools = {
 	      cabal = {};
 	    };
