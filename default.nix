@@ -31,8 +31,7 @@ let profilingModule = {
     };
     project = pkgs.haskell-nix.project' {
 	    src = ./.;
-      index-state = "2023-02-01T00:00:00Z";
-	    compiler-nix-name = "ghc8107";
+	    compiler-nix-name = "ghc928";
       projectFileName = "cabal.project";
 	    shell.tools = {
 	      cabal = {};

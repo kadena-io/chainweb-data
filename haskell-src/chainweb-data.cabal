@@ -24,30 +24,30 @@ common commons
     , aeson              >= 1.4.3
     , base               >=4.7      && <5
     , base-prelude
-    , base16-bytestring  ^>=0.1
+    , base16-bytestring  >=0.1
     , beam-automigrate
-    , beam-core          >=0.8 && <0.10
-    , beam-migrate       >=0.4 && <0.6
-    , beam-postgres      >=0.5 && <0.6
-    , bytestring         ^>=0.10
+    , beam-core          >=0.8
+    , beam-migrate       >=0.4
+    , beam-postgres      >=0.5
+    , bytestring         >=0.10
     , chainweb-api
-    , containers         ^>=0.6
+    , containers         >=0.6
     , data-default
     , deepseq
     , directory
     , exceptions
     , filepath
-    , hashable           <=1.3.3.0
+    , hashable
     , lens
     , lens-aeson
     , postgresql-simple
-    , resource-pool      >= 0.3 && <0.4
+    , resource-pool      >= 0.3
     , safe
-    , scientific         ^>=0.3
+    , scientific         >=0.3
     , servant
-    , streaming-events   ^>=1.0.1
-    , text               ^>=1.2
-    , time               >=1.8      && <1.11
+    , streaming-events   >=1.0.1
+    , text               >=1.2
+    , time               >=1.8
     , unordered-containers
 
 flag ghc-flags
@@ -77,13 +77,13 @@ library
     ChainwebDb.Types.Transaction
     ChainwebDb.Types.Transfer
   build-depends:
-    base64-bytestring        ^>=1.0
+    base64-bytestring        >=1.0
     , cryptohash
     , Decimal
     , gargoyle
     , gargoyle-postgresql
-    , http-client              ^>=0.6
-    , http-client-tls          ^>=0.3
+    , http-client              >=0.6
+    , http-client-tls          >=0.3
     , http-types
     , openapi3
     , optparse-applicative     >=0.14 && <0.17
@@ -109,34 +109,34 @@ executable chainweb-data
   if flag(threaded)
       ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-    , async                    ^>=2.2
+    , async                    >=2.2
     , base16-bytestring
-    , base64-bytestring        ^>=1.0
+    , base64-bytestring        >=1.0
     , bytestring
-    , cassava                  ^>=0.5.1
-    , cereal                   ^>=0.5
+    , cassava                  >=0.5.1
+    , cereal                   >=0.5
     , chainweb-data
     , connection
-    , containers               ^>=0.6
+    , containers               >=0.6
     , Decimal
     , direct-sqlite
-    , errors                   ^>=2.3
+    , errors                   >=2.3
     , file-embed
     , gargoyle
     , gargoyle-postgresql
-    , http-client              ^>=0.6
-    , http-client-tls          ^>=0.3
+    , http-client              >=0.6
+    , http-client-tls          >=0.3
     , http-types
     , lens-aeson
     , managed
     , mtl
-    , optparse-applicative     >=0.14 && <0.17
+    , optparse-applicative     >=0.14
     , pact                     >=4.3.1
     , postgresql-simple
     , postgresql-simple-migration
-    , process                  ^>=1.6
+    , process                  >=1.6
     , resource-pool      >= 0.3
-    , retry                    ^>=0.8
+    , retry                    >=0.8
     , scheduler                 >=1.4
     , servant-client
     , servant-client-core
@@ -144,9 +144,9 @@ executable chainweb-data
     , servant-swagger-ui
     , stm
     , stm-chans
-    , streaming                ^>=0.2
+    , streaming                >=0.2
     , streaming-events
-    , strict-tuple             ^>=0.1
+    , strict-tuple             >=0.1
     , string-conv
     , vector
     , wai
@@ -188,8 +188,8 @@ test-suite testsuite
     , bytestring
     , chainweb-api
     , chainweb-data
-    , containers          ^>=0.6
-    , neat-interpolation  >=0.5 && < 0.6
+    , containers          >=0.6
+    , neat-interpolation  >=0.5
     , tasty               >=1.2
     , tasty-hunit         >=0.10
     , text
@@ -205,23 +205,23 @@ benchmark bench
     , aeson
     , base
     , beam-automigrate
-    , beam-core          >=0.8 && <0.10
+    , beam-core          >=0.8
     , beam-migrate       >=0.4 && <0.6
     , beam-postgres      >=0.5 && <0.6
     , bytestring
     , chainweb-api
     , chainweb-data
     , connection
-    , containers          ^>=0.6
+    , containers          >=0.6
     , deepseq
     , exceptions
-    , http-client              ^>=0.6
-    , optparse-applicative     >=0.14 && <0.17
+    , http-client              >=0.6
+    , optparse-applicative     >=0.14
     , postgresql-simple
     , resource-pool      >= 0.3 && <0.4
     , string-conv
     , text
-    , time               >=1.8      && <1.11
+    , time               >=1.8
     , unordered-containers
     , vector
 

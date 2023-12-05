@@ -55,10 +55,10 @@ import           Control.Error.Util (hush)
 import           Control.Lens
 import           Control.Monad
 import           Data.Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 import           Data.Aeson.Lens
 import           Data.ByteString.Lazy (ByteString,toStrict)
 import qualified Data.ByteString.Base64.URL as B64
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import           Data.Foldable
 import           Data.Int
@@ -382,7 +382,7 @@ mkEvent (ChainId chainid) height block requestkey ev idx = Event
       Array l -> l
       _ -> mempty
     lkp n v = case v of
-      Object o -> HM.lookup n o
+      Object o -> KeyMap.lookup n o
       _ -> Nothing
     str n v = case lkp n v of
       Just (String s) -> Just s
