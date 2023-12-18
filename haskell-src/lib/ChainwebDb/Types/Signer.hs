@@ -57,16 +57,6 @@ data SignerT f = Signer
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
-Signer
-  (LensFor signer_requestkey)
-  (LensFor signer_idx)
-  (LensFor signer_pubkey)
-  (LensFor signer_scheme)
-  (LensFor signer_addr)
-  (LensFor signer_caps)
-  (LensFor signer_sig)
-  = tableLenses
-
 type Signer = SignerT Identity
 type SignerId = PrimaryKey SignerT Identity
 

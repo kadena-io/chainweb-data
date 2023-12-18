@@ -42,20 +42,6 @@ data EventT f = Event
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
-Event
-  (LensFor ev_requestkey)
-  (BlockId (LensFor ev_block))
-  (LensFor ev_chainid)
-  (LensFor ev_height)
-  (LensFor ev_idx)
-  (LensFor ev_name)
-  (LensFor ev_qualName)
-  (LensFor ev_module)
-  (LensFor ev_moduleHash)
-  (LensFor ev_paramText)
-  (LensFor ev_params)
-  = tableLenses
-
 type Event = EventT Identity
 type EventId = PrimaryKey EventT Identity
 
