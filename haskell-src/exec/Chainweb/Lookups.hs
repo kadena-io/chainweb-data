@@ -9,9 +9,7 @@
 module Chainweb.Lookups
   ( -- * Endpoints
     blocksBetween
-  , headersBetween
   , payloadWithOutputs
-  , payloadWithOutputsBatch
   , getNodeInfo
   , queryCut
   , cutMaxHeight
@@ -127,55 +125,6 @@ blocksBetween env (cid, Low low, High up) = do
     query = printf "/chainweb/0.0/%s/chain/%d/block?minheight=%d&maxheight=%d"
       (T.unpack v) (unChainId cid) low up
     encoding = [("accept", "application/json")]
-
--- | Returns headers in the range [low, high] (inclusive).
-headersBetween
-  :: Env
-  -> (ChainId, Low, High)
-  -> IO (Either ApiError [BlockHeader])
-headersBetween env (cid, Low low, High up) = do
-  req <- parseRequest url
-  eresp <- handleRequest (req { requestHeaders = requestHeaders req <> encoding })
-                     (_env_httpManager env)
-  pure $ (^.. key "items" . values . _String . to f . _Just) . responseBody <$> eresp
-  where
-    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
-    url = showUrlScheme (_env_serviceUrlScheme env) <> query
-    query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
-      (T.unpack v) (unChainId cid) low up
-    encoding = [("accept", "application/json")]
-
-    f :: T.Text -> Maybe BlockHeader
-    f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
-
-payloadWithOutputsBatch
-  :: Env
-  -> ChainId
-  -> M.Map (DbHash PayloadHash) a
-  -> (a -> Hash)
-  -> IO (Either ApiError [(a, BlockPayloadWithOutputs)])
-payloadWithOutputsBatch env (ChainId cid) m _f = do
-    initReq <- parseRequest url
-    let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
-    eresp <- handleRequest req (_env_httpManager env)
-    let res = do
-          resp <- eresp
-          case eitherDecode' (responseBody resp) of
-            Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e <> rest)
-                                      (responseStatus resp) (responseBody resp)
-            Right (as :: [BlockPayloadWithOutputs]) -> Right $ foldr go [] as
-    pure res
-  where
-    rest = T.pack $ "\nHashes: ( " ++ (L.intercalate " " $ M.elems (show . hashB64U . _f <$> m)) ++ " )"
-    url = showUrlScheme (_env_serviceUrlScheme env) <> T.unpack query
-    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
-    query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
-    encoding = [("content-type", "application/json")]
-    requestObject = Array $ V.fromList $ String . unDbHash <$> M.keys m
-    go bpwo =
-      case M.lookup (hashToDbHash $ _blockPayloadWithOutputs_payloadHash bpwo) m of
-        Nothing -> id
-        Just vv -> ((vv, bpwo) :)
 
 payloadWithOutputs
   :: Env
