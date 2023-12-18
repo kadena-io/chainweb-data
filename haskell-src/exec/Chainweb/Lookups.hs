@@ -128,7 +128,8 @@ blocksBetween env (cid, Low low, High up) = do
             (,) <$> o .: "header" <*> o .: "payloadWithOutputs"
         case parseEither itemParser item of
           Left e -> Nothing <$ logg Logger.Error
-            (fromString $ printf "Error parsing block %d in range (%d, %d, %d): %s" idx cid low up e)
+            (fromString $ printf "Error parsing block %d in range %s: %s" idx rangeStr e)
+            where rangeStr = show (cid, low, up)
           Right res -> pure $ Just res
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
