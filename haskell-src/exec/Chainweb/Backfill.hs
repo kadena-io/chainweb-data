@@ -85,7 +85,7 @@ backfillBlocksCut env args cutBS = do
     f count range = do
       blocksBetween env range >>= \case
         Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
-        Right [] -> logg Error $ fromString $ printf "blocksBetween: %s" $ show range
+        Right [] -> logg Error $ fromString $ printf "blocksBetween: Empty result for range %s" $ show range
         Right hs -> writeBlocks env pool count hs
       delayFunc
 

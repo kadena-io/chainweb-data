@@ -87,7 +87,7 @@ fillEventsCut env args et cutBS = do
               forM (rangeToDescGroupsOf 100 (Low $ fromIntegral low) (High $ fromIntegral high)) $ \(chunkLow, chunkHigh) -> do
                 blocksBetween env (ChainId $ fromIntegral chain, chunkLow, chunkHigh) >>= \case
                   Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show (chunkLow, chunkHigh)) (show e)
-                  Right [] -> logg Error $ fromString $ printf "blocksBetween: %s" $ show (chunkLow, chunkHigh)
+                  Right [] -> logg Error $ fromString $ printf "blocksBetween: Empty result for range %s" $ show (chunkLow, chunkHigh)
                   Right blocks -> do
                     forM_ blocks $ \(header, pwo) -> do
                       let curHash = hashToDbHash $ _blockHeader_hash header

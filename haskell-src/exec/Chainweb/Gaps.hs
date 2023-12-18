@@ -94,7 +94,7 @@ gapsCut env args cutBS = do
               pure $ Right []
       (blocksBetween env range `catch` onCatch) >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
-        Right [] -> logger Error $ fromString $ printf "blocksBetween: %s" $ show range
+        Right [] -> logger Error $ fromString $ printf "blocksBetween: Empty result for range %s" $ show range
         Right hs -> writeBlocks env pool count hs
       maybe mempty threadDelay delay
 
