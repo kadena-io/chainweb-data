@@ -55,10 +55,12 @@ import           Control.Monad
 import           Data.Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import           Data.Aeson.Lens
+import           Data.Aeson.Types
 import           Data.ByteString.Lazy (ByteString,toStrict)
 import           Data.Foldable
 import           Data.Int
 import           Data.Maybe
+import           Data.String (fromString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Read as TR
@@ -69,6 +71,7 @@ import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Network.HTTP.Client hiding (Proxy)
 import           Network.HTTP.Types
+import qualified System.Logger.Types as Logger
 import           Text.Printf
 
 data ErrorType = RateLimiting | ClientError | ServerError | OtherError T.Text
@@ -105,14 +108,28 @@ blocksBetween env (cid, Low low, High up) = do
   eresp <- handleRequest (req { requestHeaders = requestHeaders req <> encoding })
                      (_env_httpManager env)
   let
-    fromJSONMaybe val = case fromJSON val of
-      Success a -> Just a
-      Error _ -> Nothing
-    headerAndPayloadWithOutputs o =
-      ( o ^?! key "header" . to fromJSONMaybe . _Just
-      , o ^?! key "payloadWithOutputs" . to fromJSONMaybe . _Just
-      )
-  pure $ (^.. key "items" . values . to headerAndPayloadWithOutputs) . responseBody <$> eresp
+    logg = _env_logger env
+  case eresp of
+    Left e -> pure $ Left e
+    Right resp -> do
+      let
+        responseJson = eitherDecode' (responseBody resp)
+        responseParser =
+          withObject "BlocksOutput" $ \o ->
+            o .: "items"
+      items <- case parseEither responseParser =<< responseJson  of
+        Left e -> do
+          logg Logger.Error $ fromString $ printf "Error parsing blocksBetween response: %s" e
+          return []
+        Right items -> pure items
+      fmap (Right . catMaybes) $ forM (zip items [0 :: Int ..]) $ \(item, idx) -> do
+        let
+          itemParser = withObject "Block" $ \o -> do
+            (,) <$> o .: "header" <*> o .: "payloadWithOutputs"
+        case parseEither itemParser item of
+          Left e -> Nothing <$
+            logg Logger.Error (fromString $ printf "Error parsing block %d: %s" idx e)
+          Right res -> pure $ Just res
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     url = showUrlScheme (_env_serviceUrlScheme env) <> query
