@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Chainweb.Gaps ( gaps, _test_headersBetween_and_payloadBatch ) where
+module Chainweb.Gaps ( gaps ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
