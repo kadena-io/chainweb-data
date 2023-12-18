@@ -21,21 +21,15 @@ import           ChainwebData.Env
 import           Chainweb.Lookups
 import           Chainweb.Worker
 import           ChainwebData.Types
-import           ChainwebDb.Types.Block
 import           ChainwebDb.Types.Event
-import           ChainwebDb.Types.DbHash
-import           ChainwebDb.Types.Transaction
 
 import           Control.Concurrent.Async (race_)
 
 import           Data.ByteString.Lazy (ByteString)
-import qualified Data.Map.Strict as M
-import qualified Data.Pool as P
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
-import           Database.PostgreSQL.Simple.Transaction
 
 import           System.Logger.Types hiding (logg)
 

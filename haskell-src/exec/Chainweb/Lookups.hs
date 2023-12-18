@@ -50,27 +50,21 @@ import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
 import           Control.Applicative
-import           Control.Error.Util (hush)
 import           Control.Lens
 import           Control.Monad
 import           Data.Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import           Data.Aeson.Lens
 import           Data.ByteString.Lazy (ByteString,toStrict)
-import qualified Data.ByteString.Base64.URL as B64
-import qualified Data.Map.Strict as M
 import           Data.Foldable
 import           Data.Int
-import qualified Data.List as L (intercalate)
 import           Data.Maybe
-import           Data.Serialize.Get (runGet)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Read as TR
 import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
-import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Network.HTTP.Client hiding (Proxy)

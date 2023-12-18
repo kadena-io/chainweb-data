@@ -5,7 +5,6 @@ module Chainweb.Gaps ( gaps ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
-import           Chainweb.Api.BlockHeader
 import           ChainwebDb.Database
 import           ChainwebData.Env
 import           Chainweb.Lookups
