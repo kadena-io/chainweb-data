@@ -5,7 +5,11 @@ let inputs = (import (
      ) {
        src =  ./.;
      }).defaultNix.inputs;
-    pkgsDef = import inputs.nixpkgs (import inputs.haskellNix {}).nixpkgsArgs;
+    hs-nix-infra = inputs.hs-nix-infra;
+    pkgsDef = import hs-nix-infra.nixpkgs {
+      config = hs-nix-infra.haskellNix.config;
+      overlays = [ hs-nix-infra.haskellNix.overlay] ;
+    };
 in
 { pkgs ? pkgsDef
 , dontStrip ? false
@@ -25,17 +29,22 @@ let profilingModule = {
       enableLibraryProfiling = enableProfiling;
       enableProfiling = enableProfiling;
     };
-    chainweb-data = pkgs.haskell-nix.project' {
+    project = pkgs.haskell-nix.cabalProject' {
 	    src = ./.;
-      index-state = "2023-02-01T00:00:00Z";
-	    compiler-nix-name = "ghc8107";
-      projectFileName = "cabal.project";
+	    compiler-nix-name = "ghc928";
+      cabalProjectFreeze = null;
 	    shell.tools = {
 	      cabal = {};
 	    };
-      modules = if enableProfiling then [ profilingModule ] else [];
+      modules =
+        pkgs.lib.optional enableProfiling profilingModule ++
+        [{
+          packages.pact.components.library.ghcOptions = [ "-Wwarn" ];
+          packages.gargoyle-postgresql-nix.components.library.build-tools = [ pkgs.postgresql ];
+        }];
+
     };
-    flake = chainweb-data.flake {};
+    flake = project.flake';
     default = flake.packages."chainweb-data:exe:chainweb-data".override (old: {
       inherit dontStrip;
       flags = old.flags // {
@@ -58,8 +67,8 @@ let profilingModule = {
          WorkingDir = "/chainweb-data";
          Volumes = { "/chainweb-data" = {}; };
          Entrypoint = [ "chainweb-data" ];
-       }; 
+       };
     };
 in {
-  inherit flake default dockerImage;
+  inherit project flake default dockerImage;
 }

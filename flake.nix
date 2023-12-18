@@ -2,8 +2,7 @@
   description = "Data ingestion for Chainweb";
 
   inputs = {
-    nixpkgs.follows = "haskellNix/nixpkgs-unstable";
-    haskellNix.url = "github:input-output-hk/haskell.nix";
+    hs-nix-infra.url = "github:kadena-io/hs-nix-infra";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -16,11 +15,12 @@
     allow-import-from-derivation = "true";
   };
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix }:
+  outputs = { self, hs-nix-infra, flake-utils }:
     flake-utils.lib.eachSystem
       [ "x86_64-linux" "x86_64-darwin"
         "aarch64-linux" "aarch64-darwin" ] (system:
         let
+          inherit (hs-nix-infra) nixpkgs haskellNix;
           pkgs = import nixpkgs {
             inherit system;
             inherit (haskellNix) config;
@@ -29,8 +29,32 @@
           defaultNix = import ./default.nix { inherit pkgs; };
           flake = defaultNix.flake;
           executable = defaultNix.default;
-        in  flake // {
-          packages.default = executable;
-          packages.chainweb-data-docker = defaultNix.dockerImage;
+          # This package depends on other packages at buildtime, but its output does not
+          # depend on them. This way, we don't have to download the entire closure to verify
+          # that those packages build.
+          mkCheck = name: package: pkgs.runCommand ("check-"+name) {} ''
+            echo ${name}: ${package}
+            echo works > $out
+          '';
+        in {
+          packages = {
+            default = executable;
+
+            recursive = with hs-nix-infra.lib.recursive system;
+              wrapRecursiveWithMeta "chainweb-data" "${wrapFlake self}.default";
+
+            chainweb-data-docker = defaultNix.dockerImage;
+
+            # Built by CI
+            check = pkgs.runCommand "check" {} ''
+              echo ${self.packages.${system}.default}
+              echo ${mkCheck "devShell" flake.devShell}
+              echo works > $out
+            '';
+          };
+          devShell = flake.devShell;
+
+          # Expose the haskellNix project
+          project = defaultNix.project;
         });
 }

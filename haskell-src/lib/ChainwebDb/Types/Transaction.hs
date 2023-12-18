@@ -58,33 +58,6 @@ data TransactionT f = Transaction
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
-Transaction
-  (LensFor tx_requestKey)
-  (BlockId (LensFor tx_block))
-  (LensFor tx_chainId)
-  (LensFor tx_height)
-  (LensFor tx_creationTime)
-  (LensFor tx_ttl)
-  (LensFor tx_gasLimit)
-  (LensFor tx_gasPrice)
-  (LensFor tx_sender)
-  (LensFor tx_nonce)
-  (LensFor tx_code)
-  (LensFor tx_pactId)
-  (LensFor tx_rollback)
-  (LensFor tx_step)
-  (LensFor tx_data)
-  (LensFor tx_proof)
-  (LensFor tx_gas)
-  (LensFor tx_badResult)
-  (LensFor tx_goodResult)
-  (LensFor tx_logs)
-  (LensFor tx_metadata)
-  (LensFor tx_continuation)
-  (LensFor tx_txid)
-  (LensFor tx_numEvents)
-  = tableLenses
-
 type Transaction = TransactionT Identity
 type TransactionId = PrimaryKey TransactionT Identity
 

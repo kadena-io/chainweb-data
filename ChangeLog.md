@@ -1,15 +1,24 @@
 # Changelog
 
+## 2.3.0 (2023-08-14)
+
+* Fix `fill` and `backfill` issues caused by node's P2P API throttling, resulting in partial fills (#151)
+* Decouple `chainweb-data` from the P2P API of `chainweb-node`, using the service endpoint exclusively instead. The `--p2p-{host,post}` CLI arguments are no longer needed, but are still recognized for backwards compatibility (#160)
+* Enable running the HTTP API without the ETL, allowing read-only operation (#149)
+* Attach signer and signature information to `TxDetail` endpoints (`/txs/{tx,txs}`) (#152,#153,#155)
+* Extend network metadata to allow ETL'ing from (`fast-`)`development` nodes (#158)
+* Add `--extra-migrations-folder` CLI argument (#163)
+
 ## 2.2.0 (2023-05-23)
 
 This release completes the transition from `beam-automigrate` to the new incremental migration scripts (See Issue #101). If you're upgrading from a version earlier than 2.1.X, you'll first have to run CW-D v2.1.1 to migrate your database to a state that's compatible with the new script based migrations.
 
 Note that after this version, the `transactionCount` field of the `/stats` endpoint becomes an estimate rather than an exact count. This change allowed us to decouple the ETL process from the HTTP server and fixed a long-standing resource accumulation issue.
 
-* Remove the mutable server state and decouple the ETL from the HTTP server (#148) 
+* Remove the mutable server state and decouple the ETL from the HTTP server (#148)
 * Enable searching by `pactid` in the `/txs/search` endpoint (#143)
 * Include continuation transaction rows in the `/txs/search` resullt if their original transaction satisfies the search criteria (#66)
-* Extend the `/txs/account` endpoint response with cross-chain information in the case of cross-chain transfers (#137, #138) 
+* Extend the `/txs/account` endpoint response with cross-chain information in the case of cross-chain transfers (#137, #138)
 * Add `minheight`, `maxheight` query parameters to all transaction search enpoints (`/txs/{events,account,search}`) (#135)
 * Add support for Nix flakes (#132, #133, #134, #136)
 * Simplify the handling of the recentTxs (#140)
