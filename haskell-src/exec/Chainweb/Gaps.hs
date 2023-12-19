@@ -91,10 +91,13 @@ gapsCut env args cutBS = do
               logger Error $
                   fromString $ printf "Caught exception from blocksBetween for range %s: %s" (show range) (show e)
               pure $ Right []
+      logger Debug $ fromString $ printf "Filling gap %s" (show range)
       (blocksBetween env range `catch` onCatch) >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
         Right [] -> logger Error $ fromString $ printf "blocksBetween: Empty result for range %s" $ show range
-        Right hs -> writeBlocks env pool count hs
+        Right hs -> do
+          logger Debug $ fromString $ printf "Writing %d blocks for range %s" (length hs) (show range)
+          writeBlocks env pool count hs
       maybe mempty threadDelay delay
 
 _test_getBlockGaps
