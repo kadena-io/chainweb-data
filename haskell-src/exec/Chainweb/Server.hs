@@ -433,9 +433,10 @@ queryTxsByKey logger rk c =
         , Api._signer_capList = caps
         }
     let sigs = Api.Sig . unSignature . _signer_sig <$> dbSigners
+        sameBlock tx ev = (unBlockId $ _tx_block tx) == (unBlockId $ _ev_block ev)
 
     return $ (`fmap` r) $ \(tx,contHist, blk) ->
-      toApiTxDetail tx contHist blk evs signers sigs
+      toApiTxDetail tx contHist blk (filter (sameBlock tx) evs) signers sigs
 
 queryTxsByPactId :: LogFunctionIO Text -> Limit -> Text -> Connection -> IO [TxSummary]
 queryTxsByPactId logger limit pactid c =
