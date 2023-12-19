@@ -29,7 +29,6 @@ import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
 import           Control.Lens (iforM_)
-import           Control.Retry
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.Map as M
@@ -38,13 +37,12 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
-import           Data.Tuple.Strict (T2(..))
 import           Database.Beam hiding (insert)
 import           Database.Beam.Backend.SQL.BeamExtensions
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Full (insert, onConflict)
 import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSavepoint)
-import           System.Logger hiding (logg)
+
 ---
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
@@ -134,9 +132,7 @@ asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHas
 -- the database.
 writeBlock :: Env -> P.Pool Connection -> IORef Int -> (BlockHeader, BlockPayloadWithOutputs) -> IO ()
 writeBlock env pool count (bh, pwo) = do
-  let !pair = T2 (_blockHeader_chainId bh) (hashToDbHash $ _blockHeader_payloadHash bh)
-      logg = _env_logger env
-      !m = _blockPayloadWithOutputs_minerData pwo
+  let !m = _blockPayloadWithOutputs_minerData pwo
       !b = asBlock (asPow bh) m
       !t = mkBlockTransactions b pwo
       !es = mkBlockEvents (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) pwo
@@ -148,16 +144,12 @@ writeBlock env pool count (bh, pwo) = do
       let !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pwo evMinHeight
       atomicModifyIORef' count (\n -> (n+1, ()))
       writes pool b k t es ss tf
-  where
-    policy :: RetryPolicyM IO
-    policy = exponentialBackoff 250_000 <> limitRetries 3
 
 writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [(BlockHeader, BlockPayloadWithOutputs)] -> IO ()
 writeBlocks env pool count blocks = do
-    iforM_ blocksByChainId $ \chain (Sum numWrites, bhs') -> do
+    iforM_ blocksByChainId $ \_chain (Sum numWrites, bhs') -> do
       let
         pls = M.fromList [ ((_blockHeader_hash bh), pwo) | (bh, pwo) <- bhs' ]
-        ff bh = (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh)
         !ms = _blockPayloadWithOutputs_minerData <$> pls
         !bs = M.intersectionWith (\m bh -> asBlock (asPow bh) m) ms (makeBlockMap bhs')
         !tss = M.intersectionWith (flip mkBlockTransactions) pls bs
@@ -177,21 +169,10 @@ writeBlocks env pool count blocks = do
 
     makeBlockMap = M.fromList . fmap (\(bh, _) -> (_blockHeader_hash bh, bh))
 
-    logger = _env_logger env
-
     blocksByChainId =
       M.fromListWith mappend
         $ blocks
         <&> \(bh, pwo) -> (_blockHeader_chainId bh, (Sum (1 :: Int), [(bh, pwo)]))
-
-    policy :: RetryPolicyM IO
-    policy = exponentialBackoff 250_000 <> limitRetries 3
-
-check :: RetryStatus -> Either ApiError a -> IO Bool
-check _ ev = pure $
-  case ev of
-    Left e -> apiError_type e == RateLimiting
-    _ -> False
 
 -- | Writes all of the events from a block payload to the events table.
 writePayload
