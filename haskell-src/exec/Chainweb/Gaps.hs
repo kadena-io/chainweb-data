@@ -81,8 +81,14 @@ gapsCut env args cutBS = do
     logg = _env_logger env
     createRanges cid (low, high)
       | low == high = []
-      | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
-      | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
+      | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low
+        = rangeToDescGroupsOf blockRequestSize
+            (Low $ fromIntegral low)
+            (High $ fromIntegral (high - 1))
+      | otherwise
+        = rangeToDescGroupsOf blockRequestSize
+            (Low $ fromIntegral (low + 1))
+            (High $ fromIntegral (high - 1))
 
     f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Low, High) -> IO ()
     f logger count cid (l, h) = do
