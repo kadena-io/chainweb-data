@@ -65,23 +65,6 @@ data BlockT f = Block
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
-Block
-  (LensFor block_creationTime)
-  (LensFor block_chainId)
-  (LensFor block_height)
-  (LensFor block_hash)
-  (LensFor block_parent)
-  (LensFor block_powHash)
-  (LensFor block_payload)
-  (LensFor block_target)
-  (LensFor block_weight)
-  (LensFor block_epochStart)
-  (LensFor block_nonce)
-  (LensFor block_flags)
-  (LensFor block_miner_acc)
-  (LensFor block_miner_pred)
-  = tableLenses
-
 type Block = BlockT Identity
 type BlockId = PrimaryKey BlockT Identity
 

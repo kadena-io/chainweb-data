@@ -9,8 +9,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.10.7']
-        cabal: ['3.4']
+        ghc: ['9.2.8']
+        cabal: ['3.10']
         os: ['ubuntu-20.04', 'ubuntu-22.04', 'macOS-latest']
 
     steps:
@@ -23,7 +23,7 @@ jobs:
 
     # Haskell Setup
     - name: Install GHC and Cabal
-      uses: haskell/actions/setup@v2.3.3
+      uses: haskell-actions/setup@v2
       with:
          ghc-version: ${{ matrix.ghc }}
          cabal-version: ${{ matrix.cabal }}

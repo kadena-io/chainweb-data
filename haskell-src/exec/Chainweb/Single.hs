@@ -23,9 +23,9 @@ single env cid h = do
   let pool = _env_dbConnPool env
       range = (cid, Low h, High h)
       logg = _env_logger env
-  headersBetween env range >>= \case
+  blocksBetween env range >>= \case
         Left e -> logg Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
-        Right [] -> logg Error $ fromString $ printf "headersBetween: %s" $ show range
+        Right [] -> logg Error $ fromString $ printf "blocksBetween: Empty result for range %s" $ show range
         Right hs -> traverse_ (writeBlock env pool count) hs
   final <- readIORef count
   logg Info $ fromString $ printf "Filled in %d blocks." final

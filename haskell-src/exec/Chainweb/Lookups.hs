@@ -8,9 +8,8 @@
 
 module Chainweb.Lookups
   ( -- * Endpoints
-    headersBetween
+    blocksBetween
   , payloadWithOutputs
-  , payloadWithOutputsBatch
   , getNodeInfo
   , queryCut
   , cutMaxHeight
@@ -51,31 +50,28 @@ import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
 import           Control.Applicative
-import           Control.Error.Util (hush)
 import           Control.Lens
 import           Control.Monad
 import           Data.Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 import           Data.Aeson.Lens
+import           Data.Aeson.Types
 import           Data.ByteString.Lazy (ByteString,toStrict)
-import qualified Data.ByteString.Base64.URL as B64
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Map.Strict as M
 import           Data.Foldable
 import           Data.Int
-import qualified Data.List as L (intercalate)
 import           Data.Maybe
-import           Data.Serialize.Get (runGet)
+import           Data.String (fromString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Read as TR
 import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Tuple.Strict (T2(..))
-import qualified Data.Vector as V
 import           Database.Beam hiding (insert)
 import           Database.Beam.Postgres
 import           Network.HTTP.Client hiding (Proxy)
 import           Network.HTTP.Types
+import qualified System.Logger.Types as Logger
 import           Text.Printf
 
 data ErrorType = RateLimiting | ClientError | ServerError | OtherError T.Text
@@ -101,55 +97,46 @@ handleRequest req mgr = do
 
 --------------------------------------------------------------------------------
 -- Endpoints
-
+--
 -- | Returns headers in the range [low, high] (inclusive).
-headersBetween
+blocksBetween
   :: Env
   -> (ChainId, Low, High)
-  -> IO (Either ApiError [BlockHeader])
-headersBetween env (cid, Low low, High up) = do
+  -> IO (Either ApiError [(BlockHeader, BlockPayloadWithOutputs)])
+blocksBetween env (cid, Low low, High up) = do
   req <- parseRequest url
   eresp <- handleRequest (req { requestHeaders = requestHeaders req <> encoding })
                      (_env_httpManager env)
-  pure $ (^.. key "items" . values . _String . to f . _Just) . responseBody <$> eresp
+  let
+    logg = _env_logger env
+  case eresp of
+    Left e -> pure $ Left e
+    Right resp -> do
+      let
+        responseJson = eitherDecode' (responseBody resp)
+        responseParser =
+          withObject "BlocksOutput" $ \o ->
+            o .: "items"
+      items <- case parseEither responseParser =<< responseJson  of
+        Left e -> do
+          logg Logger.Error $ fromString $ printf "Error parsing blocksBetween response: %s" e
+          return []
+        Right items -> pure items
+      fmap (Right . catMaybes) $ forM (zip items [0 :: Int ..]) $ \(item, idx) -> do
+        let
+          itemParser = withObject "Block" $ \o -> do
+            (,) <$> o .: "header" <*> o .: "payloadWithOutputs"
+        case parseEither itemParser item of
+          Left e -> Nothing <$ logg Logger.Error
+            (fromString $ printf "Error parsing block %d in range %s: %s" idx rangeStr e)
+            where rangeStr = show (cid, low, up)
+          Right res -> pure $ Just res
   where
     v = _nodeInfo_chainwebVer $ _env_nodeInfo env
     url = showUrlScheme (_env_serviceUrlScheme env) <> query
-    query = printf "/chainweb/0.0/%s/chain/%d/header?minheight=%d&maxheight=%d"
+    query = printf "/chainweb/0.0/%s/chain/%d/block?minheight=%d&maxheight=%d"
       (T.unpack v) (unChainId cid) low up
     encoding = [("accept", "application/json")]
-
-    f :: T.Text -> Maybe BlockHeader
-    f = hush . (B64.decode . T.encodeUtf8 >=> runGet decodeBlockHeader)
-
-payloadWithOutputsBatch
-  :: Env
-  -> ChainId
-  -> M.Map (DbHash PayloadHash) a
-  -> (a -> Hash)
-  -> IO (Either ApiError [(a, BlockPayloadWithOutputs)])
-payloadWithOutputsBatch env (ChainId cid) m _f = do
-    initReq <- parseRequest url
-    let req = initReq { method = "POST" , requestBody = RequestBodyLBS $ encode requestObject, requestHeaders = encoding}
-    eresp <- handleRequest req (_env_httpManager env)
-    let res = do
-          resp <- eresp
-          case eitherDecode' (responseBody resp) of
-            Left e -> Left $ ApiError (OtherError $ "Decoding error in payloadWithOutputsBatch: " <> T.pack e <> rest)
-                                      (responseStatus resp) (responseBody resp)
-            Right (as :: [BlockPayloadWithOutputs]) -> Right $ foldr go [] as
-    pure res
-  where
-    rest = T.pack $ "\nHashes: ( " ++ (L.intercalate " " $ M.elems (show . hashB64U . _f <$> m)) ++ " )"
-    url = showUrlScheme (_env_serviceUrlScheme env) <> T.unpack query
-    v = _nodeInfo_chainwebVer $ _env_nodeInfo env
-    query = "/chainweb/0.0/" <> v <> "/chain/" <>   T.pack (show cid) <> "/payload/outputs/batch"
-    encoding = [("content-type", "application/json")]
-    requestObject = Array $ V.fromList $ String . unDbHash <$> M.keys m
-    go bpwo =
-      case M.lookup (hashToDbHash $ _blockPayloadWithOutputs_payloadHash bpwo) m of
-        Nothing -> id
-        Just vv -> ((vv, bpwo) :)
 
 payloadWithOutputs
   :: Env
@@ -382,7 +369,7 @@ mkEvent (ChainId chainid) height block requestkey ev idx = Event
       Array l -> l
       _ -> mempty
     lkp n v = case v of
-      Object o -> HM.lookup n o
+      Object o -> KeyMap.lookup n o
       _ -> Nothing
     str n v = case lkp n v of
       Just (String s) -> Just s

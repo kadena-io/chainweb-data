@@ -45,19 +45,6 @@ data TransferT f = Transfer
   deriving stock (Generic)
   deriving anyclass (Beamable)
 
-Transfer
-  (BlockId (LensFor tr_block))
-  (LensFor tr_requestkey)
-  (LensFor tr_chainid)
-  (LensFor tr_height)
-  (LensFor tr_idx)
-  (LensFor tr_modulename)
-  (LensFor tr_moduleHash)
-  (LensFor tr_from_acct)
-  (LensFor tr_to_acct)
-  (LensFor tr_amount)
- = tableLenses
-
 type Transfer = TransferT Identity
 type TransferId = PrimaryKey TransferT Identity
 
