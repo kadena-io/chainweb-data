@@ -1,0 +1,13 @@
+cradle:
+  cabal:
+    - path: "haskell-src/lib"
+      component: "lib:chainweb-data"
+
+    - path: "haskell-src/exec"
+      component: "chainweb-data:exe:chainweb-data"
+
+    - path: "haskell-src/test"
+      component: "chainweb-data:test:testsuite"
+
+    - path: "haskell-src/bench"
+      component: "chainweb-data:bench:bench"
