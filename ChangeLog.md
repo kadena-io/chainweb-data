@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0 (2023-12-21)
+
+* Use CW-N's new block endpoint for history fill operations (#162)
+* Fix treatment of events associated to multiple transactions returned by the `txs/txs` endpoint (#177)
+* Update Haskell dependencies and GHC version (to 9.2.8) (#172, #174, #176)
+* Nix build setup improvements (#170)
+* Build with Nix and cache (to nixcache.chainweb.com) the project in GitHub actions (#165)
+* README improvements (#168, #169, 178)
+* Cabal build GitHub action fix (#166)
+* Fix the hie.yaml for HLS (Haskell LSP) (#175, #179)
+
 ## 2.3.0 (2023-08-14)
 
 * Fix `fill` and `backfill` issues caused by node's P2P API throttling, resulting in partial fills (#151)
