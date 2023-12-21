@@ -1,11 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Chainweb.Gaps ( gaps, _test_headersBetween_and_payloadBatch ) where
+module Chainweb.Gaps ( gaps ) where
 
 import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
-import           Chainweb.Api.BlockHeader
 import           ChainwebDb.Database
 import           ChainwebData.Env
 import           Chainweb.Lookups
@@ -82,63 +81,30 @@ gapsCut env args cutBS = do
     logg = _env_logger env
     createRanges cid (low, high)
       | low == high = []
-      | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral low) (High $ fromIntegral (high - 1))
-      | otherwise = rangeToDescGroupsOf blockHeaderRequestSize (Low $ fromIntegral (low + 1)) (High $ fromIntegral (high - 1))
+      | fromIntegral (genesisHeight (ChainId (fromIntegral cid)) gi) == low
+        = rangeToDescGroupsOf blockRequestSize
+            (Low $ fromIntegral low)
+            (High $ fromIntegral (high - 1))
+      | otherwise
+        = rangeToDescGroupsOf blockRequestSize
+            (Low $ fromIntegral (low + 1))
+            (High $ fromIntegral (high - 1))
 
     f :: LogFunctionIO Text -> IORef Int -> Int64 -> (Low, High) -> IO ()
     f logger count cid (l, h) = do
       let range = (ChainId (fromIntegral cid), l, h)
       let onCatch (e :: SomeException) = do
               logger Error $
-                  fromString $ printf "Caught exception from headersBetween for range %s: %s" (show range) (show e)
+                  fromString $ printf "Caught exception from blocksBetween for range %s: %s" (show range) (show e)
               pure $ Right []
-      (headersBetween env range `catch` onCatch) >>= \case
+      logger Debug $ fromString $ printf "Filling gap %s" (show range)
+      (blocksBetween env range `catch` onCatch) >>= \case
         Left e -> logger Error $ fromString $ printf "ApiError for range %s: %s" (show range) (show e)
-        Right [] -> logger Error $ fromString $ printf "headersBetween: %s" $ show range
-        Right hs -> writeBlocks env pool count hs
+        Right [] -> logger Error $ fromString $ printf "blocksBetween: Empty result for range %s" $ show range
+        Right hs -> do
+          logger Debug $ fromString $ printf "Writing %d blocks for range %s" (length hs) (show range)
+          writeBlocks env pool count hs
       maybe mempty threadDelay delay
-
-_test_headersBetween_and_payloadBatch :: IO ()
-_test_headersBetween_and_payloadBatch = do
-    env <- testEnv
-    queryCut env >>= print
-    let ranges = rangeToDescGroupsOf blockHeaderRequestSize (Low 3817591) (High 3819591)
-        toRange c (Low l, High h) = (c, Low l, High h)
-        onCatch (e :: SomeException) = do
-          putStrLn $ "Caught exception from headersBetween: " <> show e
-          pure $ Right []
-    forM_ (take 1 ranges) $ \range -> (headersBetween env (toRange (ChainId 0) range) `catch` onCatch) >>= \case
-      Left e -> putStrLn $ "Error: " <> show e
-      Right hs -> do
-        putStrLn $ "Got " <> show (length hs) <> " headers"
-        let makeMap = M.fromList . map (\bh -> (hashToDbHash $ _blockHeader_payloadHash bh, _blockHeader_hash bh))
-        payloadWithOutputsBatch env (ChainId 0) (makeMap hs) id >>= \case
-          Left e -> putStrLn $ "Error: " <> show e
-          Right pls -> do
-            putStrLn $ "Got " <> show (length pls) <> " payloads"
-  where
-    testEnv :: IO Env
-    testEnv = do
-      manager <- newManager $ mkManagerSettings (TLSSettingsSimple True False False) Nothing
-      let urlHost_ = "localhost"
-          serviceUrlScheme = UrlScheme Http $ Url urlHost_ 1848
-          nodeInfo = NodeInfo
-            {
-                _nodeInfo_chainwebVer = "mainnet01"
-              , _nodeInfo_apiVer = undefined
-              , _nodeInfo_chains = undefined
-              , _nodeInfo_numChains = undefined
-              , _nodeInfo_graphs = Nothing
-            }
-      return Env -- these undefined fields are not used in the `headersBetween` function
-        {
-          _env_httpManager = manager
-        , _env_dbConnPool = undefined
-        , _env_serviceUrlScheme = serviceUrlScheme
-        , _env_nodeInfo = nodeInfo
-        , _env_chainsAtHeight = undefined
-        , _env_logger = undefined
-        }
 
 _test_getBlockGaps
   :: String -- host

@@ -16,7 +16,7 @@ module ChainwebData.Types
     -- * Utils
   , groupsOf
   , rangeToDescGroupsOf
-  , blockHeaderRequestSize
+  , blockRequestSize
   , withEventsMinHeight
   ) where
 
@@ -104,9 +104,11 @@ rangeToDescGroupsOf n l@(Low low) h@(High high)
 instance ToJSON BlockHeader where
   toJSON _ = object []
 
--- This constant defines the maximum number of blockheaders we can retrieve from a node at a time.
-blockHeaderRequestSize :: Int
-blockHeaderRequestSize = 360
+-- This constant defines the number of blocks we will request from a node at a time,
+-- which is smaller than the maximum of 360 in order to avoid issues with orphans.
+-- Requesting smaller chunks also allows us to use less memory.
+blockRequestSize :: Int
+blockRequestSize = 120
 
 withVersion :: T.Text -> (T.Text -> a) -> (a -> b) -> b
 withVersion version onVersion action = action $ onVersion version
