@@ -151,9 +151,8 @@ runMigrations pool logg migAction migrations = do
   baseFiles <- case migrationsFolderBase migrations of
     Just migFolder -> getDir migFolder
     Nothing -> return baseMigrationFiles
-  extraFiles <- case migrationsFolderExtra migrations of
-    Just migFolder -> getDir migFolder
-    Nothing -> return []
+  extraFiles <- flip foldMap (migrationsFolderExtra migrations) $
+    \migFolder -> getDir migFolder
   let migrationFiles = baseFiles ++ extraFiles
 
   let steps = map (uncurry Mg.MigrationStep) migrationFiles

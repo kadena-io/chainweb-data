@@ -71,7 +71,7 @@ type MigrationsFolder = FilePath
 
 data Migrations = Migrations
   { migrationsFolderBase :: Maybe MigrationsFolder
-  , migrationsFolderExtra :: Maybe MigrationsFolder
+  , migrationsFolderExtra :: [MigrationsFolder]
   } deriving (Show)
 
 data Args
@@ -278,7 +278,7 @@ migrationsParser = Migrations
        <> metavar "PATH"
        <> help "Path to the migrations folder"
       )
-  <*> optional (strOption
+  <*> many (strOption
         $ long "extra-migrations-folder"
        <> metavar "PATH"
        <> help "Path to extra migrations folder"
