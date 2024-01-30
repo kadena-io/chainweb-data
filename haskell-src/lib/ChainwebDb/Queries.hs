@@ -316,19 +316,16 @@ joinXChainInfo tr = pgUnnest $ (customExpr_ $ \fromAcct toAcct idx mdName blk re
       " AND e.idx = " <> idx <> " - 1 " <>
       " AND " <> mdName <> " = 'coin' " <>
     " UNION ALL " <>
-    " SELECT e.params->>0 AS acct, e.chainid " <>
-    " FROM transactions tRec, transactions tSend, events e " <>
+    " SELECT e.params->2->>0 AS acct, CAST(e.params->>0 AS INT) AS chainid " <>
+    " FROM events e " <>
     " WHERE " <> mdName <> " = 'coin' " <>
       " AND " <> req <> " != 'cb' " <>
       " AND " <> fromAcct <> " = '' " <>
-      " AND tRec.block = " <> blk <>
-      " AND tRec.requestkey = " <> req <>
-      " AND tSend.requestkey = tRec.pactid " <>
-      " AND e.block = tSend.block " <>
-      " AND e.requestkey = tSend.requestkey " <>
-      " AND e.qualname = 'coin.TRANSFER_XCHAIN' " <>
-      " AND e.params->>1 = " <> toAcct <>
-      " AND e.params->>2 = CAST(" <> amt <> "AS VARCHAR) " <>
+      " AND e.block = " <> blk <>
+      " AND e.requestkey = " <> req <>
+      " AND e.qualname = 'pact.X_RESUME' " <>
+      " AND e.params->>1 = 'coin.transfer-crosschain' " <>
+      " AND e.params->2->>1 = " <> toAcct <>
     " UNION ALL " <>
     " SELECT NULL, NULL " <>
     " LIMIT 1 " <>
