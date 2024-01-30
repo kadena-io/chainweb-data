@@ -312,7 +312,6 @@ joinXChainInfo tr = pgUnnest $ (customExpr_ $ \fromAcct toAcct idx mdName blk re
       " AND e.qualname = 'coin.TRANSFER_XCHAIN' " <>
       " AND e.params->>0 = " <> fromAcct <>
       " AND " <> toAcct <> " = '' " <>
-      " AND e.params->>2 = CAST(" <> amt <> "AS VARCHAR) " <>
       " AND e.idx = " <> idx <> " - 1 " <>
       " AND " <> mdName <> " = 'coin' " <>
     " UNION ALL " <>
