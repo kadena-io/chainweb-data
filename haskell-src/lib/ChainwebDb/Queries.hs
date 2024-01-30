@@ -307,19 +307,19 @@ joinXChainInfo tr = pgUnnest $ (customExpr_ $ \fromAcct toAcct idx mdName blk re
   " LATERAL ( " <>
     " SELECT e.params->>1 AS acct, CAST(e.params->>3 AS INT) " <>
     " FROM events e " <>
-    " WHERE e.block = " <> blk <>
+    " WHERE " <> mdName <> " = 'coin' " <>
+      " AND " <> toAcct <> " = '' " <>
+      " AND e.block = " <> blk <>
       " AND e.requestkey = " <> req <>
+      " AND e.idx = " <> idx <> " - 1 " <>
       " AND e.qualname = 'coin.TRANSFER_XCHAIN' " <>
       " AND e.params->>0 = " <> fromAcct <>
-      " AND " <> toAcct <> " = '' " <>
-      " AND e.idx = " <> idx <> " - 1 " <>
-      " AND " <> mdName <> " = 'coin' " <>
     " UNION ALL " <>
     " SELECT e.params->2->>0 AS acct, CAST(e.params->>0 AS INT) AS chainid " <>
     " FROM events e " <>
     " WHERE " <> mdName <> " = 'coin' " <>
-      " AND " <> req <> " != 'cb' " <>
       " AND " <> fromAcct <> " = '' " <>
+      " AND " <> req <> " != 'cb' " <>
       " AND e.block = " <> blk <>
       " AND e.requestkey = " <> req <>
       " AND e.qualname = 'pact.X_RESUME' " <>
