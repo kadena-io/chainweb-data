@@ -26,7 +26,7 @@ type StepName = String
 data MigrationStep = MigrationStep
   { msName :: Mg.ScriptName
   , msBody :: BS.ByteString
-  }
+  } deriving (Eq, Ord)
 
 -- | Parse a ScriptName in the format "1.2.3_step_name" into a MigrationOrder
 -- and a StepName.
