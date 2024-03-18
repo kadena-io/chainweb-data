@@ -29,6 +29,8 @@ import           Control.Lens
 import           Control.Monad (forM_, void)
 import           Data.Bifunctor
 import qualified Data.ByteString as BS
+import           Data.Containers.ListUtils (nubOrd)
+
 import           Data.FileEmbed
 import qualified Data.Pool as P
 import           Data.String
@@ -154,7 +156,7 @@ runMigrations pool logg migAction migrations = do
   extraFiles <- foldMap getDir $ migrationsFolderExtra migrations
   let migrationFiles = baseFiles ++ extraFiles
 
-  let steps = map (uncurry Mg.MigrationStep) migrationFiles
+  let steps = nubOrd $ map (uncurry Mg.MigrationStep) migrationFiles
 
   Mg.runMigrations migAction steps pool logg
 
