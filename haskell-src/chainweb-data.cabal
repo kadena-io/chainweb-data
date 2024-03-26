@@ -26,7 +26,6 @@ common commons
     , base-prelude
     , base16-bytestring  >=0.1
     , beam-core          >=0.8
-    , beam-migrate       >=0.4
     , beam-postgres      >=0.5
     , bytestring         >=0.10
     , chainweb-api
@@ -199,7 +198,6 @@ benchmark bench
     , aeson
     , base
     , beam-core          >=0.8
-    , beam-migrate       >=0.4 && <0.6
     , beam-postgres      >=0.5 && <0.6
     , bytestring
     , chainweb-api

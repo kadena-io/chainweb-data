@@ -23,7 +23,6 @@ import Data.Time.Clock (UTCTime)
 import Database.Beam
 import Database.Beam.Backend.SQL hiding (tableName)
 import Database.Beam.Backend.SQL.Row ()
-import Database.Beam.Migrate
 import Database.Beam.Postgres (Postgres)
 import Database.Beam.Postgres.Syntax (PgValueSyntax)
 import Database.Beam.Query ()
@@ -37,9 +36,6 @@ newtype HashAsNum = HashAsNum { unHashAsNum :: Scientific }
   deriving newtype (Num)
   deriving newtype (HasSqlValueSyntax PgValueSyntax)
   deriving newtype (FromBackendRow Postgres, HasSqlEqualityCheck Postgres)
-
-instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be HashAsNum where
-  defaultSqlDataType _ _ _ = numericType (Just (80, Nothing))
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
