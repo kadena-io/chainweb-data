@@ -19,7 +19,6 @@ module ChainwebDb.Types.Common where
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Database.Beam
-import           Database.Beam.AutoMigrate hiding (Table)
 import           Database.Beam.Backend.SQL hiding (tableName)
 import           Database.Beam.Backend.SQL.Row ()
 import           Database.Beam.Backend.SQL.SQL92 ()
@@ -55,7 +54,3 @@ instance HasSqlValueSyntax be String => HasSqlValueSyntax be ReqKeyOrCoinbase wh
 
 instance (BeamBackend be, FromBackendRow be Text) => FromBackendRow be ReqKeyOrCoinbase where
   fromBackendRow = rkcbFromText <$> fromBackendRow
-
-instance HasColumnType ReqKeyOrCoinbase where
-  defaultColumnType _ = SqlStdType $ varCharType Nothing Nothing
-  defaultTypeCast _ = Just "character varying"

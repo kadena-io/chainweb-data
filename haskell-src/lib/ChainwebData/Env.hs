@@ -26,7 +26,6 @@ module ChainwebData.Env
   , FillArgs(..)
   , envP
   , migrateOnlyP
-  , checkSchemaP
   , richListP
   , NodeDbPath(..)
   , progress
@@ -51,13 +50,6 @@ import           Data.Text (pack, Text)
 import           Data.Time.Clock.POSIX
 import           Database.Beam.Postgres
 import           Database.PostgreSQL.Simple (execute_)
-import           Gargoyle
-import           Gargoyle.PostgreSQL
--- To get gargoyle to give you postgres automatically without having to install
--- it externally, uncomment the below line and comment the above line. Then do
--- the same thing down in withGargoyleDb and uncomment the gargoyle-postgres-nix
--- package in the cabal file.
---import Gargoyle.PostgreSQL.Nix
 import           Network.HTTP.Client (Manager)
 import           Options.Applicative
 import qualified Servant.Client as S
@@ -80,7 +72,6 @@ data Args
   | RichListArgs NodeDbPath LogLevel ChainwebVersion
     -- ^ arguments for the Richlist command
   | MigrateOnly Connect LogLevel Migrations
-  | CheckSchema Connect LogLevel
   deriving (Show)
 
 data Env = Env
@@ -98,27 +89,8 @@ chainStartHeights chainsAtHeight = go mempty chainsAtHeight
     go m [] = m
     go m ((h,cs):rest) = go (foldr (\c -> M.insert c h) m cs) rest
 
-data Connect = PGInfo ConnectInfo | PGString ByteString | PGGargoyle String
+data Connect = PGInfo ConnectInfo | PGString ByteString
   deriving (Eq,Show)
-
--- | Equivalent to withPool but uses a Postgres DB started by Gargoyle
-withGargoyleDbInit ::
-  (Connection -> IO ()) ->
-  FilePath ->
-  (Pool Connection -> IO a) -> IO a
-withGargoyleDbInit initConn dbPath func = do
-  --pg <- postgresNix
-  let pg = defaultPostgres
-  withGargoyle pg dbPath $ \dbUri -> do
-    caps <- getNumCapabilities
-    let poolConfig =
-          defaultPoolConfig
-            (connectPostgreSQL dbUri >>= \c -> c <$ initConn c) -- createResource
-            close -- freeResource
-            5 -- poolCacheTTL
-            caps --poolMaxResources
-    pool <- newPool poolConfig
-    func pool
 
 -- | Create a `Pool` based on `Connect` settings designated on the command line.
 getPool :: IO Connection -> IO (Pool Connection)
@@ -135,7 +107,6 @@ getPool getConn = do
 -- | A bracket for `Pool` interaction.
 withPoolInit :: (Connection -> IO ()) -> Connect -> (Pool Connection -> IO a) -> IO a
 withPoolInit initC = \case
-  PGGargoyle dbPath -> withGargoyleDbInit initC dbPath
   PGInfo ci -> bracket (getPool $ withInit (connect ci)) destroyAllResources
   PGString s -> bracket (getPool $ withInit (connectPostgreSQL s)) destroyAllResources
   where withInit mkConn = mkConn >>= \c -> c <$ initC c
@@ -313,18 +284,6 @@ migrateOnlyP = hsubparser
       <*> logLevelParser
       <*> migrationsParser
 
-checkSchemaP :: Parser Args
-checkSchemaP = hsubparser
-  ( command "check-schema"
-    ( info opts $ progDesc
-        "Check the DB schema against the ORM definitions"
-    )
-  )
-  where
-    opts = CheckSchema
-      <$> connectP
-      <*> logLevelParser
-
 richListP :: Parser Args
 richListP = hsubparser
   ( command "richlist"
@@ -359,11 +318,6 @@ simpleVersionParser =
 connectP :: Parser Connect
 connectP = (PGString <$> pgstringP)
        <|> (PGInfo <$> connectInfoP)
-       <|> (PGGargoyle <$> dbdirP)
-       <|> pure (PGGargoyle "cwdb-pgdata")
-
-dbdirP :: Parser FilePath
-dbdirP = strOption (long "dbdir" <> help "Directory for self-run postgres")
 
 pgstringP :: Parser ByteString
 pgstringP = strOption (long "dbstring" <> help "Postgres Connection String")

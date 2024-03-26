@@ -12,7 +12,6 @@ import           Chainweb.Api.ChainId (ChainId(..))
 import           Chainweb.Api.NodeInfo
 import           Chainweb.Backfill (backfill)
 import           Chainweb.BackfillTransfers (backfillTransfersCut)
-import           ChainwebDb.Database (checkTables)
 import           ChainwebDb.Migration (MigrationAction(..))
 import qualified ChainwebDb.Migration as Mg
 
@@ -103,11 +102,9 @@ main = do
                             logg Info "Starting retrying listener"
                             void $ forkIO $ retryingListener env
                         forM_ (getHTTPEnv serverEnv) $ apiServer env
-        CheckSchema pgc _ -> withCWDPool pgc $ \pool -> do
-          P.withResource pool $ checkTables logg True
 
   where
-    opts = info ((richListP <|> migrateOnlyP <|> checkSchemaP <|> envP) <**> helper)
+    opts = info ((richListP <|> migrateOnlyP <|> envP) <**> helper)
       (fullDesc <> header "chainweb-data - Processing and analysis of Chainweb data")
     config level = defaultLoggerConfig
       & loggerConfigThreshold .~ level
@@ -116,7 +113,6 @@ main = do
       Args _ _ _ level _ _ -> level
       RichListArgs _ level _ -> level
       MigrateOnly _ level _ -> level
-      CheckSchema _ level -> level
 
 baseMigrationFiles :: [(FilePath, BS.ByteString)]
 baseMigrationFiles = $(makeRelativeToProject "db-schema/migrations" >>= embedDir)
@@ -160,7 +156,9 @@ runMigrations pool logg migAction migrations = do
 
   Mg.runMigrations migAction steps pool logg
 
-  P.withResource pool $ checkTables logg False
+  -- TODO: Implemenet checkTables with beam-migrate? However, users can just
+  -- supply CheckMigrations at the commandline
+  -- P.withResource pool $ checkTables logg False
 
   logg Info "DB Tables Initialized"
 

@@ -21,7 +21,6 @@ import Data.Scientific
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import Database.Beam
-import Database.Beam.AutoMigrate hiding (Table)
 import Database.Beam.Backend.SQL hiding (tableName)
 import Database.Beam.Backend.SQL.Row ()
 import Database.Beam.Migrate
@@ -41,10 +40,6 @@ newtype HashAsNum = HashAsNum { unHashAsNum :: Scientific }
 
 instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be HashAsNum where
   defaultSqlDataType _ _ _ = numericType (Just (80, Nothing))
-
-instance HasColumnType HashAsNum where
-  defaultColumnType _ = SqlStdType $ numericType (Just (80, Nothing))
-  defaultTypeCast _ = Just "numeric"
 
 ------------------------------------------------------------------------------
 data BlockT f = Block
