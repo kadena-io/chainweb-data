@@ -122,6 +122,6 @@ withEventsMinHeight version errorMessage action = withVersion version onVersion 
     onVersion = \case
       "mainnet01" -> Just 1_722_500
       "testnet04" -> Just 1_261_000
-      "development" -> Just 14
-      "fast-development" -> Just 0
+      "recap-development" -> Just 14
+      "development" -> Just 0
       _ -> Nothing
