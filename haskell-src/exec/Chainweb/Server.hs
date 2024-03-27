@@ -20,6 +20,7 @@ import           Chainweb.Api.NodeInfo
 import           Control.Concurrent
 import           Control.Error
 import           Control.Exception (bracket_, throwIO)
+import           Control.Monad
 import           Control.Monad.Except
 import qualified Control.Monad.Managed as M
 import           Control.Retry

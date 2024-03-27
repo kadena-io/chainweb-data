@@ -11,6 +11,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 -- |
 
 module ChainwebDb.Queries where
@@ -294,7 +295,7 @@ data XChainInfoT f = XChainInfo
 
 joinXChainInfo :: TransferT (PgExpr s) ->
   Q Postgres ChainwebDataDb s (XChainInfoT (PgExpr s))
-joinXChainInfo tr = pgUnnest $ (customExpr_ $ \fromAcct toAcct idx mdName blk req amt ->
+joinXChainInfo tr = pgUnnest $ (customExpr_ $ \fromAcct toAcct idx mdName blk req _amt ->
   -- We need the following LATERAL keyword so that it can be used liberally
   -- in any Q context despite the fact that it refers to the `tr` coming
   -- from the outside scope. The LATERAL helps, because when the expression below
