@@ -40,7 +40,6 @@ let profilingModule = {
         pkgs.lib.optional enableProfiling profilingModule ++
         [{
           packages.pact.components.library.ghcOptions = [ "-Wwarn" ];
-          packages.gargoyle-postgresql-nix.components.library.build-tools = [ pkgs.postgresql ];
         }];
 
     };
