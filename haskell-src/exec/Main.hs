@@ -156,9 +156,6 @@ runMigrations pool logg migAction migrations = do
 
   Mg.runMigrations migAction steps pool logg
 
-  -- TODO: Implemenet checkTables with beam-migrate? However, users can just
-  -- supply CheckMigrations at the commandline
-  -- P.withResource pool $ checkTables logg False
 
   logg Info "DB Tables Initialized"
 
