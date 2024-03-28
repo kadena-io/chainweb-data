@@ -25,9 +25,7 @@ common commons
     , base               >=4.7      && <5
     , base-prelude
     , base16-bytestring  >=0.1
-    , beam-automigrate
     , beam-core          >=0.8
-    , beam-migrate       >=0.4
     , beam-postgres      >=0.5
     , bytestring         >=0.10
     , chainweb-api
@@ -80,8 +78,6 @@ library
     base64-bytestring        >=1.0
     , cryptohash
     , Decimal
-    , gargoyle
-    , gargoyle-postgresql
     , http-client              >=0.6
     , http-client-tls          >=0.3
     , http-types
@@ -122,8 +118,6 @@ executable chainweb-data
     , direct-sqlite
     , errors                   >=2.3
     , file-embed
-    , gargoyle
-    , gargoyle-postgresql
     , http-client              >=0.6
     , http-client-tls          >=0.3
     , http-types
@@ -159,7 +153,6 @@ executable chainweb-data
     , witherable
     , yet-another-logger
 
-  -- , gargoyle-postgresql-nix
   other-modules:
     Chainweb.Backfill
     Chainweb.BackfillTransfers
@@ -204,9 +197,7 @@ benchmark bench
   build-depends:
     , aeson
     , base
-    , beam-automigrate
     , beam-core          >=0.8
-    , beam-migrate       >=0.4 && <0.6
     , beam-postgres      >=0.5 && <0.6
     , bytestring
     , chainweb-api

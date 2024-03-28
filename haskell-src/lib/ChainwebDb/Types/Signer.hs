@@ -20,11 +20,9 @@ import           Data.Aeson
 import           Data.Int
 import           Data.Text (Text)
 import           Database.Beam
-import           Database.Beam.AutoMigrate hiding (Table)
 import           Database.Beam.Backend.SQL hiding (tableName)
 import           Database.Beam.Backend.SQL.Row ()
 import           Database.Beam.Backend.SQL.SQL92 ()
-import           Database.Beam.Migrate
 import           Database.Beam.Postgres
 import           Database.Beam.Postgres.Syntax (PgValueSyntax)
 ------------------------------------------------------------------------------
@@ -36,14 +34,6 @@ newtype Signature = Signature { unSignature :: Text }
   deriving anyclass (ToJSON, FromJSON)
   deriving newtype (HasSqlValueSyntax PgValueSyntax)
   deriving newtype (FromBackendRow Postgres, HasSqlEqualityCheck Postgres)
-
-instance BeamMigrateSqlBackend be => HasDefaultSqlDataType be Signature where
-  defaultSqlDataType _ _ _ = varCharType Nothing Nothing
-
-instance HasColumnType Signature where
-  defaultColumnType _ = SqlStdType $ varCharType Nothing Nothing
-  defaultTypeCast _ = Just "character varying"
-
 
 data SignerT f = Signer
   { _signer_requestkey :: C f (DbHash TxHash)

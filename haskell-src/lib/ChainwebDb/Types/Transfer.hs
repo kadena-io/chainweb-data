@@ -23,7 +23,6 @@ import Database.Beam
 import Database.Beam.Backend.SQL.SQL92
 import Database.Beam.Postgres
 import Database.Beam.Postgres.Syntax
-import qualified Database.Beam.AutoMigrate as BA
 import Database.PostgreSQL.Simple.ToField
 import Database.PostgreSQL.Simple.FromField
 ------------------------------------------------------------------------------
@@ -56,7 +55,3 @@ instance Table TransferT where
 
 newtype KDAScientific = KDAScientific { getKDAScientific :: Scientific }
   deriving newtype (Eq, Show, HasSqlValueSyntax PgValueSyntax, ToField, FromField, FromBackendRow Postgres)
-
-instance BA.HasColumnType KDAScientific where
-  defaultColumnType _ = BA.SqlStdType (numericType Nothing)
-  defaultTypeCast _ = Just "numeric"
