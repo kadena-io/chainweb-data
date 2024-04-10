@@ -318,6 +318,7 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_continuation = PgJSONB <$> _toutContinuation txo
   , _tx_txid = fromIntegral <$> _toutTxId txo
   , _tx_numEvents = Just $ fromIntegral $ length $ _toutEvents txo
+  , _tx_verifiers = PgJSONB <$> tx ^? to (CW._transaction_cmdStr) . key "verifiers"
   }
   where
     cmd = CW._transaction_cmd tx

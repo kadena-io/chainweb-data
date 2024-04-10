@@ -386,6 +386,7 @@ toApiTxDetail tx contHist blk evs signers sigs = TxDetail
         , _txDetail_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
         , _txDetail_signers = signers
         , _txDetail_sigs = sigs
+        , _txDetail_verifiers =  unPgJsonb <$> _tx_verifiers tx
         }
   where
     unMaybeValue = maybe Null unPgJsonb
