@@ -74,6 +74,7 @@ library
     ChainwebDb.Types.Signer
     ChainwebDb.Types.Transaction
     ChainwebDb.Types.Transfer
+    ChainwebDb.Types.Verifier
   build-depends:
     base64-bytestring        >=1.0
     , cryptohash

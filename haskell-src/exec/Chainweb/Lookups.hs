@@ -20,6 +20,7 @@ module Chainweb.Lookups
   , mkBlockEventsWithCreationTime
   , mkCoinbaseEvents
   , mkTransactionSigners
+  , mkTransactionVerifiers
   , mkTransferRows
   , bpwoMinerKeys
 
@@ -38,6 +39,7 @@ import           Chainweb.Api.NodeInfo
 import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
 import           Chainweb.Api.Sig
+import qualified Chainweb.Api.Verifier as CW
 import qualified Chainweb.Api.Signer as CW
 import qualified Chainweb.Api.Transaction as CW
 import           ChainwebData.Env
@@ -49,6 +51,7 @@ import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import           ChainwebDb.Types.Verifier
 import           Control.Applicative
 import           Control.Lens
 import           Control.Monad
@@ -58,7 +61,9 @@ import           Data.Aeson.Lens
 import           Data.Aeson.Types
 import           Data.ByteString.Lazy (ByteString,toStrict)
 import           Data.Foldable
+import           Data.Functor.Compose (Compose(..))
 import           Data.Int
+import           Data.List (zipWith4)
 import           Data.Maybe
 import           Data.String (fromString)
 import qualified Data.Text as T
@@ -278,6 +283,23 @@ mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
       (PgJSONB $ map toJSON $ CW._signer_capList signer)
       (Signature $ unSig sig)
 
+mkTransactionVerifiers :: CW.Transaction -> [Verifier]
+mkTransactionVerifiers t = zipWith4 mkVerifier [0..] names proofs capLists
+  where
+    verifiers :: Compose Maybe [] CW.Verifier
+    verifiers = Compose $ t ^? to CW._transaction_cmdStr . key "verifiers" . _JSON
+    names = toList $ CW._verifier_name <$> verifiers
+    proofs = toList $ CW._verifier_proof <$> verifiers
+    capLists = toList $ CW._verifier_capList <$> verifiers
+    requestkey = CW._transaction_hash t
+    mkVerifier idx name proof capList = Verifier
+      { _verifier_requestkey = DbHash $ hashB64U requestkey
+      , _verifier_idx = idx
+      , _verifier_name = name
+      , _verifier_proof = proof
+      , _verifier_caps = PgJSONB $ map toJSON capList
+      }
+
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
     & coinbaseTO
@@ -318,7 +340,6 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_continuation = PgJSONB <$> _toutContinuation txo
   , _tx_txid = fromIntegral <$> _toutTxId txo
   , _tx_numEvents = Just $ fromIntegral $ length $ _toutEvents txo
-  , _tx_verifiers = PgJSONB <$> tx ^? to (CW._transaction_cmdStr) . key "verifiers"
   }
   where
     cmd = CW._transaction_cmd tx

@@ -54,7 +54,6 @@ data TransactionT f = Transaction
   , _tx_continuation :: C f (Maybe (PgJSONB Value))
   , _tx_txid :: C f (Maybe Int64)
   , _tx_numEvents :: C f (Maybe Int64)
-  , _tx_verifiers :: C f (Maybe (PgJSONB Value))
   }
   deriving stock (Generic)
   deriving anyclass (Beamable)

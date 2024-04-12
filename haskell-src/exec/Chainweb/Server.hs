@@ -62,6 +62,7 @@ import           Chainweb.Api.Common (BlockHeight)
 import           Chainweb.Api.StringEncoded (StringEncoded(..))
 import qualified Chainweb.Api.Sig as Api
 import qualified Chainweb.Api.Signer as Api
+import qualified Chainweb.Api.Verifier as Api
 import           Chainweb.Coins
 import           ChainwebDb.Database
 import           ChainwebDb.Queries
@@ -83,6 +84,7 @@ import           ChainwebDb.Types.DbHash
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transfer
 import           ChainwebDb.Types.Transaction
+import           ChainwebDb.Types.Verifier
 import           ChainwebDb.Types.Event
 import           ChainwebDb.BoundedScan
 ------------------------------------------------------------------------------
@@ -353,8 +355,9 @@ toApiTxDetail ::
   [Event] ->
   [Api.Signer] ->
   [Api.Sig] ->
+  Maybe [Api.Verifier] ->
   TxDetail
-toApiTxDetail tx contHist blk evs signers sigs = TxDetail
+toApiTxDetail tx contHist blk evs signers sigs verifiers = TxDetail
         { _txDetail_ttl = fromIntegral $ _tx_ttl tx
         , _txDetail_gasLimit = fromIntegral $ _tx_gasLimit tx
         , _txDetail_gasPrice = _tx_gasPrice tx
@@ -386,7 +389,7 @@ toApiTxDetail tx contHist blk evs signers sigs = TxDetail
         , _txDetail_previousSteps = V.toList (chSteps contHist) <$ chCode contHist
         , _txDetail_signers = signers
         , _txDetail_sigs = sigs
-        , _txDetail_verifiers =  unPgJsonb <$> _tx_verifiers tx
+        , _txDetail_verifiers = verifiers
         }
   where
     unMaybeValue = maybe Null unPgJsonb
@@ -436,9 +439,24 @@ queryTxsByKey logger rk c =
     let sigs = Api.Sig . unSignature . _signer_sig <$> dbSigners
         sameBlock tx ev = (unBlockId $ _tx_block tx) == (unBlockId $ _ev_block ev)
 
+    dbVerifiers <- runSelectReturningList $ select $ orderBy_ (asc_ . _verifier_idx) $ do
+      verifier <- all_ (_cddb_verifiers database)
+      guard_ (_verifier_requestkey verifier ==. val_ (DbHash rk))
+      return verifier
+
+    verifiers <- forM dbVerifiers $ \v -> do
+      caps <- forM (unPgJsonb $ _verifier_caps v) $ \capsJson -> case fromJSON capsJson of
+        A.Success a -> return a
+        A.Error e -> liftIO $ throwIO $ userError $ "Failed to parse signer capabilities: " <> e
+      return $ Api.Verifier
+        { Api._verifier_name = _verifier_name v
+        , Api._verifier_proof = _verifier_proof v
+        , Api._verifier_capList = caps
+        }
+
     return $ (`fmap` r) $ \(tx,contHist, blk) ->
       let evsInTxBlock = filter (sameBlock tx) evs
-      in toApiTxDetail tx contHist blk evsInTxBlock signers sigs
+      in toApiTxDetail tx contHist blk evsInTxBlock signers sigs (verifiers <$ guard (not $ null verifiers))
 
 queryTxsByPactId :: LogFunctionIO Text -> Limit -> Text -> Connection -> IO [TxSummary]
 queryTxsByPactId logger limit pactid c =

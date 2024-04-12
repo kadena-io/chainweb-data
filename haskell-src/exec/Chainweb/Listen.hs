@@ -89,12 +89,13 @@ insertNewHeader version pool ph pl = do
       !t = mkBlockTransactions b pl
       !es = mkBlockEvents (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) pl
       !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
+      !vs = concat $ map (mkTransactionVerifiers . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
 
       !k = bpwoMinerKeys pl
       err = printf "insertNewHeader failed because we don't know how to work this version %s" version
   withEventsMinHeight version err $ \minHeight -> do
       let !tf = mkTransferRows (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) (posixSecondsToUTCTime $ _blockHeader_creationTime $ _hwp_header ph) pl minHeight
-      writes pool b k t es ss tf
+      writes pool b k t es ss tf vs
 
 mkRequest :: UrlScheme -> ChainwebVersion -> Request
 mkRequest us (ChainwebVersion cv) = defaultRequest
