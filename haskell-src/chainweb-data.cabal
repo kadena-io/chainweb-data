@@ -175,6 +175,7 @@ test-suite testsuite
   other-modules:
     Chainweb.Data.Test.Backfill
     Chainweb.Data.Test.Parser
+    Chainweb.Data.Test.Verifier
 
   build-depends:
     , aeson
@@ -182,8 +183,12 @@ test-suite testsuite
     , bytestring
     , chainweb-api
     , chainweb-data
+    , chainweb-storage
     , containers          >=0.6
+    , directory
     , neat-interpolation  >=0.5
+    , tagged
+    , rocksdb-haskell-kadena
     , tasty               >=1.2
     , tasty-hunit         >=0.10
     , text
