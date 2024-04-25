@@ -448,9 +448,12 @@ queryTxsByKey logger rk c =
       caps <- forM (unPgJsonb $ _verifier_caps v) $ \capsJson -> case fromJSON capsJson of
         A.Success a -> return a
         A.Error e -> liftIO $ throwIO $ userError $ "Failed to parse signer capabilities: " <> e
+      proof <- case _verifier_proof v of
+        Just s -> return $ A.String s
+        Nothing -> liftIO $ throwIO $ userError $ "Verifier proof doesn't exist?"
       return $ Api.Verifier
         { Api._verifier_name = _verifier_name v
-        , Api._verifier_proof = _verifier_proof v
+        , Api._verifier_proof = proof
         , Api._verifier_capList = caps
         }
 

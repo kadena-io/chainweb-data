@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
@@ -61,9 +62,7 @@ import           Data.Aeson.Lens
 import           Data.Aeson.Types
 import           Data.ByteString.Lazy (ByteString,toStrict)
 import           Data.Foldable
-import           Data.Functor.Compose (Compose(..))
 import           Data.Int
-import           Data.List (zipWith4)
 import           Data.Maybe
 import           Data.String (fromString)
 import qualified Data.Text as T
@@ -284,20 +283,17 @@ mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
       (Signature $ unSig sig)
 
 mkTransactionVerifiers :: CW.Transaction -> [Verifier]
-mkTransactionVerifiers t = zipWith4 mkVerifier [0..] names proofs capLists
+mkTransactionVerifiers t = maybe [] (zipWith mkVerifier [0..]) verifiers
   where
-    verifiers :: Compose Maybe [] CW.Verifier
-    verifiers = Compose $ t ^? to CW._transaction_cmdStr . key "verifiers" . _JSON
-    names = toList $ CW._verifier_name <$> verifiers
-    proofs = toList $ CW._verifier_proof <$> verifiers
-    capLists = toList $ CW._verifier_capList <$> verifiers
+    verifiers :: Maybe [CW.Verifier]
+    verifiers = _pactCommand_verifiers $ CW._transaction_cmd t
     requestkey = CW._transaction_hash t
-    mkVerifier idx name proof capList = Verifier
+    mkVerifier idx verifier = Verifier
       { _verifier_requestkey = DbHash $ hashB64U requestkey
       , _verifier_idx = idx
-      , _verifier_name = name
-      , _verifier_proof = proof
-      , _verifier_caps = PgJSONB $ map toJSON capList
+      , _verifier_name = CW._verifier_name verifier
+      , _verifier_proof = (CW._verifier_proof verifier) ^? _String
+      , _verifier_caps = PgJSONB $ map toJSON $ CW._verifier_capList verifier
       }
 
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]

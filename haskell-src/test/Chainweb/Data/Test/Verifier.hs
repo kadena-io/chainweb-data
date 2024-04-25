@@ -13,10 +13,13 @@ import qualified Data.Aeson as A
 import           Data.Aeson.KeyMap (fromList)
 import           Data.Aeson.Lens
 import qualified Data.ByteString.Lazy as BL
+import           Data.Maybe
 import System.Directory
 
 import Options.Applicative
 
+import Chainweb.Api.PactCommand
+import Chainweb.Api.Transaction
 import Chainweb.Api.Verifier
 -- import Chainweb.Data.Test.Utils
 
@@ -27,7 +30,8 @@ tests :: TestTree
 tests =
   testGroup "Verifier plugin tests"
     [parseVerifier
-    , parseVerifierFromCommandText ]
+    , parseVerifierFromCommandTextCWApi
+    , parseVerifierFromCommandText]
 
 
 parseVerifier :: TestTree
@@ -41,6 +45,20 @@ parseVerifier = testCase "verifier decoding test" $ do
         , _verifier_proof = A.Object (fromList [("keysetref",A.Object (fromList [("ksn",A.String "\120167\&4hy3@un~\185384tYM|y_"),("ns",A.String "?k%B\96883\153643\38839\68129P\139946=\97190$Wk\95172es8QQVIu\197146ypX")]))])
         , _verifier_capList = []
         }
+
+parseVerifierFromCommandTextCWApi :: TestTree
+parseVerifierFromCommandTextCWApi = testCase "Command Text verifier decoding test with CW-API" $ do
+    rawFile <- BL.readFile "haskell-src/test/command-text-with-verifier.txt"
+    either (throwIO . userError) (expectedValue @=?) $
+      -- assume verifiers field is a Just value
+      fromJust . _pactCommand_verifiers . _transaction_cmd <$> A.eitherDecode @Transaction rawFile
+  where
+    expectedValue =
+      [Verifier
+        {_verifier_name = Just "allow"
+        , _verifier_proof = A.String "emmanuel"
+        , _verifier_capList = []
+        }]
 
 parseVerifierFromCommandText :: TestTree
 parseVerifierFromCommandText = testCase "Command Text verifier decoding test" $ do
