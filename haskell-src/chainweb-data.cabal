@@ -175,6 +175,7 @@ test-suite testsuite
   other-modules:
     Chainweb.Data.Test.Backfill
     Chainweb.Data.Test.Parser
+    -- Chainweb.Data.Test.Utils
     Chainweb.Data.Test.Verifier
 
   build-depends:
@@ -186,9 +187,12 @@ test-suite testsuite
     , chainweb-storage
     , containers          >=0.6
     , directory
+    , lens
+    , lens-aeson
     , neat-interpolation  >=0.5
-    , tagged
-    , rocksdb-haskell-kadena
+    , optparse-applicative     >=0.14 && <0.17
+    -- , rocksdb-haskell-kadena
+    -- , tagged
     , tasty               >=1.2
     , tasty-hunit         >=0.10
     , text

@@ -1,42 +1,72 @@
+{-# language LambdaCase #-}
+{-# language OverloadedStrings #-}
 {-# language RecordWildCards #-}
-{-# language DerivingStrategies #-}
-{-# language GeneralizedNewtypeDeriving #-}
+{-# language TypeApplications #-}
 module Chainweb.Data.Test.Verifier
 ( tests
 ) where
 
+import Control.Exception
+import Control.Lens
 import Control.Monad
-import Data.Tagged (Tagged(..))
-import Data.Typeable (Typeable(..))
+import qualified Data.Aeson as A
+import           Data.Aeson.KeyMap (fromList)
+import           Data.Aeson.Lens
+import qualified Data.ByteString.Lazy as BL
 import System.Directory
+
+import Options.Applicative
+
+import Chainweb.Api.Verifier
+-- import Chainweb.Data.Test.Utils
 
 import Test.Tasty
 import Test.Tasty.HUnit
-import Test.Tasty.Options
-
-import Database.RocksDB.Internal (Options'(..),mkOpts,freeOpts)
-import Chainweb.Storage.Table.RocksDB
 
 tests :: TestTree
-tests = askOption (testGroup "Verifier lookup test" . findVerifiers)
+tests =
+  testGroup "Verifier plugin tests"
+    [parseVerifier
+    , parseVerifierFromCommandText ]
 
-newtype RocksDBDir = RocksDBDir (Maybe FilePath)
-  deriving newtype Show
-  deriving Typeable
 
-instance IsOption RocksDBDir where
-  defaultValue = RocksDBDir Nothing
-  parseValue = Just . RocksDBDir . Just
-  optionName = Tagged "rocks-db-dir"
-  optionHelp = Tagged "Location of rocks db directory"
-
-findVerifiers :: RocksDBDir -> [TestTree]
-findVerifiers (RocksDBDir rocksDBDir) = testFromMaybe rocksDBDir $ \path ->
-  withResource (mkOpts modernDefaultOptions) freeOpts $ \opts' ->
-    withResource (open opts' path) closeRocksDb test
+parseVerifier :: TestTree
+parseVerifier = testCase "verifier decoding test" $ do
+    rawFile <- BL.readFile "haskell-src/test/test-verifier.txt"
+    either (throwIO . userError) (expectedValue @=?) $ A.eitherDecode @Verifier rawFile
   where
-    testFromMaybe m test = maybe [] (pure . test) m
-    open opts' path = do
-      Options'{..} <- opts'
-      openReadOnlyRocksDb path _optsPtr
-    test _iordb = undefined
+    expectedValue =
+      Verifier
+        {_verifier_name = Just "allow"
+        , _verifier_proof = A.Object (fromList [("keysetref",A.Object (fromList [("ksn",A.String "\120167\&4hy3@un~\185384tYM|y_"),("ns",A.String "?k%B\96883\153643\38839\68129P\139946=\97190$Wk\95172es8QQVIu\197146ypX")]))])
+        , _verifier_capList = []
+        }
+
+parseVerifierFromCommandText :: TestTree
+parseVerifierFromCommandText = testCase "Command Text verifier decoding test" $ do
+    rawFile <- BL.readFile "haskell-src/test/command-text-with-verifier.txt"
+    either (throwIO . userError) (expectedValue @=?) $
+      A.eitherDecode @A.Value rawFile >>= \r ->
+           r ^? key "cmd" . _String . key "verifiers" . _JSON
+           & note verifyMsg
+  where
+    verifyMsg = "Can't find expected verifiers key command text"
+    note msg = maybe (Left msg) Right
+    expectedValue =
+      [Verifier
+        {_verifier_name = Just "allow"
+        , _verifier_proof = A.String "emmanuel"
+        , _verifier_capList = []
+        }]
+
+-- TODO: Maybe come back to this later
+-- findVerifiers :: FilePath -> TestTree
+-- findVerifiers path =
+--   withResource (mkOpts modernDefaultOptions) freeOpts $ \opts' ->
+--     withResource (open opts' path) closeRocksDb test
+--   where
+--     open opts' path = do
+--       Options'{..} <- opts'
+--       openReadOnlyRocksDb path _optsPtr
+--     test _iordb = testCase "inner" $ assertEqual "testing" 1 1
+
