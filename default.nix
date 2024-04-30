@@ -32,7 +32,6 @@ let profilingModule = {
     project = pkgs.haskell-nix.cabalProject' {
 	    src = ./.;
 	    compiler-nix-name = "ghc963";
-      cabalProjectFreeze = null;
 	    shell.tools = {
 	      cabal = {};
 	    };

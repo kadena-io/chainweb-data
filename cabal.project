@@ -1,5 +1,6 @@
 packages: haskell-src/chainweb-data.cabal
 with-compiler: ghc-9.6.3
+index-state:  2024-02-01T00:00:00Z
 
 package aeson
     flags: +cffi
