@@ -1,5 +1,5 @@
 packages: haskell-src/chainweb-data.cabal
-with-compiler: ghc-9.2.8
+with-compiler: ghc-9.6.3
 
 package aeson
     flags: +cffi
