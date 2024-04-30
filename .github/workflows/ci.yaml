@@ -40,17 +40,6 @@ jobs:
           ~/.cabal/store
           dist-newstyle
         key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
-    - name: Create cabal.project.local
-      shell: bash
-      run: |
-        cat > cabal.project.local <<EOF
-        extra-include-dirs:
-          /opt/local/include
-          /usr/local/opt/openssl/include
-        extra-lib-dirs:
-          /opt/local/lib
-          /usr/local/opt/openssl/lib/
-        EOF
 
     # Build
     - name: Update package database
