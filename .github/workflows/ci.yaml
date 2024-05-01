@@ -46,6 +46,10 @@ jobs:
       run: brew install xz # xz package contains liblzma
       if: startsWith(matrix.os, 'macOS')
 
+    - name: Install postgresql
+      run: brew install postgresql # needed by libpq
+      if: startsWith(matrix.os, 'macOS')
+
     # Build
     - name: Update package database
       run: cabal update
