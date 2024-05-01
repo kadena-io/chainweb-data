@@ -1,14 +1,6 @@
 packages: haskell-src/chainweb-data.cabal
 with-compiler: ghc-9.2.8
-
-package aeson
-    flags: +cffi
-
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/pact.git
-    tag: e5c922664fb4df53e3b8e2c48618d71b3ef612ad
-    --sha256: sha256-t1p+Zd5I/mW2Aggi4xMRl0wj6k3ztsgzydvNkBachFA=
+index-state: 2024-02-01T00:00:00Z
 
 source-repository-package
     type: git
@@ -16,38 +8,18 @@ source-repository-package
     tag: 1b2de025cfdc09698bfb1ec3807cd85405d6a339
     --sha256: sha256-06jvD1kmkmthcRkyWhVLTbytwabghInxqXQD/Lm7kbA=
 
-source-repository-package
-  type: git
-  location: https://github.com/kadena-io/pact-json
-  tag: e43073d0b8d89d9b300980913b842f4be339846d
-  --sha256: sha256-ZWbAId0JBaxDsYhwcYUyw04sjYstXyosSCenzOvUxsQ=
-
-source-repository-package
-    type: git
-    location: https://github.com/kadena-io/thyme.git
-    tag: 6ee9fcb026ebdb49b810802a981d166680d867c9
-    --sha256: sha256-DqGIoPGBg8py044Xa7l/Y09K+cKGFwlxONHoZRJyzCU=
-
 package vault
     documentation: false
 
 write-ghc-environment-files: never
 
-package pact
-    ghc-options: -Wwarn
-    optimization: True
-    flags: -build-tool
-
-constraints: sbv <10
 constraints: http2 <4.2
 
+allow-newer: beam-migrate:pqueue
+allow-newer: beam-migrate:aeson
+allow-newer: beam-core:aeson
 allow-newer: streaming-events:*
 allow-newer: postgresql-simple-migration:*
 allow-newer: beam-postgres:*
 -- allow-newer: *:aeson
 allow-newer: *:vector
-
-allow-older: pact:base
-allow-older: pact:mtl
-allow-older: pact:text
-allow-older: pact-json:text

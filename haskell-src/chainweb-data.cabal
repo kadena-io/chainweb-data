@@ -125,7 +125,6 @@ executable chainweb-data
     , managed
     , mtl
     , optparse-applicative     >=0.14
-    , pact                     >=4.3.1
     , postgresql-simple
     , postgresql-simple-migration
     , process                  >=1.6
@@ -142,6 +141,7 @@ executable chainweb-data
     , streaming-events
     , strict-tuple             >=0.1
     , string-conv
+    , sqlite-simple
     , vector
     , wai
     , wai-app-static
