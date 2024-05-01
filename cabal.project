@@ -29,6 +29,9 @@ write-ghc-environment-files: never
 
 constraints: http2 <4.2
 
+allow-newer: beam-migrate:pqueue
+allow-newer: beam-migrate:aeson
+allow-newer: beam-core:aeson
 allow-newer: streaming-events:*
 allow-newer: postgresql-simple-migration:*
 allow-newer: beam-postgres:*
