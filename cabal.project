@@ -1,5 +1,6 @@
 packages: haskell-src/chainweb-data.cabal
 with-compiler: ghc-9.2.8
+index-state: 2024-02-01T00:00:00Z
 
 source-repository-package
     type: git
