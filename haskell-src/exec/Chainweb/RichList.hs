@@ -4,7 +4,6 @@
 module Chainweb.RichList ( richList ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception
 import Control.Monad
 import Control.Lens
 import Data.Aeson (eitherDecodeStrict, Value(..))
@@ -29,13 +28,9 @@ import System.Logger.Types
 import Text.Printf (printf)
 import Text.Read
 
-import Database.SQLite3
-import Database.SQLite3.Direct (Utf8(..))
+import Database.SQLite.Simple
 
 import ChainwebData.Env (ChainwebVersion(..))
-
-import Pact.Types.SQLite
-
 
 richList :: LogFunctionIO Text -> FilePath -> ChainwebVersion -> IO ()
 richList logger fp (ChainwebVersion version) = do
@@ -46,7 +41,7 @@ richList logger fp (ChainwebVersion version) = do
           $ "Chainweb-node top-level db directory does not exist: "
           <> fp
     logger Info "Aggregating richlist ..."
-    results <- fmap mconcat $ forM files $ \(cid, file) -> fmap (fmap (\(acct,txid, bal) -> (cid,acct,txid,bal))) $ withSQLiteConnection file richListQuery
+    results <- fmap mconcat $ forM files $ \(cid, file) -> fmap (fmap (\(acct,txid, bal) -> (cid,acct,txid,bal))) $ withConnection file richListQuery
     logger Info $ "Filtering top 100 richest accounts..."
     pruneRichList (either error id . parseResult <$> results)
   where
@@ -107,18 +102,12 @@ pruneRichList = LBS.writeFile "richlist.csv"
     . M.fromListWith (+)
     . map (\(cid,acct,txid, balance) -> ((cid,acct,txid), balance))
 
--- WARNING: This function will throw errors if found. We don't "catch" errors in an Either type
-withSQLiteConnection :: FilePath -> (Database -> IO a) -> IO a
-withSQLiteConnection fp action = bracket (open (T.pack fp)) close action
+richListQuery :: Connection -> IO [(Text, Int64, ByteString)]
+richListQuery conn = do
+    rows <- query_ conn richListQueryStmt
+    forM rows $ \(account, txid, jsonvalue) -> return (toS @ByteString @Text account,txid, jsonvalue)
 
-richListQuery :: Database -> IO [(Text, Int64, ByteString)]
-richListQuery db = do
-    rows <- qry_ db richListQueryStmt [RText, RInt, RBlob]
-    return $ rows <&> \case
-      [SText (Utf8 account), SInt txid, SBlob jsonvalue] -> (toS account,txid, jsonvalue)
-      _ -> error "impossible?" -- TODO: Make this use throwError/throwM instead of error
-
-richListQueryStmt :: Utf8
+richListQueryStmt :: Query
 richListQueryStmt =
    "select rowkey as acct_id, txid, rowdata \
      \ from [coin_coin-table] as coin\

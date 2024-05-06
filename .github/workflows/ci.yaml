@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.2.8']
+        ghc: ['9.6.3']
         cabal: ['3.10']
         os: ['ubuntu-20.04', 'ubuntu-22.04', 'macOS-latest']
 
@@ -40,6 +40,15 @@ jobs:
           ~/.cabal/store
           dist-newstyle
         key: ${{ matrix.os }}-${{ matrix.ghc }}-4-cabal
+
+    # System dependencies
+    - name: Install liblzma
+      run: brew install xz # xz package contains liblzma
+      if: startsWith(matrix.os, 'macOS')
+
+    - name: Install postgresql
+      run: brew install postgresql # needed by libpq
+      if: startsWith(matrix.os, 'macOS')
 
     # Build
     - name: Update package database
