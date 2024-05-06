@@ -6,25 +6,27 @@ module Chainweb.Data.Test.Verifier
 ( tests
 ) where
 
-import Control.Exception
-import Control.Lens
-import Control.Monad
+import           Control.Exception
+import           Control.Lens
+import           Control.Monad
 import qualified Data.Aeson as A
 import           Data.Aeson.KeyMap (fromList)
 import           Data.Aeson.Lens
 import qualified Data.ByteString.Lazy as BL
 import           Data.Maybe
-import System.Directory
+import           Data.List
+import           System.Directory
+import           Text.Printf
 
-import Options.Applicative
+import           Options.Applicative
 
-import Chainweb.Api.PactCommand
-import Chainweb.Api.Transaction
-import Chainweb.Api.Verifier
+import           Chainweb.Api.PactCommand
+import           Chainweb.Api.Transaction
+import           Chainweb.Api.Verifier
 -- import Chainweb.Data.Test.Utils
 
-import Test.Tasty
-import Test.Tasty.HUnit
+import           Test.Tasty
+import           Test.Tasty.HUnit
 
 tests :: TestTree
 tests =
@@ -36,8 +38,12 @@ tests =
 
 parseVerifier :: TestTree
 parseVerifier = testCase "verifier decoding test" $ do
-    rawFile <- BL.readFile "haskell-src/test/test-verifier.txt"
-    either (throwIO . userError) (expectedValue @=?) $ A.eitherDecode @Verifier rawFile
+    mfile <- findFile ["./haskell-src/test","./test"] "test-verifier.txt"
+    case mfile of
+      Just file -> do
+        rawFile <- BL.readFile file
+        either (throwIO . userError) (expectedValue @=?) $ A.eitherDecode @Verifier rawFile
+      Nothing -> assertFailure (failureMsg ["./haskell-src/test","./test"] "test-verifier.txt")
   where
     expectedValue =
       Verifier
@@ -48,10 +54,14 @@ parseVerifier = testCase "verifier decoding test" $ do
 
 parseVerifierFromCommandTextCWApi :: TestTree
 parseVerifierFromCommandTextCWApi = testCase "Command Text verifier decoding test with CW-API" $ do
-    rawFile <- BL.readFile "haskell-src/test/command-text-with-verifier.txt"
-    either (throwIO . userError) (expectedValue @=?) $
-      -- assume verifiers field is a Just value
-      fromJust . _pactCommand_verifiers . _transaction_cmd <$> A.eitherDecode @Transaction rawFile
+    mfile <- findFile ["./haskell-src/test","./test"] "command-text-with-verifier.txt"
+    case mfile of
+      Just file -> do
+        rawFile <- BL.readFile file
+        either (throwIO . userError) (expectedValue @=?) $
+          -- assume verifiers field is a Just value
+          fromJust . _pactCommand_verifiers . _transaction_cmd <$> A.eitherDecode @Transaction rawFile
+      Nothing -> assertFailure (failureMsg ["./haskell-src/test","./test"] "command-text-with-verifier.txt")
   where
     expectedValue =
       [Verifier
@@ -62,11 +72,15 @@ parseVerifierFromCommandTextCWApi = testCase "Command Text verifier decoding tes
 
 parseVerifierFromCommandText :: TestTree
 parseVerifierFromCommandText = testCase "Command Text verifier decoding test" $ do
-    rawFile <- BL.readFile "haskell-src/test/command-text-with-verifier.txt"
-    either (throwIO . userError) (expectedValue @=?) $
-      A.eitherDecode @A.Value rawFile >>= \r ->
-           r ^? key "cmd" . _String . key "verifiers" . _JSON
-           & note verifyMsg
+    mfile <- findFile ["./haskell-src/test","./test"] "command-text-with-verifier.txt"
+    case mfile of
+      Just file -> do
+        rawFile <- BL.readFile file
+        either (throwIO . userError) (expectedValue @=?) $
+          A.eitherDecode @A.Value rawFile >>= \r ->
+               r ^? key "cmd" . _String . key "verifiers" . _JSON
+               & note verifyMsg
+      Nothing -> assertFailure (failureMsg ["./haskell-src/test","./test"] "command-text-with-verifier.txt")
   where
     verifyMsg = "Can't find expected verifiers key command text"
     note msg = maybe (Left msg) Right
@@ -76,6 +90,9 @@ parseVerifierFromCommandText = testCase "Command Text verifier decoding test" $ 
         , _verifier_proof = A.String "emmanuel"
         , _verifier_capList = []
         }]
+
+failureMsg :: [FilePath] -> FilePath -> String
+failureMsg dirs s = printf "This file %s was not found in either of these directories %s" s (intercalate "," dirs)
 
 -- TODO: Maybe come back to this later
 -- findVerifiers :: FilePath -> TestTree
