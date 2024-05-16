@@ -282,8 +282,10 @@ mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
       (PgJSONB $ map toJSON $ CW._signer_capList signer)
       (Signature $ unSig sig)
 
-mkTransactionVerifiers :: CW.Transaction -> [Verifier]
-mkTransactionVerifiers t = maybe [] (zipWith mkVerifier [0..]) verifiers
+mkTransactionVerifiers :: Int64 -> Int -> CW.Transaction -> [Verifier]
+mkTransactionVerifiers height verifierMinHeight t
+   | height < fromIntegral verifierMinHeight = []
+   | otherwise = maybe [] (zipWith mkVerifier [0..]) verifiers
   where
     verifiers :: Maybe [CW.Verifier]
     verifiers = _pactCommand_verifiers $ CW._transaction_cmd t

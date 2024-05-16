@@ -78,7 +78,7 @@ processNewHeader logTxSummaries env ph@(PowHeader h _) = do
           addendum = if S.null ts then "" else printf " with %d transactions" (S.length ts)
       when logTxSummaries $ do
         logg Debug $ fromString $ msg <> addendum
-        forM_ tos $ \txWithOutput -> 
+        forM_ tos $ \txWithOutput ->
           logg Debug $ fromString $ show txWithOutput
       insertNewHeader (_nodeInfo_chainwebVer $ _env_nodeInfo env) (_env_dbConnPool env) ph pl
 
@@ -89,12 +89,15 @@ insertNewHeader version pool ph pl = do
       !t = mkBlockTransactions b pl
       !es = mkBlockEvents (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) pl
       !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
-      !vs = concat $ map (mkTransactionVerifiers . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
 
       !k = bpwoMinerKeys pl
-      err = printf "insertNewHeader failed because we don't know how to work this version %s" version
-  withEventsMinHeight version err $ \minHeight -> do
-      let !tf = mkTransferRows (fromIntegral $ _blockHeader_height $ _hwp_header ph) (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) (posixSecondsToUTCTime $ _blockHeader_creationTime $ _hwp_header ph) pl minHeight
+      eventErr = printf "insertNewHeader failed to insert event row because we don't know how to work this version %s" version
+      verifierErr = printf "insertNewHeader failed to insert verifier row because we don't know how to work this version %s" version
+  withEventsMinHeight version eventErr $ \eventMinHeight ->
+    withVerifiersMinHeight version verifierErr $ \verifierMinHeight -> do
+      let currentHeight = fromIntegral $ _blockHeader_height $ _hwp_header ph
+      let !tf = mkTransferRows currentHeight (_blockHeader_chainId $ _hwp_header ph) (DbHash $ hashB64U $ _blockHeader_hash $ _hwp_header ph) (posixSecondsToUTCTime $ _blockHeader_creationTime $ _hwp_header ph) pl eventMinHeight
+      let !vs = concat $ map (mkTransactionVerifiers currentHeight verifierMinHeight . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pl)
       writes pool b k t es ss tf vs
 
 mkRequest :: UrlScheme -> ChainwebVersion -> Request
