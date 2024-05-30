@@ -56,10 +56,11 @@ let profilingModule = {
 
        fromImage = baseImage;
 
-       runAsRoot = ''
-         ln -s "${default}/bin/chainweb-data" /usr/local/bin/
-         mkdir -p /chainweb-data
-         '';
+       copyToRoot = pkgs.runCommand "copyToRoot" {} ''
+         mkdir -p $out/usr/local/bin/
+         ln -s "${default}/bin/chainweb-data" $out/usr/local/bin/
+         mkdir -p $out/chainweb-data
+        '';
 
        config = {
          WorkingDir = "/chainweb-data";
