@@ -306,7 +306,8 @@ versionReader :: ReadM ChainwebVersion
 versionReader = eitherReader $ \case
   txt | map toLower txt == "mainnet01" || map toLower txt == "mainnet" -> Right "mainnet01"
   txt | map toLower txt == "testnet04" || map toLower txt == "testnet" -> Right "testnet04"
-  txt -> Left $ printf "Can'txt read chainwebversion: got %" txt
+  txt | map toLower txt == "testnet05" -> Right "testnet05"
+  txt -> Left $ printf "Can't read chainwebversion: got %" txt
 
 simpleVersionParser :: Parser ChainwebVersion
 simpleVersionParser =
