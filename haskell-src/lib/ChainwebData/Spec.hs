@@ -25,7 +25,9 @@ import Servant.OpenApi
 import ChainwebData.Pagination
 import Chainweb.Api.ChainId
 import Chainweb.Api.Sig
+import Chainweb.Api.SigCapability
 import Chainweb.Api.Signer
+import Chainweb.Api.Verifier
 import ChainwebData.TxSummary
 import Data.OpenApi
 
@@ -115,6 +117,18 @@ instance ToSchema (StringEncoded Scientific) where
     & example ?~ A.String "-1234.5e6"
     & pattern ?~ "[-+]?[0-9]*\\.?[0-9]+([eE][-+]?[0-9]+)?"
 
+instance ToSchema Verifier where
+  declareNamedSchema _ = do
+    textSchema <- declareSchemaRef (Proxy :: Proxy T.Text)
+    sigCapabilitySchema <- declareSchemaRef (Proxy :: Proxy [SigCapability])
+    return $ NamedSchema (Just "Verifier") $ mempty
+      & type_ ?~ OpenApiObject
+      & properties
+        .~ [ ("name", textSchema)
+           , ("proof", textSchema)
+           , ("clist", sigCapabilitySchema)
+           ]
+      & required .~ ["pubKey", "clist"]
+
 spec :: OpenApi
 spec = toOpenApi (Proxy :: Proxy ChainwebDataApi)
-

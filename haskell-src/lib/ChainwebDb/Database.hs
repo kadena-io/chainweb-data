@@ -24,6 +24,7 @@ import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import           ChainwebDb.Types.Verifier
 import qualified Data.Pool as P
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -41,6 +42,7 @@ data ChainwebDataDb f = ChainwebDataDb
   , _cddb_events :: f (TableEntity EventT)
   , _cddb_signers :: f (TableEntity SignerT)
   , _cddb_transfers :: f (TableEntity TransferT)
+  , _cddb_verifiers :: f (TableEntity VerifierT)
   }
   deriving stock (Generic)
   deriving anyclass (Database be)
@@ -136,6 +138,14 @@ database = defaultDbSettings `withDbModification` dbModification
     , _tr_to_acct = "to_acct"
     , _tr_amount = "amount"
     , _tr_block = BlockId "block"
+    }
+  , _cddb_verifiers = modifyEntityName modTableName <>
+    modifyTableFields tableModification
+    { _verifier_requestkey = "requestkey"
+    , _verifier_idx = "idx"
+    , _verifier_name = "name"
+    , _verifier_proof = "proof"
+    , _verifier_caps = "caps"
     }
   }
 
