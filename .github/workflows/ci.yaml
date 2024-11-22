@@ -73,7 +73,7 @@ jobs:
         cp `cabal list-bin exe:chainweb-data` ..
     - name: Stripping binary
       run: strip chainweb-data
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v4
       with:
         name: chainweb-data-build-${{ matrix.os }}
         path: chainweb-data
