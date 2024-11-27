@@ -74,6 +74,7 @@ library
     ChainwebDb.Types.Signer
     ChainwebDb.Types.Transaction
     ChainwebDb.Types.Transfer
+    ChainwebDb.Types.Verifier
   build-depends:
     base64-bytestring        >=1.0
     , cryptohash
@@ -87,7 +88,7 @@ library
     , servant-client
     , servant-openapi3
     , vector
-    , yet-another-logger
+    , yet-another-logger >= 0.4.2
 
   if flag(ghc-flags)
     build-tool-depends: hsinspect:hsinspect -any
@@ -151,7 +152,7 @@ executable chainweb-data
     , warp
     , warp-tls
     , witherable
-    , yet-another-logger
+    , yet-another-logger >= 0.4.2
 
   other-modules:
     Chainweb.Backfill
@@ -174,6 +175,7 @@ test-suite testsuite
   other-modules:
     Chainweb.Data.Test.Backfill
     Chainweb.Data.Test.Parser
+    Chainweb.Data.Test.Verifier
 
   build-depends:
     , aeson
@@ -182,7 +184,11 @@ test-suite testsuite
     , chainweb-api
     , chainweb-data
     , containers          >=0.6
+    , directory
+    , lens
+    , lens-aeson
     , neat-interpolation  >=0.5
+    , optparse-applicative     >=0.14
     , tasty               >=1.2
     , tasty-hunit         >=0.10
     , text

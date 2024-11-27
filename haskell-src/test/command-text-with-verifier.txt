@@ -1,0 +1,2 @@
+{"hash":"bq-o2qG2gF50itBxmPltD9OCTV0wSnMTydUoEnH8LC0","sigs":[],"cmd":"{\"verifiers\":[{\"proof\":\"emmanuel\",\"name\":\"allow\",\"clist\":[]}],\"networkId\":null,\"payload\":{\"exec\":{\"data\":null,\"code\":\"(+ 1 1)\"}},\"signers\":[],\"meta\":{\"creationTime\":0,\"ttl\":28800,\"gasLimit\":1000,\"chainId\":\"0\",\"gasPrice\":1.0e-7,\"sender\":\"sender00\"},\"nonce\":\"2024-04-17 07:49:29.788988 UTC\"}"}
+

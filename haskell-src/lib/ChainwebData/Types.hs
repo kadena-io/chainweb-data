@@ -18,6 +18,7 @@ module ChainwebData.Types
   , rangeToDescGroupsOf
   , blockRequestSize
   , withEventsMinHeight
+  , withVerifiersMinHeight
   ) where
 
 import           BasePrelude
@@ -126,4 +127,18 @@ withEventsMinHeight version errorMessage action = withVersion version onVersion 
       "development" -> Just 0
       "testnet05" -> Just 0
       "pact5-development" -> Just 0
+      _ -> Nothing
+
+
+withVerifiersMinHeight :: Num a => MonadIO m => T.Text -> String -> (a -> m b) -> m b
+withVerifiersMinHeight version errorMessage action = withVersion version onVersion $ \case
+    Just height -> action height
+    Nothing -> liftIO $ die errorMessage
+  where
+    -- Associate each version with the fork height for ChainwebPact223
+    onVersion = \case
+      "mainnet01" -> Just 4_577_530
+      "testnet04" -> Just 4_100_681
+      "recap-development" -> Just 600
+      "development" -> Just 0
       _ -> Nothing
