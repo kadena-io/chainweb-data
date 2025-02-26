@@ -109,7 +109,7 @@ decodeAllocations
   :: ByteString
   -> Vector AllocationEntry
 decodeAllocations bs =
-  case CSV.decode CSV.HasHeader (BL.fromStrict bs) of
+  case CSV.decode CSV.NoHeader (BL.fromStrict bs) of
     Left e -> error
       $ "cannot construct genesis allocations: "
       <> show e
