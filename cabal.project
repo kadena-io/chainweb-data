@@ -5,8 +5,8 @@ index-state: 2024-02-01T00:00:00Z
 source-repository-package
     type: git
     location: https://github.com/kadena-io/chainweb-api.git
-    tag: 1b2de025cfdc09698bfb1ec3807cd85405d6a339
-    --sha256: sha256-06jvD1kmkmthcRkyWhVLTbytwabghInxqXQD/Lm7kbA=
+    tag: fc84dcef8197bcfb5415c855421bb1921a749c9f
+    --sha256: sha256-2qpkAlpJ9qtfsD1WHuW5IYXWHoVXBxRYs5Pd9GOOXz8=
 
 package vault
     documentation: false
@@ -14,6 +14,7 @@ package vault
 write-ghc-environment-files: never
 
 constraints: http2 <4.2
+constraints: configuration-tools >= 0.7.0
 
 allow-newer: beam-migrate:pqueue
 allow-newer: beam-migrate:aeson

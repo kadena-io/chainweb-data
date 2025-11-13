@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
@@ -20,6 +21,7 @@ module Chainweb.Lookups
   , mkBlockEventsWithCreationTime
   , mkCoinbaseEvents
   , mkTransactionSigners
+  , mkTransactionVerifiers
   , mkTransferRows
   , bpwoMinerKeys
 
@@ -38,6 +40,7 @@ import           Chainweb.Api.NodeInfo
 import           Chainweb.Api.PactCommand
 import           Chainweb.Api.Payload
 import           Chainweb.Api.Sig
+import qualified Chainweb.Api.Verifier as CW
 import qualified Chainweb.Api.Signer as CW
 import qualified Chainweb.Api.Transaction as CW
 import           ChainwebData.Env
@@ -49,6 +52,7 @@ import           ChainwebDb.Types.Event
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import           ChainwebDb.Types.Verifier
 import           Control.Applicative
 import           Control.Lens
 import           Control.Monad
@@ -277,6 +281,22 @@ mkTransactionSigners t = zipWith3 mkSigner signers sigs [0..]
       (CW._signer_addr signer)
       (PgJSONB $ map toJSON $ CW._signer_capList signer)
       (Signature $ unSig sig)
+
+mkTransactionVerifiers :: Int64 -> Int -> CW.Transaction -> [Verifier]
+mkTransactionVerifiers height verifierMinHeight t
+   | height < fromIntegral verifierMinHeight = []
+   | otherwise = maybe [] (zipWith mkVerifier [0..]) verifiers
+  where
+    verifiers :: Maybe [CW.Verifier]
+    verifiers = _pactCommand_verifiers $ CW._transaction_cmd t
+    requestkey = CW._transaction_hash t
+    mkVerifier idx verifier = Verifier
+      { _verifier_requestkey = DbHash $ hashB64U requestkey
+      , _verifier_idx = idx
+      , _verifier_name = CW._verifier_name verifier
+      , _verifier_proof = (CW._verifier_proof verifier) ^? _String
+      , _verifier_caps = PgJSONB $ map toJSON $ CW._verifier_capList verifier
+      }
 
 mkCoinbaseEvents :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> [Event]
 mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl

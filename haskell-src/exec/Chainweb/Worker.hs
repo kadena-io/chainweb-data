@@ -28,6 +28,7 @@ import           ChainwebDb.Types.MinerKey
 import           ChainwebDb.Types.Signer
 import           ChainwebDb.Types.Transaction
 import           ChainwebDb.Types.Transfer
+import           ChainwebDb.Types.Verifier
 import           Control.Lens (iforM_)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
@@ -47,8 +48,8 @@ import           Database.PostgreSQL.Simple.Transaction (withTransaction,withSav
 
 -- | Write a Block and its Transactions to the database. Also writes the Miner
 -- if it hasn't already been via some other block.
-writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> [Signer] -> [Transfer] -> IO ()
-writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ do
+writes :: P.Pool Connection -> Block -> [T.Text] -> [Transaction] -> [Event] -> [Signer] -> [Transfer] -> [Verifier] -> IO ()
+writes pool b ks ts es ss tf vs = P.withResource pool $ \c -> withTransaction c $ do
      runBeamPostgres c $ do
         -- Write the Block if unique --
         runInsert
@@ -75,6 +76,9 @@ writes pool b ks ts es ss tf = P.withResource pool $ \c -> withTransaction c $ d
         runInsert
           $ insert (_cddb_transfers database) (insertValues tf)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+        runInsert
+          $ insert (_cddb_verifiers database) (insertValues vs)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
         -- liftIO $ printf "[OKAY] Chain %d: %d: %s %s\n"
         --   (_block_chainId b)
         --   (_block_height b)
@@ -89,8 +93,9 @@ batchWrites
   -> [[Event]]
   -> [[Signer]]
   -> [[Transfer]]
+  -> [[Verifier]]
   -> IO ()
-batchWrites pool bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransaction c $ do
+batchWrites pool bs kss tss ess sss tfs vss = P.withResource pool $ \c -> withTransaction c $ do
 
     runBeamPostgres c $ do
       -- Write the Blocks if unique
@@ -124,6 +129,10 @@ batchWrites pool bs kss tss ess sss tfs = P.withResource pool $ \c -> withTransa
           $ insert (_cddb_transfers database) (insertValues $ concat tfs)
           $ onConflict (conflictingFields primaryKey) onConflictDoNothing
 
+        runInsert
+          $ insert (_cddb_verifiers database) (insertValues $ concat vss)
+          $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+
 
 asPow :: BlockHeader -> PowHeader
 asPow bh = PowHeader bh (T.decodeUtf8 . B16.encode . B.reverse . unHash $ powHash bh)
@@ -139,11 +148,16 @@ writeBlock env pool count (bh, pwo) = do
       !ss = concat $ map (mkTransactionSigners . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pwo)
       version = _nodeInfo_chainwebVer $ _env_nodeInfo env
       !k = bpwoMinerKeys pwo
-      err = printf "writeBlock failed because we don't know how to work this version %s" version
-  withEventsMinHeight version err $ \evMinHeight -> do
-      let !tf = mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pwo evMinHeight
+      eventErr = printf "writeBlock failed to write event and transfer rows because we don't know how to work this version %s" version
+      verifierErr = printf "writeBlock failed to write verifier row because we don't know how to work this version %s" version
+  withEventsMinHeight version eventErr $ \evMinHeight ->
+    withVerifiersMinHeight version verifierErr $ \verifierMinHeight -> do
+      let currentHeight = fromIntegral $ _blockHeader_height bh
+          !tf = mkTransferRows currentHeight (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pwo evMinHeight
+      let !vs = concat $ map (mkTransactionVerifiers currentHeight verifierMinHeight . fst) (_blockPayloadWithOutputs_transactionsWithOutputs pwo)
+
       atomicModifyIORef' count (\n -> (n+1, ()))
-      writes pool b k t es ss tf
+      writes pool b k t es ss tf vs
 
 writeBlocks :: Env -> P.Pool Connection -> IORef Int -> [(BlockHeader, BlockPayloadWithOutputs)] -> IO ()
 writeBlocks env pool count blocks = do
@@ -160,10 +174,15 @@ writeBlocks env pool count blocks = do
             (makeBlockMap bhs')
         !sss = M.intersectionWith (\pl _ -> concat $ mkTransactionSigners . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')
         !kss = M.intersectionWith (\p _ -> bpwoMinerKeys p) pls (makeBlockMap bhs')
-        err = printf "writeBlocks failed because we don't know how to work this version %s" version
-      withEventsMinHeight version err $ \evMinHeight -> do
-          let !tfs = M.intersectionWith (\pl bh -> mkTransferRows (fromIntegral $ _blockHeader_height bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
-          batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs)
+        eventErr = printf "writeBlocks failed to write event and transfer rows because we don't know how to work this version %s" version
+        verifierErr = printf "writeBlocks failed to write verifier row because we don't know how to work this version %s" version
+      withEventsMinHeight version eventErr $ \evMinHeight ->
+        withVerifiersMinHeight version verifierErr $ \verifierMinHeight -> do
+          let currentHeight bh = fromIntegral $ _blockHeader_height bh
+              !tfs = M.intersectionWith (\pl bh -> mkTransferRows (currentHeight bh) (_blockHeader_chainId bh) (DbHash $ hashB64U $ _blockHeader_hash bh) (posixSecondsToUTCTime $ _blockHeader_creationTime bh) pl evMinHeight) pls (makeBlockMap bhs')
+              !vss = M.intersectionWith (\pl bh -> concat $ mkTransactionVerifiers (currentHeight bh) verifierMinHeight . fst <$> _blockPayloadWithOutputs_transactionsWithOutputs pl) pls (makeBlockMap bhs')
+
+          batchWrites pool (M.elems bs) (M.elems kss) (M.elems tss) (M.elems ess) (M.elems sss) (M.elems tfs) (M.elems vss)
           atomicModifyIORef' count (\n -> (n + numWrites, ()))
   where
 
@@ -186,21 +205,28 @@ writePayload
   -> IO ()
 writePayload pool chain blockHash blockHeight version creationTime bpwo = do
   let (cbEvents, txEvents) = mkBlockEvents' blockHeight chain blockHash bpwo
-      err = printf "writePayload failed because we don't know how to work this version %s" version
-  withEventsMinHeight version err $ \evMinHeight -> do
-      let !tfs = mkTransferRows blockHeight chain blockHash creationTime bpwo evMinHeight
-      P.withResource pool $ \c ->
-        withTransaction c $ do
-          runBeamPostgres c $ do
-            runInsert
-              $ insert (_cddb_events database) (insertValues $ cbEvents ++ concatMap snd txEvents)
-              $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-            runInsert
-              $ insert (_cddb_transfers database) (insertValues tfs)
-              $ onConflict (conflictingFields primaryKey) onConflictDoNothing
-          withSavepoint c $ runBeamPostgres c $
-            forM_ txEvents $ \(reqKey, events) ->
-              runUpdate
-                $ update (_cddb_transactions database)
-                  (\tx -> _tx_numEvents tx <-. val_ (Just $ fromIntegral $ length events))
-                  (\tx -> _tx_requestKey tx ==. val_ reqKey)
+      eventErr = printf "writePayload failed to insert event and transfer rows because we don't know how to work this version %s" version
+      verifierErr = printf "writePayload failed to insert verifier row because we don't know how to work this version %s" version
+  withEventsMinHeight version eventErr $ \evMinHeight ->
+      withVerifiersMinHeight version verifierErr $ \verifierMinHeight -> do
+        let !tfs = mkTransferRows blockHeight chain blockHash creationTime bpwo evMinHeight
+        let !vss = concat $ map (mkTransactionVerifiers blockHeight verifierMinHeight . fst) $ _blockPayloadWithOutputs_transactionsWithOutputs bpwo
+        P.withResource pool $ \c ->
+          withTransaction c $ do
+            runBeamPostgres c $ do
+              runInsert
+                $ insert (_cddb_events database) (insertValues $ cbEvents ++ concatMap snd txEvents)
+                $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+              runInsert
+                $ insert (_cddb_transfers database) (insertValues tfs)
+                $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+              -- TODO: This might be necessary. Will need to think about this further
+              runInsert
+                $ insert (_cddb_verifiers database) (insertValues vss)
+                $ onConflict (conflictingFields primaryKey) onConflictDoNothing
+            withSavepoint c $ runBeamPostgres c $
+              forM_ txEvents $ \(reqKey, events) ->
+                runUpdate
+                  $ update (_cddb_transactions database)
+                    (\tx -> _tx_numEvents tx <-. val_ (Just $ fromIntegral $ length events))
+                    (\tx -> _tx_requestKey tx ==. val_ reqKey)
