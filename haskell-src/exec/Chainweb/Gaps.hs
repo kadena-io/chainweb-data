@@ -62,7 +62,7 @@ gapsCut env args cutBS = do
             total = sum $ fmap (sum . map (bool 0 1 . isGap)) gapsByChain :: Int
             totalNumBlocks = fromIntegral $ sum $ fmap (sum . map gapSize) gapsByChain
         logg Info $ fromString $ printf "Filling %d gaps and %d blocks" total totalNumBlocks
-        logg Debug $ fromString $ printf "Gaps to fill %s" (show gapsByChain)
+        logg Debug $ fromString $ printf "Gaps to fill %s" (show $ length gapsByChain)
         let doChain (cid, gs) = do
               let ranges = concatMap (createRanges cid) gs
               mapM_ (f logg count cid) ranges
