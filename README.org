@@ -330,3 +330,11 @@ manually by undoing migrations and removing ~schema_migrations~ entries.
 the incoming migrations **before** they upgrade their ~chainweb-data~ versions. This will allow
 them to detect any potential conflicts and insert new schema migrations to be executed at the right moment, to
 accommodate the incoming changes.
+
+* Errata
+
+chainweb-data is not necessarily able to represent on-chain data in their full fidelity because of representation issues.
+Notably:
+  - null bytes in JSON values cannot be represented in the JSON type in Postgres
+  (https://www.commandprompt.com/blog/null-characters-workarounds-arent-good-enough/).
+  chainweb-data replaces them with the <NUL> escape sequence.
