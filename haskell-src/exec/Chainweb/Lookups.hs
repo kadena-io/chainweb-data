@@ -192,9 +192,7 @@ mkBlockTransactions b pl = map (mkTransaction b) $ _blockPayloadWithOutputs_tran
 -- The blockhash is the hash of the current block. A Coinbase transaction's
 -- request key is expected to the parent hash of the block it is found in.
 -- However, the source key of the event in chainweb-data database instance is
--- the current block hash and NOT the parent hash However, the source key of the
--- event in chainweb-data database instance is the current block hash and NOT
--- the parent hash.
+-- the current block hash and NOT the parent hash.
 mkBlockEvents' :: Int64 -> ChainId -> DbHash BlockHash -> BlockPayloadWithOutputs -> ([Event], [(DbHash TxHash, [Event])])
 mkBlockEvents' height cid blockhash pl =
     (mkCoinbaseEvents height cid blockhash pl, map mkPair tos)
