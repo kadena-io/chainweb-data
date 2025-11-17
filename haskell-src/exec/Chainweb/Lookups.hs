@@ -290,6 +290,14 @@ mkCoinbaseEvents height cid blockhash pl = _blockPayloadWithOutputs_coinbase pl
 bpwoMinerKeys :: BlockPayloadWithOutputs -> [T.Text]
 bpwoMinerKeys = _minerData_publicKeys . _blockPayloadWithOutputs_minerData
 
+-- Remove null characters and replace them with <NUL>, because Postgres does not
+-- support null characters in JSON and will throw an error on insertion of such
+-- values.
+censorJSON :: Value -> PgJSONB Value
+censorJSON = PgJSONB . transform (over _String censorNulls)
+  where
+  censorNulls = T.replace "\0" "<NUL>"
+
 mkTransaction :: Block -> (CW.Transaction, TransactionOutput) -> Transaction
 mkTransaction b (tx,txo) = Transaction
   { _tx_requestKey = DbHash $ hashB64U $ CW._transaction_hash tx
@@ -306,16 +314,17 @@ mkTransaction b (tx,txo) = Transaction
   , _tx_pactId = DbHash . _cont_pactId <$> cnt
   , _tx_rollback = _cont_rollback <$> cnt
   , _tx_step = fromIntegral . _cont_step <$> cnt
-  , _tx_data = (PgJSONB . _cont_data <$> cnt)
-    <|> (PgJSONB <$> (exc >>= _exec_data))
+  , _tx_data = censorJSON <$>
+      ((_cont_data <$> cnt)
+      <|> (exc >>= _exec_data))
   , _tx_proof = join (_cont_proof <$> cnt)
 
   , _tx_gas = fromIntegral $ _toutGas txo
   , _tx_badResult = badres
   , _tx_goodResult = goodres
   , _tx_logs = hashB64U <$> _toutLogs txo
-  , _tx_metadata = PgJSONB <$> _toutMetaData txo
-  , _tx_continuation = PgJSONB <$> _toutContinuation txo
+  , _tx_metadata = censorJSON <$> _toutMetaData txo
+  , _tx_continuation = censorJSON <$> _toutContinuation txo
   , _tx_txid = fromIntegral <$> _toutTxId txo
   , _tx_numEvents = Just $ fromIntegral $ length $ _toutEvents txo
   }
@@ -330,8 +339,8 @@ mkTransaction b (tx,txo) = Transaction
       ExecPayload _ -> Nothing
       ContPayload c -> Just c
     (badres, goodres) = case _toutResult txo of
-      PactResult (Left v) -> (Just $ PgJSONB v, Nothing)
-      PactResult (Right v) -> (Nothing, Just $ PgJSONB v)
+      PactResult (Left v) -> (Just $ censorJSON v, Nothing)
+      PactResult (Right v) -> (Nothing, Just $ censorJSON v)
 
 mkTxEvents :: Int64 -> ChainId -> DbHash BlockHash -> (CW.Transaction,TransactionOutput) -> [Event]
 mkTxEvents height cid blk (tx,txo) = zipWith (mkEvent cid height blk (Just rk)) (_toutEvents txo) [0..]
