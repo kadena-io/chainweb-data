@@ -9,8 +9,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.6.3']
-        cabal: ['3.10']
+        ghc: ['9.6.3', '9.12.2']
+        cabal: ['latest']
         os: ['ubuntu-22.04', 'ubuntu-24.04', 'macOS-latest']
 
     steps:
